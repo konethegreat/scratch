@@ -25,7 +25,12 @@ function projectRoot() {
 function startServer() {
   if (serverProcess) return;
 
-  const serverEntry = path.join(projectRoot(), 'server', 'src', 'index.js');
+  // The Node child needs real paths for its cwd and ESM imports. Packaged server
+  // files and runtime dependencies are unpacked beside app.asar by the builder.
+  const serverRoot = app.isPackaged
+    ? path.join(path.dirname(projectRoot()), 'app.asar.unpacked')
+    : projectRoot();
+  const serverEntry = path.join(serverRoot, 'server', 'src', 'index.js');
 
   // ELECTRON_RUN_AS_NODE tells the Electron binary to behave like plain Node
   // for this child — so we don't need a system Node install at runtime.
@@ -43,11 +48,15 @@ function startServer() {
 
   serverProcess = spawn(process.execPath, [serverEntry], {
     env,
-    cwd: projectRoot(),
+    cwd: serverRoot,
     stdio: ['ignore', 'pipe', 'pipe']
   });
   serverProcess.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
   serverProcess.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+  serverProcess.on('error', (error) => {
+    console.error('[electron] could not start server:', error.message);
+    serverProcess = null;
+  });
   serverProcess.on('exit', (code) => {
     console.log(`[electron] server exited with code ${code}`);
     serverProcess = null;

@@ -10,7 +10,10 @@ This public repository is a clean source snapshot. Original private history is
 preserved separately; it is not included here. Runtime key stores, profile data,
 browser sessions, and generated documents are excluded. See [PUBLICATION.md](PUBLICATION.md).
 
-Verified for this snapshot: 65 server tests and the frontend production build.
+Verified: 65 server tests, the frontend production build, Windows packaging and
+desktop startup from source and the packaged archive with disposable user data.
+The desktop check verifies the rendered UI, isolated preload and local API; it
+does not install an NSIS package or exercise live job sites.
 The tests use synthetic pages and data; no live job application or paid AI call
 was performed. Provider/model compatibility needs a separate configured check.
 
@@ -41,6 +44,10 @@ A React dashboard sits on top: live agent terminal, KPI tiles, job pipeline, pro
 
 ## Quick start
 
+Use Node.js 22.12 or newer (Node 24 LTS is used for Windows desktop CI).
+The Electron downloader override selects version 5 to avoid the vulnerable
+legacy downloader chain; the packaging check verifies builder compatibility.
+
 ```bash
 # from sa-job-agent-suite/
 npm run install:all        # workspace + client + server deps
@@ -51,6 +58,20 @@ npm run dev                # Express (5000) + Vite (4173) together
 npm run electron:dev       # Vite + Electron desktop window
 npm run dist:win           # build + package a Windows installer
 ```
+
+To verify the desktop without using your profile or API keys:
+
+```bash
+npm run build:client
+npm run test:desktop
+npx electron-builder --win --dir --publish never
+npm run test:desktop -- release/win-unpacked/resources/app.asar
+```
+
+The check runs a hidden Electron window, blocks external requests and removes
+its temporary user-data directory when it finishes. The bundled server and
+runtime dependencies are unpacked beside `app.asar` so its Node child can use
+real paths for its working directory and ESM imports.
 
 | Service | URL |
 |---------|-----|

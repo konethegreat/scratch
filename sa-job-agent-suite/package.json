@@ -2,6 +2,7 @@
   "name": "sa-job-agent-suite",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": ">=22.12.0" },
   "description": "SA Job Agent Suite: finds jobs, tailors a CV and cover letter for each, and assists with the application in a visible browser.",
   "main": "electron/main.js",
   "workspaces": [
@@ -14,6 +15,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "install:all": "npm install",
     "build:client": "npm run build --workspace=client",
+    "test:desktop": "node scripts/desktop-smoke.js",
     "electron:dev": "concurrently -k -n vite,electron -c \"cyan,magenta\" \"npm run dev:client\" \"wait-on http://localhost:4173 && node scripts/start-electron.js\"",
     "electron:start": "node scripts/start-electron.js",
     "dist": "npm run build:client && electron-builder",
@@ -29,17 +31,21 @@
     "express": "^4.19.2",
     "openai": "^6.39.0",
     "playwright": "^1.44.0",
-    "uuid": "^9.0.1"
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3",
-    "wait-on": "^7.2.0"
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.5.1"
+  },
+  "overrides": {
+    "@electron/get": "^5.1.0"
   },
   "build": {
     "appId": "com.sajas.app",
     "productName": "SA Job Agent Suite",
+    "asarUnpack": ["server/**/*", "node_modules/**/*"],
     "files": [
       "electron/**/*",
       "client/dist/**/*",

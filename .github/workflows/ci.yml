@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  key-guard:
+    name: Key-commit guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Guard self-test
+        run: node --test "tools/*.test.mjs"
+      - name: Scan tracked files for keys, key stores and local data
+        run: node tools/check-secrets.mjs --all
+      - name: Scan every commit in this change for added keys
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || echo "$BASE" | grep -Eq '^0+$' || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "No usable base commit to compare against; the full-tree scan above is the check."
+          else
+            node tools/check-secrets.mjs --range "$BASE..$HEAD"
+          fi
+
+  build-and-test:
+    name: Server tests and client build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    defaults:
+      run:
+        working-directory: sa-job-agent-suite
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: sa-job-agent-suite/package-lock.json
+      - name: Install (no install scripts, so the Electron binary is not downloaded)
+        run: npm ci --ignore-scripts
+      - name: Server tests
+        run: npm test --workspace=server
+      - name: Client build
+        run: npm run build:client

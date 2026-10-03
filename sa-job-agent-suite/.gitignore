@@ -1,0 +1,27 @@
+# App-level ignore rules for the SA-JAS app. Kept next to the app so they still
+# apply if the app is ever moved to the repository root.
+
+# dependencies and build output
+node_modules/
+client/dist/
+client/build/
+release/
+
+# local env files (.env.example stays tracked)
+.env
+.env.*
+!.env.example
+
+# credential and key stores - the app writes provider API keys to keys.json
+# next to db.json when run from source. Never commit any spelling of it.
+keys.json
+keys.*.json
+*.keys.json
+keys.json.*
+
+# local user data - profile, CV text, jobs, answer bank, browser login state
+db.json
+db.backup.json
+browser-profile/
+generated-docs/
+supporting-docs/

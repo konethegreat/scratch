@@ -1,0 +1,59 @@
+{
+  "name": "sa-job-agent-suite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SA Job Agent Suite: finds jobs, tailors a CV and cover letter for each, and assists with the application in a visible browser.",
+  "main": "electron/main.js",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "install:all": "npm install",
+    "build:client": "npm run build --workspace=client",
+    "electron:dev": "concurrently -k -n vite,electron -c \"cyan,magenta\" \"npm run dev:client\" \"wait-on http://localhost:4173 && node scripts/start-electron.js\"",
+    "electron:start": "node scripts/start-electron.js",
+    "dist": "npm run build:client && electron-builder",
+    "dist:win": "npm run build:client && electron-builder --win",
+    "dist:mac": "npm run build:client && electron-builder --mac",
+    "dist:linux": "npm run build:client && electron-builder --linux"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@google/generative-ai": "^0.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "openai": "^6.39.0",
+    "playwright": "^1.44.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.sajas.app",
+    "productName": "SA Job Agent Suite",
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "server/src/**/*",
+      "!**/*.test.js",
+      "server/package.json",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"], "category": "public.app-category.productivity" },
+    "linux": { "target": ["AppImage"], "category": "Office" }
+  }
+}

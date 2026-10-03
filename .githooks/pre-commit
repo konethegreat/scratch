@@ -1,0 +1,12 @@
+#!/bin/sh
+# Key-commit guard: refuses a commit that stages an API key, a key-store file
+# (keys.json, .env, *.pem ...) or local user data (db.json, browser-profile/).
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Skip once, if you are sure:   git commit --no-verify
+root="$(git rev-parse --show-toplevel)" || exit 0
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node not found, skipping the key-commit guard" >&2
+  exit 0
+fi
+exec node "$root/tools/check-secrets.mjs" --staged

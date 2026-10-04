@@ -1,5 +1,10 @@
 # SA-JAS — Video Demo Script
 
+For the current runnable, verified recording path, use the
+[synthetic walkthrough](docs/DEMO.md). It has fictional data, local pages and
+screenshots; live search and AI generation described below require separate
+configured evidence.
+
 **Runtime:** ~6 minutes · **Audience:** prospective users + recruiters
 **Format:** left column = what you SAY (voiceover), right column = what you DO/SHOW on screen.
 

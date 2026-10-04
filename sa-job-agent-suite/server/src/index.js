@@ -59,11 +59,12 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 import { runJobHunterAgent, setupBrowserSession, checkLoginStatuses } from './agents/agent1-hunter.js';
 import { revalidateJobLinks } from './agents/linkValidator.js';
 import { runDocumentTailorAgent } from './agents/agent2-tailor.js';
-import { runApplyAssistantAgent } from './agents/agent3-applier.js';
+import { runApplyAssistantAgent, closeDemoBrowsers } from './agents/agent3-applier.js';
 import { startScheduler, runRoutineNow } from './agents/routineRunner.js';
 import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
+import { demoOrigin, installDemo } from './demo.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -88,6 +89,7 @@ app.use(cors(corsOptions));
 // Raised from 10mb so a base64-encoded supporting-document PDF (ID, matric,
 // degree, academic record) fits comfortably in a single upload request.
 app.use(express.json({ limit: '30mb' }));
+installDemo(app);
 
 // -------------------- Profile Routes --------------------
 
@@ -827,12 +829,27 @@ app.get('/api/health', (req, res) => {
 // like curl/the Electron renderer). Binding to 127.0.0.1 makes the API truly
 // machine-local, matching the single-user desktop trust model in SECURITY.md.
 const HOST = process.env.HOST || '127.0.0.1';
-app.listen(PORT, HOST, () => {
+if (demoOrigin() && HOST !== '127.0.0.1') throw new Error('The demo API must bind to 127.0.0.1.');
+const server = app.listen(PORT, HOST, () => {
   setHunterState({ isRunning: false, stopRequested: false });
   setApplyState({ isRunning: false, jobId: null, startedAt: null });
   console.log(`[SA-JAS Server] Backend running on http://${HOST}:${PORT}`);
   addLog(`System startup. Server running on port ${PORT}. Ready to launch agents.`, 'system');
   // T1: bring the routine scheduler online (also runs a one-time catch-up pass
   // for any daily/weekday routine whose slot passed while the app was closed).
-  startScheduler();
+  if (!demoOrigin()) startScheduler();
 });
+
+// The demo launcher owns this child and closes its disposable browser first.
+if (demoOrigin()) {
+  let closing = false;
+  const stopDemo = async () => {
+    if (closing) return;
+    closing = true;
+    await closeDemoBrowsers();
+    server.close(() => process.exit(0));
+  };
+  process.on('message', message => { if (message?.type === 'stop-demo') void stopDemo(); });
+  process.on('SIGINT', stopDemo);
+  process.on('SIGTERM', stopDemo);
+}

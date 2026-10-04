@@ -10,6 +10,8 @@
     "server"
   ],
   "scripts": {
+    "demo": "node scripts/demo.mjs",
+    "test:demo": "node --test scripts/demo.test.mjs",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",

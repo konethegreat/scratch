@@ -40,7 +40,8 @@ import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
+const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
 
 /* ---------------------------------------------------------------- */
 /* Toast system                                                     */
@@ -227,7 +228,7 @@ function LinkBadge({ status }) {
 /* ---------------------------------------------------------------- */
 export default function App() {
   const toasts = useToasts();
-  const [activeTab, setActiveTab] = useState('landing');
+  const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
 
   const [profile, setProfile] = useState({
     aiProvider: 'gemini',
@@ -969,7 +970,7 @@ export default function App() {
     profile:   { title: 'Profile & Settings',  subtitle: 'AI provider, search criteria, personal info and base CV.' }
   };
 
-  const showRunHunterButton = ['dashboard', 'hunter'].includes(activeTab);
+  const showRunHunterButton = !SYNTHETIC_DEMO && ['dashboard', 'hunter'].includes(activeTab);
 
   /* ----------------------------------------------------------------- */
   /* Render                                                            */
@@ -1048,6 +1049,11 @@ export default function App() {
       {/* Main */}
       <main className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
+        {SYNTHETIC_DEMO && <div role="note" className="glass-panel" style={{ padding: 16, marginBottom: 20, borderColor: '#22d3ee' }}>
+          <strong>Synthetic demo · Alex Example / Example Studio</strong>
+          <p className="muted" style={{ marginTop: 6 }}>Fictional vacancy, score and handwritten documents. Use Apply Copilot, then answer its missing question in Settings. Live searches, AI calls and profile changes are disabled. Submissions stay in the local fixture.</p>
+        </div>}
+
         {/* Persistent top bar with creator links */}
         <div className="app-topbar">
           <button className="brand-chip" onClick={() => setActiveTab('landing')} title="Back to home">
@@ -1090,12 +1096,12 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }} className="fade-in">
 
             {/* Setup checklist — shows what's still needed before the hunter can work */}
-            <SetupChecklist
+            {!SYNTHETIC_DEMO && <SetupChecklist
               checks={setupChecks}
               complete={setupComplete}
               warnings={setupWarnings}
               onFix={() => setActiveTab('profile')}
-            />
+            />}
 
             {/* Last-run summary — surfaces why a run found what it found */}
             <RunSummary

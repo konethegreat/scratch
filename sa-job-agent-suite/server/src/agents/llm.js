@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
 import { fromAnthropicUsage } from '../db/costs.js';
+import { demoOrigin } from '../demo.js';
 
 /**
  * Shared LLM provider call used by Agent 2 (document tailoring) and Agent 3
@@ -17,6 +18,7 @@ import { fromAnthropicUsage } from '../db/costs.js';
  *    best-effort (research, reflection, planner) already catch and skip.
  */
 function assertBudget() {
+  if (demoOrigin()) throw new Error('AI calls are disabled in the synthetic demo. Answer missing questions yourself.');
   const b = budgetStatus();
   if (b.exceeded) {
     const msg = budgetMessage(b);

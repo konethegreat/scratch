@@ -2,9 +2,15 @@
 
 > Find jobs. Tailor your CV. Submit applications — all from one desktop app.
 
-SA-JAS is a three-agent automation suite for the South African job market. It finds live vacancies using **Claude grounded web search** (with 13 SA job-board scrapers as a fallback), rewrites your CV and cover letter with AI for each role, then opens a guided, **persistent** browser copilot that understands each page, fills the form, and walks multi-step applications — while always leaving the final Submit to you.
+SA-JAS is a three-agent automation suite for the South African job market. It finds live vacancies using **Claude grounded web search** (with 12 SA job-board scrapers as a fallback), rewrites your CV and cover letter with AI for each role, then opens a guided, **persistent** browser copilot that understands each page, fills the form, and walks multi-step applications — while always leaving the final Submit to you.
 
 Packaged as an **Electron desktop app** (React frontend + Express backend).
+
+Try the [repeatable synthetic application walkthrough](docs/DEMO.md):
+`npm run demo` from `sa-job-agent-suite/` starts a disposable fictional profile
+and local portal. The real copilot fills saved answers, attaches a PDF, learns a
+missing question and leaves the final Submit to the human. Live searches and AI
+calls are disabled. The guide includes dashboard and copilot screenshots.
 
 This public repository is a clean source snapshot. Original private history is
 preserved separately; it is not included here. Runtime key stores, profile data,
@@ -16,10 +22,13 @@ The desktop check verifies the rendered UI, isolated preload and local API; it
 does not install an NSIS package or exercise live job sites.
 The tests use synthetic pages and data; no live job application or paid AI call
 was performed. Provider/model compatibility needs a separate configured check.
+An additional ten-result workflow regression exercises the real API and copilot,
+including repeat-fill field integrity, the final submission guard, local receipt
+recording and disposable-data cleanup. See [docs/DEMO.md](docs/DEMO.md).
 
 | Agent | Role | Tech |
 |-------|------|------|
-| **1 · Job Hunter** | Primary engine: Claude grounded web search returns real SA vacancies with real source URLs. Fallback: 13 SA scrapers (Careers24, Indeed SA, LinkedIn, PNet, CareerJunction, Gumtree SA, JobMail, Jobs.co.za, Google Jobs, National Government, Adzuna SA, Executive/Job Placements) with a schema.org JSON-LD safety net. | Anthropic web search + Playwright |
+| **1 · Job Hunter** | Primary engine: Claude grounded web search returns real SA vacancies with real source URLs. Fallback: 12 SA scrapers (Indeed SA, LinkedIn, PNet, CareerJunction, Gumtree SA, JobMail, Jobs.co.za, Google Jobs, National Government, Adzuna SA, Executive/Job Placements) with a schema.org JSON-LD safety net. | Anthropic web search + Playwright |
 | **2 · Document Tailor** | Rewrites your base CV and drafts a 300–400 word cover letter per role, ATS-optimised, in SA English. Renders both to **PDF** for upload. | Gemini · Anthropic Claude · OpenRouter |
 | **3 · Apply Copilot** | Visible browser with a persistent HUD. Autopilot understands each page (planner + optional vision), fills forms (deterministic + AI), attaches your CV PDF, advances multi-step flows, learns answers to new questions — never auto-submits, never solves CAPTCHAs. | Playwright + your AI key |
 
@@ -29,7 +38,7 @@ A React dashboard sits on top: live agent terminal, KPI tiles, job pipeline, pro
 
 ## Features
 
-- **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 13 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, lenient SA-location filter.
+- **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, lenient SA-location filter.
 - **AI tailoring** — swappable backends (Gemini, Anthropic, OpenRouter); ATS-friendly CVs + cover letters in SA English, rendered to PDF.
 - **Persistent Apply Copilot** — a floating HUD that survives navigation and follows new tabs/popups (e.g. PNet's "I'm interested").
 - **Auto-pilot** — fills each real form, attaches your CV PDF, and clicks Apply / I'm interested / Continue / Next to walk multi-step flows. Toggle on/off in the HUD.

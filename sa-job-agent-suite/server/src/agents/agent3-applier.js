@@ -7,6 +7,12 @@ import { planPage, lookWithVision, clickButtonByText, providerSupportsVision } f
 import { findAdvanceControl, clickControl } from './controls.js';
 import { computerUseFillForm, computerUseSupported } from './computerUse.js';
 import { reflectOnApplication } from './memoryReflect.js';
+import { demoOrigin } from '../demo.js';
+
+const demoContexts = new Set();
+export async function closeDemoBrowsers() {
+  await Promise.all([...demoContexts].map(context => context.close().catch(() => {})));
+}
 
 /**
  * Maps structured applicationProfile keys to the label/name patterns they answer
@@ -369,6 +375,10 @@ async function attachSupportingDocs(page) {
 async function smartFillForm(page, profile, job, transcript = null) {
   // 1) Tag fields and extract a snapshot.
   const fields = await page.evaluate(() => {
+    // Each pass numbers only the fields that still need an answer. Remove the
+    // previous pass's tags so a reused fid cannot point at an already-filled
+    // name/email field instead of the newly unanswered field.
+    document.querySelectorAll('[data-sajas-fid]').forEach(el => el.removeAttribute('data-sajas-fid'));
     const out = [];
     let i = 0;
     const labelFor = (el) => {
@@ -506,7 +516,7 @@ async function smartFillForm(page, profile, job, transcript = null) {
   // ── Pass 2: LLM for whatever is left ───────────────────────────────────────
   const remaining = fields.filter((f) => !filledFids.has(f.fid));
   let llmFilled = [];
-  if (remaining.length > 0) {
+  if (remaining.length > 0 && !demoOrigin()) {
     const candidate = {
       fullName: profile.fullName || '', email: profile.email || '',
       phone: profile.phone || '', linkedInUrl: profile.linkedInUrl || '',
@@ -667,7 +677,7 @@ async function injectHud(page, hudData) {
     // Idempotency guard — don't stack duplicate HUDs.
     if (document.getElementById('sajas-copilot-hud')) return;
 
-    const { title, company, tailoredCvText, tailoredCoverLetterText, autofill, injectionWarnings, hasCvFile, hasSupportingDocs, autopilot } = data;
+    const { title, company, tailoredCvText, tailoredCoverLetterText, autofill, injectionWarnings, hasCvFile, hasSupportingDocs, autopilot, syntheticDemo } = data;
 
     // Escape scraped strings before inserting into innerHTML to prevent XSS.
     // title/company come from external job sites and must be treated as untrusted.
@@ -744,7 +754,7 @@ async function injectHud(page, hudData) {
 
       <div style="margin-bottom:8px;">
         <button id="sajas-btn-smartfill" style="width:100%;background-color:#8b5cf6;color:white;border:none;padding:8px 12px;border-radius:6px;font-weight:bold;cursor:pointer;">
-          🪄 Smart-fill with AI
+          🪄 ${syntheticDemo ? 'Smart-fill saved answers' : 'Smart-fill with AI'}
         </button>
       </div>
 
@@ -867,7 +877,7 @@ async function injectHud(page, hudData) {
     const smartBtn = document.getElementById('sajas-btn-smartfill');
     if (smartBtn) smartBtn.addEventListener('click', () => {
       window.sajasSmartFillRequested = true;
-      window.sajasNotify('🪄 Asking the AI to map this form…');
+      window.sajasNotify(syntheticDemo ? 'Filling from saved fictional answers…' : '🪄 Asking the AI to map this form…');
     });
 
     const attachBtn = document.getElementById('sajas-btn-attach');
@@ -887,8 +897,11 @@ async function injectHud(page, hudData) {
   }, hudData);
 }
 
-export async function runApplyAssistantAgent(jobId) {
+// Test options let the regression exercise the actual copilot on local fixtures.
+// The HTTP route supplies none: ordinary sessions remain visible and supervised.
+export async function runApplyAssistantAgent(jobId, { headless = false, pollIntervalMs = 3000, onPageReady } = {}) {
   const profile = getProfile();
+  const fixtureOrigin = demoOrigin();
 
   addLog(`Starting Agent 3: Apply Assistant for Job ID: ${jobId}...`, 'agent3');
 
@@ -914,6 +927,9 @@ export async function runApplyAssistantAgent(jobId) {
     const msg = `Blocked unsafe apply URL for "${job.title}": only http:// and https:// are allowed.`;
     addLog(msg, 'error');
     throw new Error(msg);
+  }
+  if (fixtureOrigin && new URL(job.applyUrl).origin !== fixtureOrigin) {
+    throw new Error('The synthetic copilot can open only its own local fixture.');
   }
 
   // I4 fix: require tailored documents so the user doesn't open the portal
@@ -950,18 +966,27 @@ export async function runApplyAssistantAgent(jobId) {
     tailoredCoverLetterText: job.tailoredCoverLetterText || '',
     autofill,
     hasCvFile: Boolean(job.tailoredCvPath),
-    hasSupportingDocs
+    hasSupportingDocs,
+    syntheticDemo: Boolean(fixtureOrigin)
   };
 
   addLog(`Launching visual browser for: ${job.title} at ${job.company}...`, 'agent3');
 
   let context;
   try {
-    const launchOpts = { headless: false, args: ['--start-maximized'], viewport: null };
+    const launchOpts = { headless, args: ['--start-maximized'], viewport: headless ? { width: 1440, height: 1100 } : null,
+      ...(fixtureOrigin ? { serviceWorkers: 'block' } : {}) };
     try {
       context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...launchOpts, channel: 'chrome' });
     } catch {
       context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, launchOpts);
+    }
+    if (fixtureOrigin) {
+      demoContexts.add(context);
+      await context.route('**/*', route => {
+        if (new URL(route.request().url()).origin === fixtureOrigin) return route.continue();
+        return route.abort('blockedbyclient');
+      });
     }
 
     // ── Copilot session state ─────────────────────────────────────────────
@@ -1092,6 +1117,7 @@ export async function runApplyAssistantAgent(jobId) {
     await refreshHud(activePage);
 
     addLog('Visual copilot session is active. Auto-pilot is ON — it will fill and advance pages, but will not click anything that reads like a final Submit.', 'agent3');
+    if (onPageReady) await onPageReady(activePage);
 
     // Immediate check at load — some portals gate the whole page behind a
     // Cloudflare / "are you human" wall before any form is shown.
@@ -1115,7 +1141,7 @@ export async function runApplyAssistantAgent(jobId) {
 
     for (let i = 0; i < 400; i++) {
       try {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, pollIntervalMs));
 
         // End the session the moment the user closes the copilot window (or the
         // browser is gone). Without this, the loop's helpers swallow the
@@ -1180,7 +1206,7 @@ export async function runApplyAssistantAgent(jobId) {
         if (flags.smart) {
           const n = await fillForm(p);
           await p.evaluate((c) => window.sajasNotify && window.sajasNotify(
-            c > 0 ? `AI filled ${c} field(s). Review every answer before submitting.` : 'Nothing to fill, or the AI returned no mapping.'
+            c > 0 ? `Smart-fill completed ${c} field(s). Review every answer before submitting.` : 'Nothing to fill. Check your saved answers or fill manually.'
           ), n).catch(() => {});
         }
 
@@ -1317,6 +1343,7 @@ export async function runApplyAssistantAgent(jobId) {
   } finally {
     if (context) {
       try { await context.close(); } catch {}
+      demoContexts.delete(context);
       addLog('Browser session ended.', 'agent3');
     }
   }

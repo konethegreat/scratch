@@ -1,5 +1,10 @@
 # SA-JAS — Demo Video Script (LinkedIn)
 
+Start with the [verified synthetic walkthrough](docs/DEMO.md) when recording.
+Its local fixture exercises the actual copilot without live applications or AI
+calls. Treat the live search and AI generation shots below as a separate capture,
+and label any fixture scenes as synthetic.
+
 **Goal:** Stop the scroll with a real, personal problem (the FNB rejection), show the product actually working, and convey how far the project has come — ending on the mission and a soft CTA.
 **Runtime:** ~90 seconds · **Format:** 16:9 screen capture, **burned-in captions** (LinkedIn autoplays muted) · **Tone:** honest, a little defiant, builder-proud.
 

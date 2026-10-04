@@ -93,3 +93,23 @@ jobs:
         run: npx electron-builder --win --dir --publish never
       - name: Load packaged entry point, renderer and server
         run: npm run test:desktop -- release/win-unpacked/resources/app.asar
+
+  synthetic-demo:
+    name: Synthetic application walkthrough
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sa-job-agent-suite
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sa-job-agent-suite/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Exercise real copilot and HTTP API on fictional local pages
+        run: npm run test:demo

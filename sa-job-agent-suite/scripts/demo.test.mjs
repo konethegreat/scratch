@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { startDemoBackend } from './demo-runtime.mjs';
+import { startDemoClient } from './demo-client.mjs';
 import { DEMO_JOB_ID, DEMO_QUESTION } from '../server/src/demo.js';
 
 async function unusedPort() {
@@ -27,6 +28,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
   };
   const post = answer => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) });
   let session;
+  let client;
   const evidence = process.env.SAJAS_DEMO_EVIDENCE_DIR;
   const capture = async (page, name) => {
     if (!evidence) return;
@@ -41,6 +43,10 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       assert.deepEqual(JSON.parse(await fs.readFile(runtime.env.KEYS_PATH, 'utf8')), {});
       assert.deepEqual(await json('/api/routines'), []);
       assert.equal((await json('/api/jobs'))[0].source, 'Synthetic local fixture');
+      client = await startDemoClient(runtime.origin, { port: 0 });
+      const html = await (await fetch(`http://127.0.0.1:${client.httpServer.address().port}`)).text();
+      assert.match(html, /id="root"/);
+      assert.doesNotMatch(html, /fonts\.(googleapis|gstatic)\.com/);
     });
     await t.test('API blocks live work, credentials, backup restore and arbitrary applications', async () => {
       for (const [method, route] of [['POST', '/api/jobs/hunter'], ['POST', `/api/jobs/${DEMO_JOB_ID}/tailor`],
@@ -139,6 +145,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
   } finally {
     await closeDemoBrowsers();
     if (session) await session.catch(() => {});
+    await client?.close();
     await runtime.stop();
   }
   await t.test('all disposable profile, key, browser and document files are removed', async () => {

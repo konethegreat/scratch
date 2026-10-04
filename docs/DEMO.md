@@ -68,8 +68,9 @@ Restarting starts a fresh walkthrough.
 The demo API uses an allowlist: live hunting, link checks, AI tailoring,
 referrals, login setup, routines, profile/key changes and backup restoration are
 blocked. AI calls are explicitly refused and the scheduler is not started. The
-copilot browser blocks requests outside this fixture's exact origin. Optional
-creator links on the dashboard remain ordinary external links; leave them
+copilot browser blocks requests outside this fixture's exact origin. The dashboard
+uses system-font fallbacks in demo mode, avoiding its usual remote web-font
+downloads. Optional creator links remain ordinary external links; leave them
 closed when keeping the walkthrough entirely local.
 
 ## Screenshots of verified behavior

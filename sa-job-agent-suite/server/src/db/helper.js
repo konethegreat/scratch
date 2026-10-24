@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
+import { scrubSecrets } from '@sajas/core';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -872,16 +873,8 @@ export function getLogs() {
 // log buffer (which the UI renders) or stdout. Belt-and-braces — keys should
 // never be interpolated into a log line, but an upstream error message (e.g. an
 // SDK exception echoing a request header) must not leak one either.
-const KEY_PATTERNS = [
-  /sk-ant-[A-Za-z0-9_-]{8,}/g,   // Anthropic
-  /sk-or-[A-Za-z0-9_-]{8,}/g,    // OpenRouter
-  /AIza[0-9A-Za-z_-]{20,}/g      // Google API keys
-];
-export function scrubSecrets(s) {
-  let out = String(s == null ? '' : s);
-  for (const re of KEY_PATTERNS) out = out.replace(re, '•••redacted-key•••');
-  return out;
-}
+// scrubSecrets lives in @sajas/core (shared with the other packages); re-exported here.
+export { scrubSecrets };
 
 export function addLog(message, type = 'info') {
   const safe = scrubSecrets(message);

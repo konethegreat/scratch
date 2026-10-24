@@ -8,6 +8,8 @@ import {
   getProfile,
   saveProfile,
   clearKey,
+  purgeLegacyKeys,
+  InvalidKeyError,
   getJobs,
   addJob,
   updateJob,
@@ -65,6 +67,7 @@ import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
 import { demoOrigin, installDemo } from './demo.js';
+import { MODELS } from '@sajas/core';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -93,18 +96,22 @@ installDemo(app);
 
 // -------------------- Profile Routes --------------------
 
+// The only shape a profile ever leaves the server in: no key material (just a
+// hasAnthropicKey flag) and none of the retired multi-provider fields.
+function publicProfile(profile) {
+  // eslint-disable-next-line no-unused-vars
+  const { anthropicApiKey, geminiApiKey, openRouterApiKey, aiProvider, ...rest } = profile;
+  return { ...rest, hasAnthropicKey: Boolean(anthropicApiKey) };
+}
+
 app.get('/api/profile', (req, res) => {
   try {
     const profile = getProfile();
-    const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...rest } = profile;
     res.json({
-      ...rest,
+      ...publicProfile(profile),
       // Which preset the CURRENT values actually match ('custom' if hand-tuned)
       // — the UI highlights this, not the stored performanceMode.
-      performanceModeActual: detectActivePreset(profile),
-      hasGeminiKey:    Boolean(geminiApiKey),
-      hasAnthropicKey: Boolean(anthropicApiKey),
-      hasOpenRouterKey: Boolean(openRouterApiKey)
+      performanceModeActual: detectActivePreset(profile)
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -117,11 +124,8 @@ app.post('/api/profile', (req, res) => {
     const currentProfile = getProfile();
 
     const updated = saveProfile({
-      aiProvider:      incoming.aiProvider      ?? currentProfile.aiProvider,
       selectedModel:   incoming.selectedModel   ?? currentProfile.selectedModel,
-      geminiApiKey:    incoming.geminiApiKey,
       anthropicApiKey: incoming.anthropicApiKey,
-      openRouterApiKey: incoming.openRouterApiKey,
       fullName:        incoming.fullName        ?? currentProfile.fullName,
       email:           incoming.email           ?? currentProfile.email,
       phone:           incoming.phone           ?? currentProfile.phone,
@@ -156,17 +160,11 @@ app.post('/api/profile', (req, res) => {
 
     addLog('Profile settings updated.', 'system');
 
-    const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...rest } = updated;
-    res.json({
-      success: true,
-      profile: {
-        ...rest,
-        hasGeminiKey:    Boolean(geminiApiKey),
-        hasAnthropicKey: Boolean(anthropicApiKey),
-        hasOpenRouterKey: Boolean(openRouterApiKey)
-      }
-    });
+    res.json({ success: true, profile: publicProfile(updated) });
   } catch (error) {
+    // A malformed / Admin key is the caller's mistake, not a server fault. The
+    // message is user-facing and never contains the key itself.
+    if (error instanceof InvalidKeyError) return res.status(400).json({ error: error.message });
     res.status(500).json({ error: error.message });
   }
 });
@@ -182,16 +180,9 @@ app.post('/api/profile/preset', (req, res) => {
     }
     const updated = applyPerformancePreset(mode);
     addLog(`Performance mode applied: ${PERFORMANCE_PRESETS[mode].label}.`, 'system');
-    const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...rest } = updated;
     res.json({
       success: true,
-      profile: {
-        ...rest,
-        performanceModeActual: detectActivePreset(updated),
-        hasGeminiKey: Boolean(geminiApiKey),
-        hasAnthropicKey: Boolean(anthropicApiKey),
-        hasOpenRouterKey: Boolean(openRouterApiKey)
-      }
+      profile: { ...publicProfile(updated), performanceModeActual: detectActivePreset(updated) }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -243,13 +234,20 @@ app.post('/api/backup/restore', (req, res) => {
 
 app.delete('/api/profile/key/:provider', (req, res) => {
   try {
-    const ok = clearKey(req.params.provider);
-    if (!ok) return res.status(400).json({ error: 'Unknown provider' });
-    addLog(`${req.params.provider} API key cleared.`, 'system');
+    // Anthropic is the only provider; anything else has no key to clear.
+    if (!clearKey(req.params.provider)) return res.status(404).json({ error: 'Unknown provider' });
+    addLog('Anthropic API key cleared.', 'system');
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// The model registry, for the Settings model pickers.
+app.get('/api/models', (req, res) => {
+  res.json(Object.values(MODELS).map(({ id, label, tier, inputPerMTok, outputPerMTok, optIn }) => ({
+    id, label, tier, inputPerMTok, outputPerMTok, optIn: Boolean(optIn)
+  })));
 });
 
 // -------------------- Application Answers (bank + pending) --------------------
@@ -830,6 +828,11 @@ app.get('/api/health', (req, res) => {
 // machine-local, matching the single-user desktop trust model in SECURITY.md.
 const HOST = process.env.HOST || '127.0.0.1';
 if (demoOrigin() && HOST !== '127.0.0.1') throw new Error('The demo API must bind to 127.0.0.1.');
+// Drop Gemini/OpenRouter keys left in keys.json by an older install (before
+// listening, so nothing can read them in the meantime).
+if (!demoOrigin() && purgeLegacyKeys().purged) {
+  addLog('Removed legacy provider keys from the key store.', 'system');
+}
 const server = app.listen(PORT, HOST, () => {
   setHunterState({ isRunning: false, stopRequested: false });
   setApplyState({ isRunning: false, jobId: null, startedAt: null });

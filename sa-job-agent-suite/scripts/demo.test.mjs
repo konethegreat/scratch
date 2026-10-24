@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { startDemoBackend } from './demo-runtime.mjs';
 import { startDemoClient } from './demo-client.mjs';
 import { DEMO_JOB_ID, DEMO_QUESTION } from '../server/src/demo.js';
@@ -40,6 +43,10 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       const profile = await json('/api/profile');
       assert.equal(profile.fullName, 'Alex Example');
       assert.equal(profile.email, 'alex@example.test');
+      assert.equal(profile.hasAnthropicKey, false);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey']) {
+        assert.ok(!(gone in profile), `profile must not expose ${gone}`);
+      }
       assert.deepEqual(JSON.parse(await fs.readFile(runtime.env.KEYS_PATH, 'utf8')), {});
       assert.deepEqual(await json('/api/routines'), []);
       assert.equal((await json('/api/jobs'))[0].source, 'Synthetic local fixture');
@@ -151,4 +158,120 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
   await t.test('all disposable profile, key, browser and document files are removed', async () => {
     await assert.rejects(fs.stat(runtime.directory), { code: 'ENOENT' });
   });
+});
+
+// The demo API is read-only, so the Anthropic-only profile routes are exercised
+// against a plain (non-demo) server that runs on throwaway files.
+test('Anthropic-only profile routes, models endpoint and startup key purge', { timeout: 60000 }, async t => {
+  const suite = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'sajas-synthetic-'));
+  const port = await unusedPort();
+  const origin = `http://127.0.0.1:${port}`;
+  // Key-shaped values are assembled at runtime so no literal ever reaches the repo.
+  const legacy = { geminiApiKey: 'AIza' + 'x'.repeat(35), openRouterApiKey: 'sk-' + 'or-v1-' + 'b'.repeat(40) };
+  const adminKey = 'sk-' + 'ant-admin01-' + 'A'.repeat(40);
+  const realKey = 'sk-' + 'ant-api03-' + 'A'.repeat(40);
+  await fs.writeFile(path.join(directory, 'db.json'), JSON.stringify({
+    profile: { fullName: 'Alex Example', aiProvider: 'gemini', selectedModel: 'gemini-1.5-flash' }
+  }));
+  await fs.writeFile(path.join(directory, 'keys.json'), JSON.stringify({ ...legacy, anthropicApiKey: '' }));
+  const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1',
+    DB_PATH: path.join(directory, 'db.json'), KEYS_PATH: path.join(directory, 'keys.json'),
+    BROWSER_PROFILE_PATH: path.join(directory, 'browser-profile'),
+    GENERATED_DOCS_PATH: path.join(directory, 'generated-docs'),
+    SUPPORTING_DOCS_PATH: path.join(directory, 'supporting-docs') };
+  delete env.SAJAS_DEMO_ORIGIN;
+  const child = spawn(process.execPath, ['server/src/index.js'], { cwd: suite, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', b => { output += b; });
+  child.stderr.on('data', b => { output += b; });
+  const call = (route, options = {}) => fetch(origin + route, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  });
+  try {
+    const deadline = Date.now() + 15000;
+    for (;;) {
+      if (child.exitCode !== null) throw new Error('Server exited early.\n' + output);
+      if (Date.now() > deadline) throw new Error('Server startup timed out.\n' + output);
+      try { if ((await fetch(origin + '/api/health', { signal: AbortSignal.timeout(500) })).ok) break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    await t.test('startup purges legacy provider keys from keys.json and logs it', async () => {
+      assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'keys.json'), 'utf8')), { anthropicApiKey: '' });
+      const logs = await (await call('/api/logs')).json();
+      assert.ok(logs.some(entry => entry.message === 'Removed legacy provider keys from the key store.'));
+    });
+    await t.test('GET /api/profile is Anthropic-only and never exposes a key', async () => {
+      const response = await call('/api/profile');
+      assert.equal(response.status, 200);
+      const profile = await response.json();
+      assert.equal(profile.fullName, 'Alex Example');
+      assert.equal(profile.hasAnthropicKey, false);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey', 'geminiApiKey', 'openRouterApiKey']) {
+        assert.ok(!(gone in profile), `profile must not expose ${gone}`);
+      }
+    });
+    await t.test('POST /api/profile rejects an Admin key with 400 and stores nothing', async () => {
+      const response = await call('/api/profile', { method: 'POST', body: JSON.stringify({ anthropicApiKey: adminKey }) });
+      assert.equal(response.status, 400);
+      const text = await response.text();
+      assert.match(JSON.parse(text).error, /Admin key/);
+      assert.ok(!text.includes(adminKey));
+      assert.equal((await (await call('/api/profile')).json()).hasAnthropicKey, false);
+      assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'keys.json'), 'utf8')), { anthropicApiKey: '' });
+    });
+    await t.test('POST /api/profile stores a valid key without echoing it; DELETE clears it', async () => {
+      const response = await call('/api/profile', { method: 'POST', body: JSON.stringify({ anthropicApiKey: realKey }) });
+      assert.equal(response.status, 200);
+      const text = await response.text();
+      assert.ok(!text.includes(realKey));
+      const body = JSON.parse(text);
+      assert.equal(body.profile.hasAnthropicKey, true);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey']) {
+        assert.ok(!(gone in body.profile), `POST response must not expose ${gone}`);
+      }
+      assert.equal((await (await call('/api/profile')).json()).hasAnthropicKey, true);
+      assert.equal((await call('/api/profile/key/anthropic', { method: 'DELETE' })).status, 200);
+      assert.equal((await (await call('/api/profile')).json()).hasAnthropicKey, false);
+      assert.ok(!output.includes(realKey) && !output.includes(adminKey));
+    });
+    await t.test('DELETE /api/profile/key/:provider is 404 for anything but anthropic', async () => {
+      for (const provider of ['gemini', 'openrouter', 'openai']) {
+        assert.equal((await call(`/api/profile/key/${provider}`, { method: 'DELETE' })).status, 404, provider);
+      }
+    });
+    await t.test('preset route response is Anthropic-only too', async () => {
+      const response = await call('/api/profile/preset', { method: 'POST', body: JSON.stringify({ mode: 'balanced' }) });
+      assert.equal(response.status, 200);
+      const { profile } = await response.json();
+      assert.equal(profile.hasAnthropicKey, false);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey']) {
+        assert.ok(!(gone in profile), `preset response must not expose ${gone}`);
+      }
+    });
+    await t.test('GET /api/models lists the four registry models', async () => {
+      const response = await call('/api/models');
+      assert.equal(response.status, 200);
+      const models = await response.json();
+      assert.equal(models.length, 4);
+      const sonnet = models.find(model => model.label === 'Claude Sonnet 5.5');
+      assert.ok(sonnet, 'Sonnet is listed');
+      assert.deepEqual(Object.keys(sonnet).sort(), ['id', 'inputPerMTok', 'label', 'optIn', 'outputPerMTok', 'tier']);
+      assert.equal(sonnet.optIn, false);
+      assert.equal(models.filter(model => model.optIn).length, 1);
+      assert.ok(models.every(model => typeof model.id === 'string' && Number.isFinite(model.inputPerMTok) && Number.isFinite(model.outputPerMTok)));
+    });
+  } finally {
+    if (child.exitCode === null) {
+      const ended = new Promise(resolve => child.once('exit', resolve));
+      child.kill();
+      await ended;
+    }
+    if (path.dirname(directory) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('sajas-synthetic-')) {
+      throw new Error('Refusing to remove an unexpected test directory.');
+    }
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });

@@ -2,7 +2,7 @@ import {
   addInsight, upsertEmployerNote, addLog, INSIGHT_CATEGORIES,
   getCandidateMemory, reinforceInsight, deleteInsight, recordDreamResult
 } from '../db/helper.js';
-import { callLlm, extractJson } from './llm.js';
+import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
 
 /**
  * Reflection schema (constrained decoding on Anthropic; ignored by other
@@ -43,14 +43,7 @@ const REFLECT_SCHEMA = {
 export async function reflectOnApplication(profile, { job, transcript = [] } = {}) {
   if (!profile || profile.useMemoryReflection === false) return { insights: 0, employerNote: false };
 
-  const provider = profile.aiProvider || 'gemini';
-  const keyByProvider = {
-    gemini: profile.geminiApiKey,
-    anthropic: profile.anthropicApiKey,
-    openrouter: profile.openRouterApiKey
-  };
-  const key = keyByProvider[provider];
-  if (!key || String(key).includes('your_')) {
+  if (!hasAnthropicKey(profile)) {
     // No usable key — reflection is best-effort, so skip without erroring.
     return { insights: 0, employerNote: false };
   }
@@ -165,9 +158,7 @@ export async function dreamOverMemory(profile) {
   const noop = { added: 0, reinforced: 0, pruned: 0 };
   if (!profile || profile.useDreaming === false) return { ...noop, skipped: 'disabled' };
 
-  const provider = profile.aiProvider || 'gemini';
-  const key = { gemini: profile.geminiApiKey, anthropic: profile.anthropicApiKey, openrouter: profile.openRouterApiKey }[provider];
-  if (!key || String(key).includes('your_')) return { ...noop, skipped: 'no-key' };
+  if (!hasAnthropicKey(profile)) return { ...noop, skipped: 'no-key' };
 
   const mem = getCandidateMemory();
   const insights = Array.isArray(mem.insights) ? mem.insights : [];

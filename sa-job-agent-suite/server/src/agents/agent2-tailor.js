@@ -1,6 +1,6 @@
 import path from 'path';
 import { getProfile, readDb, updateJob, addLog, buildMemoryDigest, GENERATED_DOCS_PATH } from '../db/helper.js';
-import { callLlm } from './llm.js';
+import { callLlm, assertAnthropicKey } from './llm.js';
 import { renderMarkdownToPdf } from './pdf.js';
 import { researchCompany, researchFanoutReady } from './companyResearch.js';
 
@@ -15,22 +15,11 @@ import { researchCompany, researchFanoutReady } from './companyResearch.js';
  */
 export async function runDocumentTailorAgent(jobId, opts = {}) {
   const profile = getProfile();
-  const provider = profile.aiProvider || 'gemini';
 
   addLog(`Starting Agent 2: Document Tailor for Job ID: ${jobId}...`, 'agent2');
-  addLog(`Using AI Provider: ${provider.toUpperCase()}`, 'agent2');
-
-  const geminiKey     = profile.geminiApiKey;
-  const anthropicKey  = profile.anthropicApiKey;
-  const openRouterKey = profile.openRouterApiKey;
 
   // ── Validation — throw early so the route can revert status to 'found' ──────
-  if (provider === 'gemini'     && (!geminiKey     || geminiKey.includes('your_')))
-    throw new Error('Gemini API key is missing. Add it in the Profile & Settings tab.');
-  if (provider === 'anthropic'  && (!anthropicKey  || anthropicKey.includes('your_')))
-    throw new Error('Anthropic API key is missing. Add it in the Profile & Settings tab.');
-  if (provider === 'openrouter' && (!openRouterKey || openRouterKey.includes('your_')))
-    throw new Error('OpenRouter API key is missing. Add it in the Profile & Settings tab.');
+  assertAnthropicKey(profile);
   if (!profile.baseCv || profile.baseCv.trim().length < 50)
     throw new Error('Your base CV is empty or too short. Paste your full CV in the Profile & Settings tab first.');
 

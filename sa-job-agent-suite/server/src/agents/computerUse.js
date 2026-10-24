@@ -22,6 +22,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
 import { fromAnthropicUsage } from '../db/costs.js';
 import { isRefusedForModel, classifyControl } from './submitGuard.js';
+import { hasAnthropicKey } from './llm.js';
 
 const COMPUTER_USE_BETA = 'computer-use-2025-11-24';
 const COMPUTER_TOOL_TYPE = 'computer_20251124';
@@ -34,9 +35,7 @@ const CHALLENGE_RE = /(captcha|recaptcha|hcaptcha|verify (you('| a)re|that you('
 
 /** True if this provider/key can drive computer-use (Anthropic only). */
 export function computerUseSupported(profile) {
-  const provider = profile?.aiProvider || 'gemini';
-  const key = profile?.anthropicApiKey;
-  return provider === 'anthropic' && Boolean(key) && !String(key).includes('your_');
+  return hasAnthropicKey(profile);
 }
 
 /**

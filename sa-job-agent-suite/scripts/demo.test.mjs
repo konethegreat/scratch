@@ -59,8 +59,8 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       }
     });
     await t.test('both AI entry points refuse before provider SDK calls', async () => {
-      await assert.rejects(callLlm({ aiProvider: 'gemini' }, 'synthetic prompt'), /AI calls are disabled/);
-      await assert.rejects(callLlmVision({ aiProvider: 'anthropic' }, 'synthetic prompt'), /AI calls are disabled/);
+      await assert.rejects(callLlm({}, 'synthetic prompt'), /AI calls are disabled/);
+      await assert.rejects(callLlmVision({}, 'synthetic prompt'), /AI calls are disabled/);
     });
 
     let ready;

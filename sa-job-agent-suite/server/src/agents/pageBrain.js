@@ -1,9 +1,7 @@
-import { callLlm, callLlmVision, providerSupportsVision, extractJson } from './llm.js';
+import { callLlm, callLlmVision, extractJson } from './llm.js';
 import { addLog } from '../db/helper.js';
 import { listControls, clickControl } from './controls.js';
 import { mayClick } from './submitGuard.js';
-
-export { providerSupportsVision };
 
 const ALLOWED_ACTIONS = ['fill', 'click', 'wait', 'done'];
 const ALLOWED_TYPES = ['form', 'listing', 'login', 'captcha', 'confirmation', 'other'];
@@ -102,10 +100,9 @@ export async function planPage(page, profile, job) {
 /**
  * Vision fallback: screenshots the page and asks a multimodal model the same
  * planning question. Only call this when the planner is unsure AND the user has
- * enabled vision AND the provider supports it. More expensive than planPage().
+ * enabled vision AND an Anthropic key is set (the caller checks). More expensive than planPage().
  */
 export async function lookWithVision(page, profile, job) {
-  if (!providerSupportsVision(profile)) return null;
   let snap, b64;
   try {
     snap = await snapshotPage(page);

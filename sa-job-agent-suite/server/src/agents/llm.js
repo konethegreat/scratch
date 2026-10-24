@@ -1,24 +1,51 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
+import { callClaude, resolveModel, extractJson } from '@sajas/core';
 import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
-import { fromAnthropicUsage } from '../db/costs.js';
 import { demoOrigin } from '../demo.js';
 
 /**
- * Shared LLM provider call used by Agent 2 (document tailoring) and Agent 3
- * (form field-mapping + page planning). Single place for provider/model choice.
- * `profile` is the merged profile object from getProfile() (includes keys).
+ * Thin server adapter over @sajas/core's callClaude: the single place the
+ * server talks to Anthropic. Everything provider-specific (streaming, caching
+ * blocks, structured outputs, pause_turn continuation, refusal fallback) lives
+ * in core; this file only wires in the server's concerns:
  *
- * Cost controls (see db/helper.js):
- *  - Every call records its token usage into the AI usage ledger (addUsage),
- *    bucketed by opts.bucket so the Settings panel can show where money goes.
- *  - When the user's daily budget cap is exceeded, the call REFUSES with a
- *    clear error instead of silently spending more. Callers that are
- *    best-effort (research, reflection, planner) already catch and skip.
+ *  - the synthetic-demo gate (no AI calls while SAJAS_DEMO_ORIGIN is set),
+ *  - the daily budget guard (BUDGET_EXCEEDED, re-checked before EVERY request,
+ *    so it also stops a pause_turn continuation mid-conversation),
+ *  - the usage ledger (every response, bucketed by task),
+ *  - profile toggles (useStructuredOutputs / usePromptCaching) and the
+ *    per-task model override (resolveModel).
+ *
+ * `profile` is the merged profile object from getProfile() (includes keys).
+ * `bucket` on the simple helpers is the core task key (tailor, smart-fill,
+ * planner, vision, memory, referral, core, ...).
  */
-function assertBudget() {
+
+export const MISSING_KEY_MESSAGE = 'Anthropic API key is missing. Add it in Settings.';
+
+export { extractJson };
+
+/** True when the profile holds a non-placeholder Anthropic key. */
+export function hasAnthropicKey(profile) {
+  const key = profile?.anthropicApiKey;
+  return typeof key === 'string' && key.trim() !== '' && !key.includes('your_');
+}
+
+/** Throws a user-facing error when there is no usable Anthropic key. */
+export function assertAnthropicKey(profile) {
+  if (!hasAnthropicKey(profile)) throw new Error(MISSING_KEY_MESSAGE);
+}
+
+let testClient = null;
+/** Tests only: inject a fake Anthropic client (or null to clear it). */
+export function setClaudeClientForTests(client) {
+  testClient = client || null;
+}
+
+function assertNotDemo() {
   if (demoOrigin()) throw new Error('AI calls are disabled in the synthetic demo. Answer missing questions yourself.');
+}
+
+function assertBudget() {
   const b = budgetStatus();
   if (b.exceeded) {
     const msg = budgetMessage(b);
@@ -29,186 +56,62 @@ function assertBudget() {
   }
 }
 
-export async function callLlm(profile, prompt, { maxTokens = 4000, schema = null, system = null, cacheSystem = false, bucket = 'core' } = {}) {
-  const provider = profile.aiProvider || 'gemini';
-  const modelName = (profile.selectedModel || '').trim();
-  assertBudget();
+/**
+ * Full-fidelity call: returns core's ClaudeResult (text, content, stopReason,
+ * usage, messages, ...). Used directly by features that need tools or the
+ * conversation (AI search); callLlm wraps it for the plain-text callers.
+ */
+export async function callLlmFull(profile, {
+  task = 'core', prompt, messages, images, system, cacheSystem = false, schema = null,
+  tools, maxTokens, effort, maxContinuations
+} = {}) {
+  assertNotDemo();           // before the key check: the demo has no key
+  assertAnthropicKey(profile);
 
-  if (provider === 'gemini') {
-    const genAI = new GoogleGenerativeAI(profile.geminiApiKey);
-    const model = genAI.getGenerativeModel({ model: modelName || 'gemini-1.5-flash' });
-    // Gemini path keeps it simple: fold any system preamble into the prompt.
-    const text = system ? `${system}\n\n${prompt}` : prompt;
-    const result = await model.generateContent(text);
-    const meta = result.response?.usageMetadata || {};
-    addUsage({
-      provider: 'gemini', model: modelName || 'gemini-1.5-flash', bucket,
-      inputTokens: meta.promptTokenCount || 0, outputTokens: meta.candidatesTokenCount || 0
-    });
-    return result.response.text();
-  }
+  const p = profile || {};
+  const hooks = {
+    ...(testClient ? { client: testClient } : {}),
+    beforeCall: () => { assertNotDemo(); assertBudget(); },
+    onUsage: (u) => {
+      addUsage({ ...u, bucket: task });
+      if (u.cacheReadTokens || u.cacheWriteTokens) {
+        addLog(`Prompt cache: ${u.cacheReadTokens || 0} read, ${u.cacheWriteTokens || 0} written.`, 'system');
+      }
+    },
+    onLog: (msg, type) => addLog(msg, type || 'system')
+  };
 
-  if (provider === 'anthropic') {
-    const anthropic = new Anthropic({ apiKey: profile.anthropicApiKey });
-    const model = modelName || 'claude-3-5-sonnet-latest';
-    const params = {
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }]
-    };
-    // Prompt caching (user toggle, default ON): cache the large reusable system
-    // block (e.g. the base CV) so repeat calls reuse it at ~10% of input cost.
-    if (system) {
-      const cache = cacheSystem && profile.usePromptCaching !== false;
-      params.system = cache
-        ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
-        : system;
-    }
+  return callClaude({
+    apiKey: p.anthropicApiKey,
+    task,
+    model: resolveModel(p, task),
+    prompt,
+    messages,
+    images,
+    system,
+    cacheSystem: Boolean(cacheSystem) && p.usePromptCaching !== false,
     // Structured outputs (user toggle, default ON): constrained decoding
     // guarantees schema-valid JSON, removing brittle text parsing.
-    if (schema && profile.useStructuredOutputs !== false) {
-      params.output_config = { format: { type: 'json_schema', schema } };
-    }
-    const response = await anthropic.messages.create(params);
-    const u = response.usage || {};
-    if (u.cache_read_input_tokens || u.cache_creation_input_tokens) {
-      addLog(`Prompt cache: ${u.cache_read_input_tokens || 0} read, ${u.cache_creation_input_tokens || 0} written.`, 'system');
-    }
-    addUsage({ ...fromAnthropicUsage(model, u), bucket });
-    return response.content[0].text;
-  }
+    schema: schema && p.useStructuredOutputs !== false ? schema : undefined,
+    tools,
+    maxTokens,
+    effort,
+    maxContinuations
+  }, hooks);
+}
 
-  if (provider === 'openrouter') {
-    const openai = new OpenAI({
-      baseURL: 'https://openrouter.ai/api/v1',
-      apiKey: profile.openRouterApiKey,
-      defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'SA Job Agent Suite' }
-    });
-    const messages = system
-      ? [{ role: 'system', content: system }, { role: 'user', content: prompt }]
-      : [{ role: 'user', content: prompt }];
-    const model = modelName || 'deepseek/deepseek-chat';
-    const response = await openai.chat.completions.create({ model, messages });
-    const u = response.usage || {};
-    addUsage({
-      provider: 'openrouter', model, bucket,
-      inputTokens: u.prompt_tokens || 0, outputTokens: u.completion_tokens || 0
-    });
-    return response.choices[0].message.content;
-  }
-
-  throw new Error(`Unknown AI provider: ${provider}`);
+/** Plain-text call. `bucket` is the core task key. */
+export async function callLlm(profile, prompt, { maxTokens, schema = null, system = null, cacheSystem = false, bucket = 'core', effort } = {}) {
+  const r = await callLlmFull(profile, { task: bucket, prompt, system, cacheSystem, schema, maxTokens, effort });
+  return r.text;
 }
 
 /**
- * True if the selected provider can accept images (for the vision fallback).
- * Gemini 1.5 Flash and Claude 3.5 are multimodal; OpenRouter's default
- * (DeepSeek-chat) is text-only, so vision is skipped there.
+ * Multimodal call: like callLlm but with one or more screenshots (base64, no
+ * data: prefix). Used by the page-vision fallback.
  */
-export function providerSupportsVision(profile) {
-  const provider = profile.aiProvider || 'gemini';
-  return provider === 'gemini' || provider === 'anthropic';
-}
-
-/**
- * Multimodal call: like callLlm but with one or more PNG screenshots (base64,
- * no data: prefix). Used by the page-vision fallback.
- */
-export async function callLlmVision(profile, prompt, images = [], { maxTokens = 1500, bucket = 'vision' } = {}) {
-  const provider = profile.aiProvider || 'gemini';
-  const modelName = (profile.selectedModel || '').trim();
-  const imgs = (images || []).filter(Boolean);
-  assertBudget();
-
-  if (provider === 'gemini') {
-    const genAI = new GoogleGenerativeAI(profile.geminiApiKey);
-    const model = genAI.getGenerativeModel({ model: modelName || 'gemini-1.5-flash' });
-    const parts = [{ text: prompt }, ...imgs.map((data) => ({ inlineData: { mimeType: 'image/png', data } }))];
-    const result = await model.generateContent(parts);
-    const meta = result.response?.usageMetadata || {};
-    addUsage({
-      provider: 'gemini', model: modelName || 'gemini-1.5-flash', bucket,
-      inputTokens: meta.promptTokenCount || 0, outputTokens: meta.candidatesTokenCount || 0
-    });
-    return result.response.text();
-  }
-
-  if (provider === 'anthropic') {
-    const anthropic = new Anthropic({ apiKey: profile.anthropicApiKey });
-    const model = modelName || 'claude-3-5-sonnet-latest';
-    const content = [
-      { type: 'text', text: prompt },
-      ...imgs.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }))
-    ];
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content }]
-    });
-    addUsage({ ...fromAnthropicUsage(model, response.usage || {}), bucket });
-    return response.content[0].text;
-  }
-
-  if (provider === 'openrouter') {
-    const openai = new OpenAI({
-      baseURL: 'https://openrouter.ai/api/v1',
-      apiKey: profile.openRouterApiKey,
-      defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'SA Job Agent Suite' }
-    });
-    const content = [
-      { type: 'text', text: prompt },
-      ...imgs.map((data) => ({ type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } }))
-    ];
-    const model = modelName || 'deepseek/deepseek-chat';
-    const response = await openai.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content }]
-    });
-    const u = response.usage || {};
-    addUsage({
-      provider: 'openrouter', model, bucket,
-      inputTokens: u.prompt_tokens || 0, outputTokens: u.completion_tokens || 0
-    });
-    return response.choices[0].message.content;
-  }
-
-  throw new Error(`Unknown AI provider: ${provider}`);
-}
-
-/**
- * Validates that the selected provider has a usable key. Throws a user-facing
- * error otherwise. Returns the provider name.
- */
-export function assertProviderKey(profile) {
-  const provider = profile.aiProvider || 'gemini';
-  const key = {
-    gemini:     profile.geminiApiKey,
-    anthropic:  profile.anthropicApiKey,
-    openrouter: profile.openRouterApiKey
-  }[provider];
-  if (!key || key.includes('your_')) {
-    throw new Error(`${provider} API key is missing. Add it in the Profile & Settings tab.`);
-  }
-  return provider;
-}
-
-/**
- * Extracts the first JSON object/array from an LLM response that may be wrapped
- * in prose or ```json fences. Returns null if nothing parseable is found.
- */
-export function extractJson(text) {
-  if (!text) return null;
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1] : text;
-  const start = candidate.search(/[\[{]/);
-  if (start === -1) return null;
-  const lastObj = candidate.lastIndexOf('}');
-  const lastArr = candidate.lastIndexOf(']');
-  const end = Math.max(lastObj, lastArr);
-  if (end <= start) return null;
-  try {
-    return JSON.parse(candidate.slice(start, end + 1));
-  } catch {
-    return null;
-  }
+export async function callLlmVision(profile, prompt, images = [], { maxTokens, bucket = 'vision' } = {}) {
+  const imgs = (images || []).filter(Boolean).map((data) => ({ data }));
+  const r = await callLlmFull(profile, { task: bucket, prompt, images: imgs, maxTokens });
+  return r.text;
 }

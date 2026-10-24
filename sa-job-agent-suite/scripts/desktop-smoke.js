@@ -22,7 +22,7 @@ async function main() {
     SAJAS_SMOKE_DATA: data,
     SAJAS_SMOKE_ROOT: path.resolve(process.argv[2] || path.join(__dirname, '..')),
     SAJAS_SMOKE_PACKAGED: process.argv[2] ? '1' : '',
-    GEMINI_API_KEY: '', ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', OPENROUTER_API_KEY: ''
+    ANTHROPIC_API_KEY: ''
   };
   delete env.ELECTRON_RUN_AS_NODE;
   const child = spawn(require('electron'), [path.join(__dirname, 'desktop-smoke-app')], {

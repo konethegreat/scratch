@@ -32,6 +32,7 @@ import {
 import { runJobHunterAgent } from './agent1-hunter.js';
 import { tailorJobsConcurrently } from './subAgents.js';
 import { dreamOverMemory } from './memoryReflect.js';
+import { hasAnthropicKey } from './llm.js';
 
 const TICK_MS = 60 * 1000;            // evaluate schedules once a minute
 const CATCHUP_WINDOW_MS = 90 * 60 * 1000; // for catchUp:false, how late we may still fire
@@ -83,13 +84,7 @@ export function isDue(routine, now = new Date()) {
 // ── Execution ─────────────────────────────────────────────────────────────────
 
 function tailorProviderReady(profile) {
-  const provider = profile.aiProvider || 'gemini';
-  const key = {
-    gemini: profile.geminiApiKey,
-    anthropic: profile.anthropicApiKey,
-    openrouter: profile.openRouterApiKey
-  }[provider];
-  return Boolean(key && !String(key).includes('your_'));
+  return hasAnthropicKey(profile);
 }
 
 /**

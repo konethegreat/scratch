@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { chromium } from 'playwright';
 import { getProfile, updateJob, addLog, readDb, getAnswerBank, addPendingQuestion, normalizeQuestion, buildMemoryDigest, recordApplication, getSupportingDocuments, getSupportingDocPath, isRealPdfFile, SUPPORTING_DOC_TYPES, BROWSER_PROFILE_PATH, GENERATED_DOCS_PATH } from '../db/helper.js';
-import { callLlm, extractJson } from './llm.js';
-import { planPage, lookWithVision, clickButtonByText, providerSupportsVision } from './pageBrain.js';
+import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
+import { planPage, lookWithVision, clickButtonByText } from './pageBrain.js';
 import { findAdvanceControl, clickControl } from './controls.js';
 import { computerUseFillForm, computerUseSupported } from './computerUse.js';
 import { reflectOnApplication } from './memoryReflect.js';
@@ -562,7 +562,7 @@ ${JSON.stringify(remaining)}
 
 Return ONLY a JSON object of this form: {"fills":[{"fid":"f0","value":"Jane Doe"},{"fid":"f3","value":"30 days"}]}. Include only fields you can fill confidently; omit the rest.`;
 
-    addLog(`Smart-fill: asking ${profile.aiProvider || 'gemini'} to map ${remaining.length} remaining field(s)…`, 'agent3');
+    addLog(`Smart-fill: asking Claude to map ${remaining.length} remaining field(s)…`, 'agent3');
     let mapping;
     try {
       const raw = await callLlm(profile, prompt, { maxTokens: 2000, schema: SMARTFILL_SCHEMA, bucket: 'smart-fill' });
@@ -1241,7 +1241,7 @@ export async function runApplyAssistantAgent(jobId, { headless = false, pollInte
             plannedUrls.add(url);
             plannerCalls++;
             let plan = await planPage(p, profile, job);
-            if ((!plan || plan.confidence === 'low') && profile.useVision && providerSupportsVision(profile)) {
+            if ((!plan || plan.confidence === 'low') && profile.useVision && hasAnthropicKey(profile)) {
               const vplan = await lookWithVision(p, profile, job);
               if (vplan) plan = vplan;
             }

@@ -6,34 +6,33 @@ import { estimateCostUSD, priceFor, fromAnthropicUsage, COST_PER_WEB_SEARCH_USD 
 import { PERFORMANCE_PRESETS, detectActivePreset, scrubSecrets, SEARCH_DEPTHS } from '../db/helper.js';
 import { resolveSearchDepth } from './jobSearchAI.js';
 
-test('priceFor matches models by substring with sane fallbacks', () => {
-  assert.deepEqual(priceFor('anthropic', 'claude-haiku-4-5'), { input: 1, output: 5 });
-  assert.deepEqual(priceFor('anthropic', 'claude-sonnet-4-6'), { input: 3, output: 15 });
-  assert.deepEqual(priceFor('anthropic', 'claude-opus-4-8'), { input: 5, output: 25 });
-  assert.deepEqual(priceFor('anthropic', 'claude-3-5-sonnet-latest'), { input: 3, output: 15 });
-  assert.deepEqual(priceFor('gemini', 'gemini-1.5-flash'), { input: 0.075, output: 0.30 });
-  // Unknown models still return something usable.
-  assert.ok(priceFor('anthropic', 'mystery-model').input > 0);
-  assert.ok(priceFor('openrouter', 'deepseek/deepseek-chat').input > 0);
+test('priceFor matches models by exact id, then family substring, defaulting to sonnet', () => {
+  assert.deepEqual(priceFor('claude-haiku-5-5'), { input: 0.1, output: 0.5, cacheRead: 0.01 });
+  assert.deepEqual(priceFor('claude-sonnet-5-5'), { input: 2, output: 10, cacheRead: 0.1 });
+  assert.deepEqual(priceFor('claude-opus-5-5'), { input: 4, output: 20, cacheRead: 0.2 });
+  assert.deepEqual(priceFor('claude-fable-5-1'), { input: 10, output: 50, cacheRead: 0.25 });
+  // Legacy ids price by family; unknown models still return something usable.
+  assert.deepEqual(priceFor('claude-sonnet-4-6'), priceFor('claude-sonnet-5-5'));
+  assert.ok(priceFor('mystery-model').input > 0);
 });
 
 test('estimateCostUSD: tokens, cache and web searches all priced', () => {
-  // 1M in + 1M out on Sonnet = $3 + $15.
-  const c = estimateCostUSD({ provider: 'anthropic', model: 'claude-sonnet-4-6', inputTokens: 1_000_000, outputTokens: 1_000_000 });
-  assert.ok(Math.abs(c - 18) < 1e-9, `expected 18, got ${c}`);
-  // Cache reads are ~10% of input price.
-  const cr = estimateCostUSD({ provider: 'anthropic', model: 'claude-sonnet-4-6', cacheReadTokens: 1_000_000 });
-  assert.ok(Math.abs(cr - 0.3) < 1e-9);
+  // 1M in + 1M out on Sonnet 5.5 = $2 + $10.
+  const c = estimateCostUSD({ model: 'claude-sonnet-5-5', inputTokens: 1_000_000, outputTokens: 1_000_000 });
+  assert.ok(Math.abs(c - 12) < 1e-9, `expected 12, got ${c}`);
+  // Cache reads use the model's own rate (Sonnet 5.5: $0.10/MTok).
+  const cr = estimateCostUSD({ model: 'claude-sonnet-5-5', cacheReadTokens: 1_000_000 });
+  assert.ok(Math.abs(cr - 0.1) < 1e-9);
   // 100 searches at $10/1000 = $1.
-  const s = estimateCostUSD({ provider: 'anthropic', model: 'claude-sonnet-4-6', webSearches: 100 });
+  const s = estimateCostUSD({ model: 'claude-sonnet-5-5', webSearches: 100 });
   assert.ok(Math.abs(s - 100 * COST_PER_WEB_SEARCH_USD) < 1e-9);
-  // Garbage in → 0, never NaN.
+  // Garbage in -> 0, never NaN.
   assert.equal(estimateCostUSD({}), 0);
-  assert.equal(Number.isNaN(estimateCostUSD({ provider: 'x', inputTokens: -5 })), false);
+  assert.equal(Number.isNaN(estimateCostUSD({ inputTokens: -5 })), false);
 });
 
 test('fromAnthropicUsage maps the messages-API usage block incl. web searches', () => {
-  const u = fromAnthropicUsage('claude-sonnet-4-6', {
+  const u = fromAnthropicUsage('claude-sonnet-5-5', {
     input_tokens: 100, output_tokens: 50,
     cache_read_input_tokens: 10, cache_creation_input_tokens: 5,
     server_tool_use: { web_search_requests: 3 }
@@ -43,7 +42,6 @@ test('fromAnthropicUsage maps the messages-API usage block incl. web searches', 
   assert.equal(u.cacheReadTokens, 10);
   assert.equal(u.cacheWriteTokens, 5);
   assert.equal(u.webSearches, 3);
-  assert.equal(u.provider, 'anthropic');
 });
 
 test('performance presets are coherent and detectable', () => {

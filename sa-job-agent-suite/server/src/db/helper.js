@@ -1042,9 +1042,9 @@ function accumulate(t, u, cost) {
  * 'link-repair', 'research', 'referral', 'computer-use', 'vision', 'core', …).
  * Best-effort: never throws (a usage-ledger failure must never break an agent).
  */
-export function addUsage({ provider = 'unknown', model = '', bucket = 'core', ...tokens } = {}) {
+export function addUsage({ provider: _provider, model = '', bucket = 'core', ...tokens } = {}) {
   try {
-    const cost = estimateCostUSD({ provider, model, ...tokens });
+    const cost = estimateCostUSD({ model, ...tokens });
     const db = readDb();
     if (!db.usage || !db.usage.days) db.usage = { days: {} };
     const key = todayKey();

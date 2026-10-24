@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { estimateCostUSD, priceFor, fromAnthropicUsage, COST_PER_WEB_SEARCH_USD } from '../db/costs.js';
 import { PERFORMANCE_PRESETS, detectActivePreset, scrubSecrets, SEARCH_DEPTHS } from '../db/helper.js';
 import { resolveSearchDepth } from './jobSearchAI.js';
+import { modelSpec } from '@sajas/core';
 
 test('priceFor matches models by exact id, then family substring, defaulting to sonnet', () => {
   assert.deepEqual(priceFor('claude-haiku-5-5'), { input: 0.1, output: 0.5, cacheRead: 0.01 });
@@ -57,6 +58,13 @@ test('performance presets are coherent and detectable', () => {
   }
   // Any tweak away from a bundle reads as custom.
   assert.equal(detectActivePreset({ ...PERFORMANCE_PRESETS.saver.values, useVision: true }), 'custom');
+});
+
+test('every preset aiSearchModel is empty or a registry model', () => {
+  for (const [mode, preset] of Object.entries(PERFORMANCE_PRESETS)) {
+    const m = preset.values.aiSearchModel;
+    assert.ok(m === '' || modelSpec(m) !== null, `${mode} aiSearchModel ${JSON.stringify(m)}`);
+  }
 });
 
 test('saver is strictly cheaper-or-equal than max on every cost lever', () => {

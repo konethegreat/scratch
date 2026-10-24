@@ -3,7 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
-import { scrubSecrets } from '@sajas/core';
+import { scrubSecrets, MODEL_IDS, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
+import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS } from './migrations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,7 +78,7 @@ export function isRealPdfFile(filePath) {
 // ── Schema defaults ──────────────────────────────────────────────────────────
 const DEFAULT_DB = {
   profile: {
-    aiProvider: 'gemini',
+    schemaVersion: PROFILE_SCHEMA_VERSION,
     selectedModel: '',
     fullName: '',
     email: '',
@@ -121,7 +122,7 @@ const DEFAULT_DB = {
     // the most token-hungry feature). Never submits — see agents/computerUse.js.
     useComputerUse: false,
     computerUseModel: '',
-    computerUseMaxSteps: 12,
+    computerUseMaxSteps: 20,
     // T4 parallel sub-agents. tailorConcurrency caps how many jobs are tailored
     // at once (1–5; the cost cap / tier gate). useResearchFanout spawns a grounded
     // company-research sub-agent per job to enrich cover letters — Anthropic-only,
@@ -234,10 +235,17 @@ const DEFAULT_DB = {
 };
 
 const DEFAULT_KEYS = {
-  geminiApiKey: '',
-  anthropicApiKey: '',
-  openRouterApiKey: ''
+  anthropicApiKey: ''
 };
+
+// Thrown by saveProfile when a pasted key is an Admin key or not key-shaped.
+export class InvalidKeyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidKeyError';
+    this.code = 'INVALID_KEY';
+  }
+}
 
 // ── In-memory log buffer ─────────────────────────────────────────────────────
 // Logs are intentionally not persisted — they're per-session agent output.
@@ -252,6 +260,14 @@ function initDb() {
   }
 }
 
+// Old installs may still carry provider keys inside db.json's profile; they
+// belong in keys.json only (readKeys migrates them) and must not leak into the profile.
+function withoutLegacyKeys(profile) {
+  const out = { ...(profile || {}) };
+  for (const f of LEGACY_KEY_FIELDS) delete out[f];
+  return out;
+}
+
 export function readDb() {
   initDb();
   try {
@@ -260,15 +276,15 @@ export function readDb() {
     return {
       ...DEFAULT_DB,
       ...parsed,
-      profile: {
+      profile: migrateProfile({
         ...DEFAULT_DB.profile,
-        ...(parsed.profile || {}),
+        ...withoutLegacyKeys(parsed.profile),
         // Deep-merge so newly-added structured keys still get defaults.
         applicationProfile: {
           ...DEFAULT_DB.profile.applicationProfile,
           ...((parsed.profile || {}).applicationProfile || {})
         }
-      },
+      }),
       supportingDocuments: (parsed.supportingDocuments && typeof parsed.supportingDocuments === 'object' && !Array.isArray(parsed.supportingDocuments)) ? parsed.supportingDocuments : {},
       answerBank:      Array.isArray(parsed.answerBank)      ? parsed.answerBank      : [],
       pendingQuestions: Array.isArray(parsed.pendingQuestions) ? parsed.pendingQuestions : [],
@@ -308,11 +324,8 @@ function readKeys() {
       const old = JSON.parse(raw);
       const p = old.profile || {};
       if (p.geminiApiKey || p.anthropicApiKey || p.openRouterApiKey) {
-        const migrated = {
-          geminiApiKey:     p.geminiApiKey     || '',
-          anthropicApiKey:  p.anthropicApiKey  || '',
-          openRouterApiKey: p.openRouterApiKey || ''
-        };
+        // Only the Anthropic key survives the move; the others are dropped.
+        const migrated = { anthropicApiKey: p.anthropicApiKey || '' };
         writeKeys(migrated);
         delete p.geminiApiKey;
         delete p.anthropicApiKey;
@@ -324,9 +337,28 @@ function readKeys() {
     return { ...DEFAULT_KEYS };
   }
   try {
-    return { ...DEFAULT_KEYS, ...JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8')) };
+    const raw = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8'));
+    return { anthropicApiKey: typeof raw.anthropicApiKey === 'string' ? raw.anthropicApiKey : '' };
   } catch {
     return { ...DEFAULT_KEYS };
+  }
+}
+
+/**
+ * One-time cleanup for upgraded installs: rewrite keys.json so it holds ONLY the
+ * Anthropic key (drops the Gemini/OpenRouter keys from disk). Returns
+ * { purged: true } when something was removed, { purged: false } otherwise.
+ */
+export function purgeLegacyKeys() {
+  try {
+    if (!fs.existsSync(KEYS_PATH)) return { purged: false };
+    const raw = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8'));
+    const keys = Object.keys(raw || {});
+    if (keys.length === 1 && keys[0] === 'anthropicApiKey') return { purged: false };
+    writeKeys({ anthropicApiKey: typeof raw.anthropicApiKey === 'string' ? raw.anthropicApiKey : '' });
+    return { purged: true };
+  } catch {
+    return { purged: false };
   }
 }
 
@@ -348,18 +380,24 @@ export function saveProfile(profile) {
   const db = readDb();
   const currentKeys = readKeys();
 
-  const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...profileFields } = profile;
+  // Foreign-provider keys / the retired provider switch are dropped on the floor.
+  // eslint-disable-next-line no-unused-vars
+  const { geminiApiKey, openRouterApiKey, aiProvider, anthropicApiKey, ...profileFields } = profile;
 
-  const mergeKey = (incoming, existing) =>
-    (incoming !== undefined && typeof incoming === 'string' && incoming.trim().length > 0)
-      ? incoming.trim()
-      : existing;
-
-  const updatedKeys = {
-    geminiApiKey:     mergeKey(geminiApiKey,     currentKeys.geminiApiKey),
-    anthropicApiKey:  mergeKey(anthropicApiKey,  currentKeys.anthropicApiKey),
-    openRouterApiKey: mergeKey(openRouterApiKey, currentKeys.openRouterApiKey)
-  };
+  // Empty/whitespace incoming key keeps the existing one; anything else must be
+  // a well-formed, non-Admin Anthropic key (validated BEFORE anything is written).
+  let nextKey = currentKeys.anthropicApiKey;
+  if (typeof anthropicApiKey === 'string' && anthropicApiKey.trim().length > 0) {
+    const normalised = normalizeKeyInput(anthropicApiKey);
+    if (isAdminKeyShape(normalised)) {
+      throw new InvalidKeyError('That is an Admin key. SA-JAS only needs a regular API key — create one in the Anthropic Console and paste it here.');
+    }
+    if (!isAnthropicKeyShape(normalised)) {
+      throw new InvalidKeyError('That does not look like an Anthropic API key (it should start with sk-ant-api).');
+    }
+    nextKey = normalised;
+  }
+  const updatedKeys = { anthropicApiKey: nextKey };
 
   writeKeys(updatedKeys);
   // Deep-merge the structured applicationProfile so a partial save never wipes
@@ -367,7 +405,7 @@ export function saveProfile(profile) {
   const mergedAppProfile = profileFields.applicationProfile
     ? { ...db.profile.applicationProfile, ...profileFields.applicationProfile }
     : db.profile.applicationProfile;
-  db.profile = { ...db.profile, ...profileFields, applicationProfile: mergedAppProfile };
+  db.profile = migrateProfile({ ...db.profile, ...profileFields, applicationProfile: mergedAppProfile });
   // Sanitise the cost-control fields so a bad payload can't disable the budget
   // guard or set a nonsense search depth.
   if (!SEARCH_DEPTHS.includes(db.profile.searchDepth)) db.profile.searchDepth = 'standard';
@@ -785,15 +823,8 @@ export function buildMemoryDigest({ company = '', maxInsights = 14 } = {}) {
 }
 
 export function clearKey(provider) {
-  const field = {
-    gemini:      'geminiApiKey',
-    anthropic:   'anthropicApiKey',
-    openrouter:  'openRouterApiKey'
-  }[provider];
-  if (!field) return false;
-  const keys = readKeys();
-  keys[field] = '';
-  writeKeys(keys);
+  if (provider !== 'anthropic') return false;
+  writeKeys({ anthropicApiKey: '' });
   return true;
 }
 
@@ -1103,10 +1134,10 @@ export function budgetMessage(b = budgetStatus()) {
 export const PERFORMANCE_PRESETS = {
   saver: {
     label: 'Token Saver',
-    description: 'Cheapest useful setup: AI search on Haiku at light depth, all optional AI off, caching on. Roughly a tenth of Maximum\'s spend.',
+    description: 'Cheapest useful setup: AI search on Haiku 5.5 at light depth, all optional AI off, caching on. Roughly a tenth of Maximum\'s spend.',
     values: {
       useAiSearch: true,
-      aiSearchModel: 'claude-haiku-4-5',
+      aiSearchModel: MODEL_IDS.haiku,
       searchDepth: 'light',
       useLinkValidation: true,   // free safety — probing isn't billed
       useLinkRepair: false,
@@ -1147,10 +1178,10 @@ export const PERFORMANCE_PRESETS = {
   },
   max: {
     label: 'Maximum',
-    description: 'Everything on: deep two-round search on Sonnet, AI link repair, company research, vision, computer-use finisher, 5-wide parallel tailoring. Most capable, most expensive.',
+    description: 'Everything on: deep two-round search on Opus 5.5, AI link repair, company research, vision, computer-use finisher, 5-wide parallel tailoring. Most capable, most expensive.',
     values: {
       useAiSearch: true,
-      aiSearchModel: 'claude-sonnet-4-6',
+      aiSearchModel: MODEL_IDS.opus,
       searchDepth: 'deep',
       useLinkValidation: true,
       useLinkRepair: true,

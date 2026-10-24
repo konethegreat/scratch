@@ -18,7 +18,9 @@ export function fakeClient(responses = []) {
     return r;
   };
   const make = (extra) => (params) => {
-    calls.push({ ...params, ...extra });
+    // Deep snapshot: record what was sent at this moment, not a live reference
+    // the caller may mutate later (e.g. the growing conversation array).
+    calls.push({ ...structuredClone(params), ...extra });
     return {
       finalMessage: async () => {
         const r = next();

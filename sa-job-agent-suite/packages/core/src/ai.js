@@ -5,6 +5,11 @@
 // steer depth with output_config.effort. Always stream (long outputs/timeouts),
 // read text only from `text` blocks (thinking blocks may come first), and
 // continue `pause_turn` server-tool turns up to maxContinuations.
+//
+// NOTE: pause_turn continuation requests deliberately END on the assistant's
+// paused turn. That is the API's documented continuation form, NOT prefill, and
+// must not be "fixed" into a user-last request. Only the initial request is
+// guaranteed user-last (enforced in buildMessages).
 import Anthropic from '@anthropic-ai/sdk';
 import { taskConfig } from './models.js';
 import { fromAnthropicUsage } from './costs.js';
@@ -90,6 +95,10 @@ function wrapSdkError(err) {
 }
 
 /**
+ * When both `messages` and `prompt` (and/or `images`) are given, the prompt is
+ * appended as a NEW user turn after `messages`, so a caller can continue a prior
+ * ClaudeResult.messages conversation.
+ *
  * @param {object} req  { apiKey, task, model?, system?, cacheSystem?, prompt?, messages?, images?, schema?,
  *                        tools?, maxTokens?, effort?, maxContinuations?, refusalFallback? }
  * @param {object} hooks { client?, beforeCall?, onUsage?, onLog? }
@@ -124,7 +133,8 @@ export async function callClaude(req, hooks = {}) {
     const ctx = { task, model, attempt };
     if (hooks.beforeCall) await hooks.beforeCall(ctx);
 
-    const params = { ...base, messages };
+    // Per-request snapshot: the array handed to the client is never mutated later.
+    const params = { ...base, messages: [...messages] };
     try {
       const stream = useFallback
         ? client.beta.messages.stream({ ...params, betas: FALLBACK_BETAS, fallbacks: 'default' })

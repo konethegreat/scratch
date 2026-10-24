@@ -95,6 +95,11 @@ test('continues through pause_turn, sums usage and calls onUsage per response', 
   const { p, calls } = run({}, [paused, done], { onUsage: (u, ctx) => seen.push({ u, ctx }) });
   const r = await p;
   assert.equal(calls.length, 2);
+  // the first request as sent: one user-last message, not the later mutated conversation
+  assert.equal(calls[0].messages.length, 1);
+  assert.equal(calls[0].messages.at(-1).role, 'user');
+  assert.notEqual(calls[0].messages, calls[1].messages);
+  assert.equal(calls[1].messages.length, 2);
   const last = calls[1].messages.at(-1);
   assert.equal(last.role, 'assistant');
   assert.deepEqual(last.content, paused.content);

@@ -26,7 +26,7 @@ scratch/
     │   └── preload.js
     ├── scripts/
     │   ├── start-electron.js
-    │   └── smoke-live.mjs       # `npm run smoke:live`: live probes against the real Anthropic API. SPENDS MONEY (a few cents): refuses to run without ANTHROPIC_API_KEY in the environment AND `--yes-spend`. Its results decide CAPABILITIES.searchStructuredOutput / haikuWebSearch (models.js) and REFUSAL_FALLBACK_DEFAULT (ai.js)
+    │   └── smoke-live.mjs       # `npm run smoke:live`: live probes against the real Anthropic API. SPENDS MONEY (a few cents): refuses to run without ANTHROPIC_API_KEY in the environment AND `--yes-spend`. Its results decide CAPABILITIES.searchStructuredOutput / haikuWebSearch (models.js) and REFUSAL_FALLBACK_DEFAULT (ai.js); probe 5 runs on Sonnet (the fallback parameter is a no-op on Haiku, probe 5b)
     ├── packages/
     │   └── core/                # @sajas/core: the whole Anthropic layer (ESM, no server imports). Exports "." and "./testing"
     │       └── src/
@@ -227,7 +227,7 @@ npm run dist:win       # Build + package Windows NSIS installer
 npm test               # root: every workspace's tests (core + server) + the eval unit tests (node:test)
 npm test --workspace=server   # server tests only; glob "src/**/*.test.js"
 npm run eval           # eval harness, DRY run: fakeClient, no network, no key, free
-npm run smoke:live -- --yes-spend   # live probes against the real API. SPENDS MONEY (a few cents): needs ANTHROPIC_API_KEY in the environment AND --yes-spend, else it refuses
+npm run smoke:live -- --yes-spend   # live probes against the real API. SPENDS MONEY (a few cents): needs ANTHROPIC_API_KEY in the environment AND --yes-spend, else it refuses. Probes 1-4 and 6 send production's transport (the beta fallback stream, `REFUSAL_FALLBACK_DEFAULT`); add `--no-fallback` to switch the fallback beta off for every probe (skips probes 5/5b) when a probe 3/4 failure might be the transport rather than the schema/tool
 ```
 
 Client: http://localhost:4173 | API: http://localhost:5000

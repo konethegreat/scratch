@@ -419,6 +419,38 @@ withBrowser('a refused submit click does not stop the batch', async () => {
   });
 });
 
+withBrowser('a click whose hit-test cannot read the page (navigation mid-batch) is refused, not performed', async () => {
+  const html = fixturePage('Buttons', '<button type="button" id="n">Next</button>');
+  await withPage(html, async (p) => {
+    const at = await centre(p.locator('#n'));
+    // Control: elementTextAt itself now fails closed when the read throws.
+    const realMainFrame = p.mainFrame.bind(p);
+    p.mainFrame = () => {
+      const f = realMainFrame();
+      return new Proxy(f, { get: (t, k) => (k === 'evaluateHandle' ? async () => { throw new Error('Execution context was destroyed, most likely because of a navigation'); } : Reflect.get(t, k)) });
+    };
+    assert.deepEqual(await elementTextAt(p, ...at), { text: '', opaque: true });
+
+    let moused = 0;
+    const realClick = p.mouse.click.bind(p.mouse);
+    p.mouse.click = async (...a) => { moused++; return realClick(...a); };
+    const stats = { filled: 0, refusals: 0 };
+    const r = await executeComputerAction(p, use({ action: 'left_click', coordinate: at }), { stats });
+    assert.equal(isRefusal(r), true);
+    assert.notEqual(r.is_error, true, 'a refusal is a normal result');
+    assert.equal(r.toolset_name, 'computer');
+    assert.equal(stats.refusals, 1);
+    assert.equal(moused, 0, 'no mouse click was performed');
+    assert.deepEqual(await clicks(p), []);
+
+    // And inside a batch it does not stop later actions.
+    const results = await executeComputerBatch(p, [use({ action: 'left_click', coordinate: at }, 'toolu_1'), use({ action: 'screenshot' }, 'toolu_2')], { stats });
+    assert.equal(isRefusal(results[0]), true);
+    assert.equal(results[1].content[0].type, 'image');
+    assert.equal(moused, 0);
+  });
+});
+
 test('resolveMaxSteps clamps to 1-40 and defaults to 20', () => {
   assert.equal(resolveMaxSteps(undefined), 20);
   assert.equal(resolveMaxSteps(0), 20);

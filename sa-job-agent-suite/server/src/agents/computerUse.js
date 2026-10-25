@@ -147,7 +147,9 @@ export async function elementTextAt(page, cssX, cssY) {
       x -= info.left;
       y -= info.top;
     } catch {
-      return { text: '', opaque: false };
+      // The page could not be read (navigation mid-batch, closed page, ...).
+      // Fail CLOSED: an unreadable point must be refused, never clicked.
+      return { text: '', opaque: true };
     } finally {
       if (handle) await handle.dispose().catch(() => {});
     }

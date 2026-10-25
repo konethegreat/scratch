@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callClaude, makeClient, ANTHROPIC_BASE_URL, REFUSAL_FALLBACK_DEFAULT } from './ai.js';
+import {
+  callClaude, makeClient, ANTHROPIC_BASE_URL, REFUSAL_FALLBACK_DEFAULT,
+  getLearnedCapabilities, resetLearnedCapabilities, degradeStepFor
+} from './ai.js';
+import { webSearchTool } from './tools.js';
 import { ClaudeAuthError, ClaudeRefusalError, ClaudeKeyError } from './errors.js';
 import { fakeClient } from './testing.js';
 import { MODEL_IDS } from './models.js';
@@ -264,4 +268,235 @@ test('a test-injected hooks.client bypasses makeClient entirely', async () => {
     if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
     else process.env.ANTHROPIC_BASE_URL = before;
   }
+});
+
+// ---- Self-degrading: optional API features rejected with a 400 -------------------------------
+
+const bad400 = (message) => ({ __throw: Object.assign(new Error(message), { status: 400 }) });
+const plain400 = (message) => ({ __throw: { status: 400, message } });
+const schema1 = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false };
+const ALL_ALLOWED = { refusalFallback: true, schemaWithTools: true, haikuSearch: true };
+
+test('a 400 about the fallback beta is retried on the plain stream and remembered', async () => {
+  resetLearnedCapabilities();
+  try {
+    const f = fakeClient([plain400('fallbacks: Extra inputs are not permitted'), reply([text('ok')]), reply([text('again')])]);
+    const first = await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client });
+    assert.equal(f.calls.length, 2);
+    assert.equal(f.calls[0].beta, true);
+    assert.ok(!f.calls[1].beta);
+    assert.equal('fallbacks' in f.calls[1], false);
+    assert.equal('betas' in f.calls[1], false);
+    assert.equal(first.text, 'ok');
+    assert.deepEqual(first.degraded, ['refusal-fallback']);
+    assert.equal(getLearnedCapabilities().refusalFallback, false);
+
+    const second = await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client });
+    assert.equal(f.calls.length, 3);
+    assert.ok(!f.calls[2].beta, 'a learned lesson is applied before the first request');
+    assert.deepEqual(second.degraded, []);
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('a 400 about structured output with server tools drops the schema and keeps effort', async () => {
+  resetLearnedCapabilities();
+  try {
+    const f = fakeClient([plain400('output_config.format is not supported with this tool'), reply([text('ok')])]);
+    const r = await callClaude(
+      { apiKey: KEY, task: 'ai-search', prompt: 'hi', schema: schema1, tools: [webSearchTool({ maxUses: 1 })] },
+      { client: f.client }
+    );
+    assert.equal(f.calls.length, 2);
+    assert.deepEqual(f.calls[0].output_config.format, { type: 'json_schema', schema: schema1 });
+    assert.deepEqual(f.calls[1].output_config, { effort: 'medium' });
+    assert.equal(f.calls[1].tools.length, 1, 'tools are kept');
+    assert.deepEqual(r.degraded, ['schema-with-tools']);
+    assert.equal(getLearnedCapabilities().schemaWithTools, false);
+
+    // learned: the next call drops the format up front, but only when tools are present
+    const g = fakeClient([reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'ai-search', prompt: 'hi', schema: schema1, tools: [webSearchTool()] }, { client: g.client });
+    assert.deepEqual(g.calls[0].output_config, { effort: 'medium' });
+    const h = fakeClient([reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'tailor', prompt: 'hi', schema: schema1 }, { client: h.client });
+    assert.deepEqual(h.calls[0].output_config.format, { type: 'json_schema', schema: schema1 });
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('a 400 about web search on Haiku retries on Sonnet', async () => {
+  resetLearnedCapabilities();
+  try {
+    const f = fakeClient([plain400('web_search tool is not supported for this model'), reply([text('ok')])]);
+    const r = await callClaude(
+      { apiKey: KEY, task: 'planner', prompt: 'hi', tools: [webSearchTool({ maxUses: 1 })] },
+      { client: f.client }
+    );
+    assert.equal(f.calls.length, 2);
+    assert.equal(f.calls[0].model, MODEL_IDS.haiku);
+    assert.equal(f.calls[1].model, MODEL_IDS.sonnet);
+    assert.deepEqual(r.degraded, ['haiku-search']);
+    assert.equal(getLearnedCapabilities().haikuSearch, false);
+
+    const g = fakeClient([reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'planner', prompt: 'hi', tools: [webSearchTool()] }, { client: g.client });
+    assert.equal(g.calls[0].model, MODEL_IDS.sonnet);
+    const h = fakeClient([reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'planner', prompt: 'hi' }, { client: h.client });
+    assert.equal(h.calls[0].model, MODEL_IDS.haiku, 'Haiku without a search tool is untouched');
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('an unrelated 400 is not retried', async () => {
+  resetLearnedCapabilities();
+  const f = fakeClient([bad400('model: not found')]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client }), (e) => e.message === 'model: not found');
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(getLearnedCapabilities(), ALL_ALLOWED);
+});
+
+test('a 400 only triggers the step the request actually used', async () => {
+  resetLearnedCapabilities();
+  // fallback-looking message on a request that never used the beta path
+  const a = fakeClient([plain400('fallbacks: Extra inputs are not permitted')]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi', refusalFallback: false }, { client: a.client }));
+  assert.equal(a.calls.length, 1);
+  // schema-looking message without tools
+  const b = fakeClient([plain400('output_config.format is invalid')]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi', schema: schema1, refusalFallback: false }, { client: b.client }));
+  assert.equal(b.calls.length, 1);
+  // haiku-looking message on Sonnet
+  const c = fakeClient([plain400('web_search tool is not supported')]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi', refusalFallback: false, tools: [webSearchTool()] }, { client: c.client }));
+  assert.equal(c.calls.length, 1);
+  assert.deepEqual(getLearnedCapabilities(), ALL_ALLOWED);
+});
+
+test('a 401 is never retried', async () => {
+  resetLearnedCapabilities();
+  const f = fakeClient([{ __throw: Object.assign(new Error('401 invalid x-api-key'), { status: 401 }) }]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client }), ClaudeAuthError);
+  assert.equal(f.calls.length, 1);
+  // even when the message looks like a fallback problem
+  const g = fakeClient([{ __throw: Object.assign(new Error('fallbacks betas'), { status: 401 }) }]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: g.client }), ClaudeAuthError);
+  assert.equal(g.calls.length, 1);
+});
+
+test('a failing retry surfaces the second error and learns nothing', async () => {
+  resetLearnedCapabilities();
+  const f = fakeClient([plain400('fallbacks: Extra inputs are not permitted'), plain400('something else')]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client }), (e) => e.message === 'something else');
+  assert.equal(f.calls.length, 2);
+  assert.equal(getLearnedCapabilities().refusalFallback, true);
+});
+
+test('each degrade step is used at most once per call', async () => {
+  resetLearnedCapabilities();
+  const m = 'fallbacks: Extra inputs are not permitted';
+  const f = fakeClient([plain400(m), plain400(m), plain400(m)]);
+  await assert.rejects(callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client }), (e) => e.message === m);
+  assert.equal(f.calls.length, 2, 'no third request');
+  assert.equal(getLearnedCapabilities().refusalFallback, true);
+});
+
+test('the budget hook runs before every retry and usage is reported only for the successful response', async () => {
+  resetLearnedCapabilities();
+  try {
+    const ctxs = [];
+    const usage = [];
+    const f = fakeClient([plain400('fallbacks: Extra inputs are not permitted'), reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, {
+      client: f.client,
+      beforeCall: (c) => ctxs.push(c),
+      onUsage: (u) => usage.push(u)
+    });
+    assert.equal(ctxs.length, f.calls.length);
+    assert.equal(ctxs.length, 2);
+    assert.deepEqual(ctxs.map((c) => c.attempt), [0, 0], 'a retry reuses the attempt index');
+    assert.equal(usage.length, 1);
+
+    // and a budget refusal on the retry stops it
+    resetLearnedCapabilities();
+    let n = 0;
+    const g = fakeClient([plain400('fallbacks: Extra inputs are not permitted'), reply([text('never')])]);
+    await assert.rejects(
+      callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, {
+        client: g.client,
+        beforeCall: () => { n += 1; if (n === 2) throw new Error('BUDGET_EXCEEDED'); }
+      }),
+      /BUDGET_EXCEEDED/
+    );
+    assert.equal(g.calls.length, 1, 'the retry request is not sent');
+    assert.equal(getLearnedCapabilities().refusalFallback, true);
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('two steps can combine in one call', async () => {
+  resetLearnedCapabilities();
+  try {
+    const f = fakeClient([
+      plain400('fallbacks: Extra inputs are not permitted'),
+      plain400('output_config.format is not supported with this tool'),
+      reply([text('ok')])
+    ]);
+    const r = await callClaude(
+      { apiKey: KEY, task: 'ai-search', prompt: 'hi', schema: schema1, tools: [webSearchTool({ maxUses: 1 })] },
+      { client: f.client }
+    );
+    assert.equal(f.calls.length, 3);
+    assert.deepEqual(r.degraded, ['refusal-fallback', 'schema-with-tools']);
+    assert.deepEqual(f.calls[2].output_config, { effort: 'medium' });
+    assert.ok(!f.calls[2].beta);
+    assert.deepEqual(getLearnedCapabilities(), { refusalFallback: false, schemaWithTools: false, haikuSearch: true });
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('a degraded variant carries over into pause_turn continuations', async () => {
+  resetLearnedCapabilities();
+  try {
+    const paused = reply([{ type: 'server_tool_use', id: 's1', name: 'web_search', input: {} }], { stop_reason: 'pause_turn' });
+    const f = fakeClient([plain400('fallbacks: Extra inputs are not permitted'), paused, reply([text('done')])]);
+    const r = await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client });
+    assert.equal(f.calls.length, 3);
+    assert.ok(!f.calls[1].beta && !f.calls[2].beta);
+    assert.equal(r.text, 'done');
+    assert.deepEqual(r.degraded, ['refusal-fallback']);
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('degrade notices are logged once per step and never contain the key', async () => {
+  resetLearnedCapabilities();
+  try {
+    const logs = [];
+    const f = fakeClient([plain400('fallbacks: Extra inputs are not permitted for ' + KEY), reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'tailor', prompt: 'hi' }, { client: f.client, onLog: (m, t) => logs.push({ m, t }) });
+    const notices = logs.filter((l) => l.m.includes('not accepted by the API'));
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].m, 'tailor: refusal-fallback not accepted by the API; retried without it');
+    assert.equal(notices[0].t, 'system');
+    assert.ok(logs.every((l) => !l.m.includes(KEY)));
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('degradeStepFor is pure and keyed on the request shape', () => {
+  const beta = { beta: true, hasTools: false, hasFormat: false, hasWebSearch: false, model: MODEL_IDS.sonnet };
+  assert.equal(degradeStepFor({ status: 400, message: 'Unknown beta: betas not allowed' }, beta), 'refusal-fallback');
+  assert.equal(degradeStepFor({ status: 400, message: 'Unknown beta' }, beta), null);
+  assert.equal(degradeStepFor({ status: 500, message: 'fallbacks' }, beta), null);
+  assert.equal(degradeStepFor(null, beta), null);
+  assert.equal(degradeStepFor({ status: 400 }, beta), null);
 });

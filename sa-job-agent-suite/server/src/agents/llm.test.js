@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fakeClient } from '@sajas/core/testing';
+import { resetLearnedCapabilities, getLearnedCapabilities } from '@sajas/core';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sajas-llm-'));
 process.env.DB_PATH = path.join(dir, 'db.json');
@@ -31,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
   llm.setClaudeClientForTests(null);
+  resetLearnedCapabilities();
   delete process.env.SAJAS_DEMO_ORIGIN;
 });
 
@@ -151,4 +153,23 @@ test('callLlmVision sends the images and records usage under the vision bucket',
   const content = f.calls[0].messages.at(-1).content;
   assert.ok(content.some((b) => b.type === 'image'));
   assert.equal(helper.getUsageSummary().today.byBucket.vision.calls, 1);
+});
+
+test('a rejected optional API feature degrades, logs a notice to the activity log and still returns text', async () => {
+  helper.clearLogs();
+  const f = fakeClient([
+    { __throw: { status: 400, message: 'fallbacks: Extra inputs are not permitted' } },
+    reply([text('degraded ok')])
+  ]);
+  llm.setClaudeClientForTests(f.client);
+  const out = await llm.callLlm(profile(), 'hi', { bucket: 'tailor' });
+  assert.equal(out, 'degraded ok');
+  assert.equal(f.calls.length, 2);
+  assert.equal(getLearnedCapabilities().refusalFallback, false);
+  const notice = helper.getLogs().find((l) => l.message.includes('not accepted by the API'));
+  assert.ok(notice, 'the degrade notice reached the activity log');
+  assert.equal(notice.message, 'tailor: refusal-fallback not accepted by the API; retried without it');
+  assert.equal(notice.type, 'system');
+  assert.ok(!JSON.stringify(helper.getLogs()).includes(KEY));
+  assert.equal(helper.getUsageSummary().today.byBucket.tailor.calls, 1, 'only the response that came back is metered');
 });

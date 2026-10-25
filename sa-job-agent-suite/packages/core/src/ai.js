@@ -11,7 +11,7 @@
 // must not be "fixed" into a user-last request. Only the initial request is
 // guaranteed user-last (enforced in buildMessages).
 import Anthropic from '@anthropic-ai/sdk';
-import { taskConfig } from './models.js';
+import { taskConfig, MODEL_IDS } from './models.js';
 import { fromAnthropicUsage } from './costs.js';
 import { isAnthropicKeyShape, isAdminKeyShape, normalizeKeyInput, scrubSecrets } from './secrets.js';
 import { ClaudeAuthError, ClaudeRefusalError, ClaudeKeyError } from './errors.js';
@@ -99,6 +99,49 @@ function wrapSdkError(err) {
   return err;
 }
 
+// ---- Self-degrading ---------------------------------------------------------------------------
+// Three optional API features were never verified against the live API (the smoke test
+// needs a real key): the refusal-fallback beta, JSON-schema output together with server
+// tools, and web search on Haiku. If the API rejects one with a 400, retry the request
+// once without it. The lesson is process-wide and only recorded when the retry SUCCEEDS,
+// so a bad request of any other kind can never switch a feature off.
+const STEP_FALLBACK = 'refusal-fallback';
+const STEP_SCHEMA = 'schema-with-tools';
+const STEP_HAIKU = 'haiku-search';
+const LEARNED_KEY = { [STEP_FALLBACK]: 'refusalFallback', [STEP_SCHEMA]: 'schemaWithTools', [STEP_HAIKU]: 'haikuSearch' };
+
+const learned = { refusalFallback: true, schemaWithTools: true, haikuSearch: true }; // true = still allowed
+
+/** What the process has learned the API will not accept (true = still allowed). */
+export function getLearnedCapabilities() {
+  return { ...learned };
+}
+
+/** Tests only: forget everything learned. */
+export function resetLearnedCapabilities() {
+  learned.refusalFallback = true;
+  learned.schemaWithTools = true;
+  learned.haikuSearch = true;
+}
+
+const isWebSearchTool = (t) => Boolean(t) && typeof t.type === 'string' && t.type.startsWith('web_search');
+
+/**
+ * Pure. Which degrade step (if any) does this error call for?
+ * `request` describes what was actually sent: { beta, hasTools, hasFormat, hasWebSearch, model }.
+ * Only an HTTP 400 qualifies, and only for a feature the request really used.
+ */
+export function degradeStepFor(err, request) {
+  if (!err || err.status !== 400 || !request) return null;
+  const msg = typeof err.message === 'string' ? err.message.toLowerCase() : '';
+  if (!msg) return null;
+  const has = (...needles) => needles.some((n) => msg.includes(n));
+  if (request.beta && has('fallback', 'server-side-fallback', 'betas')) return STEP_FALLBACK;
+  if (request.hasTools && request.hasFormat && has('output_config', 'format', 'json_schema', 'structured')) return STEP_SCHEMA;
+  if (request.hasWebSearch && request.model === MODEL_IDS.haiku && has('web_search', 'tool')) return STEP_HAIKU;
+  return null;
+}
+
 /**
  * When both `messages` and `prompt` (and/or `images`) are given, the prompt is
  * appended as a NEW user turn after `messages`, so a caller can continue a prior
@@ -116,18 +159,24 @@ export async function callClaude(req, hooks = {}) {
   const effort = req.effort || cfg.effort;
   const maxTokens = Math.max(req.maxTokens || 0, cfg.maxTokens);
   const maxContinuations = req.maxContinuations ?? DEFAULT_MAX_CONTINUATIONS;
-  const useFallback = req.refusalFallback ?? REFUSAL_FALLBACK_DEFAULT;
   const log = (msg, type) => { if (hooks.onLog) hooks.onLog(scrubSecrets(msg), type); };
 
   const messages = buildMessages(req);
   const system = buildSystem(req.system, req.cacheSystem);
-  const base = {
-    model,
-    max_tokens: maxTokens,
-    output_config: { effort, ...(req.schema ? { format: { type: 'json_schema', schema: req.schema } } : {}) },
-    ...(system !== undefined ? { system } : {}),
-    ...(req.tools && req.tools.length ? { tools: req.tools } : {})
+  const tools = req.tools && req.tools.length ? req.tools : undefined;
+  const format = req.schema ? { type: 'json_schema', schema: req.schema } : undefined;
+  const hasWebSearch = Boolean(tools && tools.some(isWebSearchTool));
+
+  // The request variant: starts from what the process has already learned the API accepts,
+  // and is narrowed further (for the rest of this call) when a retry succeeds without a feature.
+  const variant = {
+    useFallback: (req.refusalFallback ?? REFUSAL_FALLBACK_DEFAULT) && learned.refusalFallback,
+    dropFormat: Boolean(format && tools && !learned.schemaWithTools),
+    model: hasWebSearch && model === MODEL_IDS.haiku && !learned.haikuSearch ? MODEL_IDS.sonnet : model
   };
+  const tried = new Set();   // degrade steps already applied in this call (each at most once)
+  const pending = [];        // applied but not yet confirmed by a successful response
+  const degraded = [];       // confirmed this call (not those learned earlier)
 
   const client = hooks.client || makeClient({ apiKey });
   const total = { ...ZERO };
@@ -135,19 +184,52 @@ export async function callClaude(req, hooks = {}) {
   let response;
 
   for (let attempt = 0; ; attempt++) {
-    const ctx = { task, model, attempt };
-    if (hooks.beforeCall) await hooks.beforeCall(ctx);
+    // A degraded retry is a fresh request on the SAME attempt index; beforeCall (the budget
+    // guard) runs again before it, so a retry can never bypass the budget.
+    for (;;) {
+      const ctx = { task, model: variant.model, attempt };
+      if (hooks.beforeCall) await hooks.beforeCall(ctx);
 
-    // Per-request snapshot: the array handed to the client is never mutated later.
-    const params = { ...base, messages: [...messages] };
-    try {
-      const stream = useFallback
-        ? client.beta.messages.stream({ ...params, betas: FALLBACK_BETAS, fallbacks: 'default' })
-        : client.messages.stream(params);
-      response = await stream.finalMessage();
-    } catch (err) {
-      throw wrapSdkError(err);
+      // Per-request snapshot: the array handed to the client is never mutated later.
+      const params = {
+        model: variant.model,
+        max_tokens: maxTokens,
+        output_config: { effort, ...(format && !variant.dropFormat ? { format } : {}) },
+        ...(system !== undefined ? { system } : {}),
+        ...(tools ? { tools } : {}),
+        messages: [...messages]
+      };
+      try {
+        const stream = variant.useFallback
+          ? client.beta.messages.stream({ ...params, betas: FALLBACK_BETAS, fallbacks: 'default' })
+          : client.messages.stream(params);
+        response = await stream.finalMessage();
+      } catch (err) {
+        const step = degradeStepFor(err, {
+          beta: variant.useFallback,
+          hasTools: Boolean(tools),
+          hasFormat: Boolean(format && !variant.dropFormat),
+          hasWebSearch,
+          model: variant.model
+        });
+        if (!step || tried.has(step)) throw wrapSdkError(err);
+        tried.add(step);
+        pending.push(step);
+        if (step === STEP_FALLBACK) variant.useFallback = false;
+        else if (step === STEP_SCHEMA) variant.dropFormat = true;
+        else variant.model = MODEL_IDS.sonnet;
+        log(`${task}: ${step} not accepted by the API; retried without it`, 'system');
+        continue;
+      }
+      break;
     }
+
+    // The retried request came back: the API accepts the degraded shape, so remember it.
+    for (const step of pending.splice(0)) {
+      learned[LEARNED_KEY[step]] = false;
+      degraded.push(step);
+    }
+    const ctx = { task, model: variant.model, attempt };
 
     const usage = fromAnthropicUsage(response.model || model, response.usage);
     addUsage(total, usage);
@@ -179,6 +261,7 @@ export async function callClaude(req, hooks = {}) {
     usage: { model: response.model || model, ...total },
     model: response.model || model,
     messages: [...messages, { role: 'assistant', content: response.content }],
-    requestIds
+    requestIds,
+    degraded
   };
 }

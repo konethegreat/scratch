@@ -29,7 +29,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
     assert.equal(response.status, 200, `${route}: ${await response.clone().text()}`);
     return response.json();
   };
-  const post = answer => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) });
+  const post = answer => ({ method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SAJAS-Client': '1' }, body: JSON.stringify({ answer }) });
   let session;
   let client;
   const evidence = process.env.SAJAS_DEMO_EVIDENCE_DIR;
@@ -62,7 +62,8 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
         ['GET', '/api/browser/login-status'], ['POST', '/api/profile'], ['POST', '/api/profile/preset'],
         ['POST', '/api/backup/restore'], ['POST', '/api/routines'], ['POST', '/api/memory/dream'],
         ['POST', `/api/jobs/${DEMO_JOB_ID}/referral`], ['POST', '/api/jobs/other-job/apply']]) {
-        const response = await fetch(runtime.origin + route, { method });
+        // The client header is sent so the refusal is the demo allowlist's, not the local guard's.
+        const response = await fetch(runtime.origin + route, { method, headers: { 'X-SAJAS-Client': '1' } });
         assert.equal(response.status, 403, route);
       }
     });
@@ -188,7 +189,17 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
   child.stderr.on('data', b => { output += b; });
   const call = (route, options = {}) => fetch(origin + route, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+    headers: { 'Content-Type': 'application/json', 'X-SAJAS-Client': '1', ...(options.headers || {}) }
+  });
+  // http.request lets a test set an explicit Host header, which fetch forbids.
+  const rawRequest = (route, { method = 'GET', headers = {} } = {}) => new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: route, method, headers }, res => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body }));
+    });
+    req.on('error', reject);
+    req.end();
   });
   try {
     const deadline = Date.now() + 15000;
@@ -213,6 +224,30 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey', 'geminiApiKey', 'openRouterApiKey']) {
         assert.ok(!(gone in profile), `profile must not expose ${gone}`);
       }
+    });
+    await t.test('local guard: a POST without X-SAJAS-Client is 403 and changes nothing; with it, it succeeds', async () => {
+      const before = (await (await call('/api/profile')).json()).fullName;
+      const body = JSON.stringify({ fullName: 'Guard Probe' });
+      const blocked = await fetch(origin + '/api/profile', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
+      assert.equal(blocked.status, 403);
+      assert.deepEqual(await blocked.json(), { error: 'Missing X-SAJAS-Client header' });
+      assert.equal((await (await call('/api/profile')).json()).fullName, before);
+      const allowed = await call('/api/profile', { method: 'POST', body });
+      assert.equal(allowed.status, 200);
+      assert.equal((await (await call('/api/profile')).json()).fullName, 'Guard Probe');
+      assert.equal((await call('/api/profile', { method: 'POST', body: JSON.stringify({ fullName: before }) })).status, 200);
+    });
+    await t.test('local guard: a foreign Host (DNS rebinding) or Origin is 403 even for GET', async () => {
+      const rebinding = await rawRequest('/api/profile', { headers: { Host: 'evil.example' } });
+      assert.equal(rebinding.status, 403);
+      assert.deepEqual(JSON.parse(rebinding.body), { error: 'Host not allowed' });
+      const rebindingPort = await rawRequest('/api/health', { headers: { Host: '127.0.0.1.evil.example:' + port } });
+      assert.equal(rebindingPort.status, 403);
+      const foreign = await call('/api/profile', { headers: { Origin: 'https://evil.example' } });
+      assert.equal(foreign.status, 403);
+      assert.deepEqual(await foreign.json(), { error: 'Origin not allowed' });
+      const viteOrigin = await call('/api/profile', { headers: { Origin: 'http://localhost:4173' } });
+      assert.equal(viteOrigin.status, 200);
     });
     await t.test('POST /api/profile rejects an Admin key with 400 and stores nothing', async () => {
       const response = await call('/api/profile', { method: 'POST', body: JSON.stringify({ anthropicApiKey: adminKey }) });

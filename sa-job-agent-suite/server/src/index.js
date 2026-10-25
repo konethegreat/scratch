@@ -68,6 +68,7 @@ import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
 import { demoOrigin, installDemo } from './demo.js';
+import { localGuard } from './localGuard.js';
 import { MODELS } from '@sajas/core';
 
 const app = express();
@@ -90,6 +91,10 @@ const corsOptions = {
   }
 };
 app.use(cors(corsOptions));
+// Refuse foreign Host/Origin (DNS rebinding, cross-site forms) and require the
+// X-SAJAS-Client header on non-GET routes. Runs after cors (which answers the
+// preflight) and before the body parser and every route.
+app.use(localGuard({ port: PORT }));
 // Raised from 10mb so a base64-encoded supporting-document PDF (ID, matric,
 // degree, academic record) fits comfortably in a single upload request.
 app.use(express.json({ limit: '30mb' }));

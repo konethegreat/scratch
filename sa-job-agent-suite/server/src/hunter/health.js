@@ -11,14 +11,17 @@ const CIRCUIT_THRESHOLD = 3;
 const COOLDOWN_MS = 6 * 3600 * 1000;
 
 const filled = (v) => typeof v === 'string' && v.trim().length > 0;
+// Scrapers substitute this placeholder when the company selector breaks.
+const realCompany = (v) => filled(v) && v.trim().toLowerCase() !== 'confidential';
 
 // Build a RunRecord from the raw items a source returned (before scoring).
 export function summariseRun({
   kind = 'hunt', items = [], pages = 0, httpStatus = null, blocked = false, blockKind = null,
-  error = null, ms = 0, via = 'css', stopReason = '', at
+  error = null, ms = 0, via = 'css', stopReason = '', at, expectsUrl = true
 } = {}) {
   const list = Array.isArray(items) ? items : [];
-  const count = (pick) => list.reduce((n, it) => n + (it && filled(pick(it)) ? 1 : 0), 0);
+  const countIf = (test) => list.reduce((n, it) => n + (it && test(it) ? 1 : 0), 0);
+  const count = (pick) => countIf((it) => filled(pick(it)));
   return {
     at: at || new Date().toISOString(),
     kind,
@@ -26,7 +29,7 @@ export function summariseRun({
     raw: list.length,
     withTitle: count((i) => i.title),
     withUrl: count((i) => i.applyUrl ?? i.url),
-    withCompany: count((i) => i.company),
+    withCompany: countIf((i) => realCompany(i.company)),
     withLocation: count((i) => i.location),
     httpStatus: httpStatus ?? null,
     blocked: !!blocked,
@@ -34,7 +37,8 @@ export function summariseRun({
     error: error || null,
     ms,
     via,
-    stopReason
+    stopReason,
+    expectsUrl: expectsUrl !== false
   };
 }
 
@@ -70,7 +74,14 @@ const ts = (iso) => {
   return Number.isNaN(n) ? 0 : n;
 };
 
-export function computeStatus(entry, opts = {}) {
+// `_opts` is reserved (callers pass { now }); the model does not need the clock.
+// An unparseable canary timestamp must not let a failing canary be ignored.
+function canaryIsNewer(canary, newest) {
+  const c = Date.parse(canary.at);
+  return Number.isNaN(c) || c > ts(newest.at);
+}
+
+export function computeStatus(entry, _opts = {}) {
   const e = entry || emptyEntry();
   const circuitOpen = !!(e.circuit && e.circuit.open);
   const out = (status, reason) => ({ status, reason, circuitOpen });
@@ -88,7 +99,7 @@ export function computeStatus(entry, opts = {}) {
   const newest = idx >= 0 ? runs[idx] : null;
 
   const canary = e.canary;
-  if (canary && canary.pass === false && (!newest || ts(canary.at) > ts(newest.at))) {
+  if (canary && canary.pass === false && (!newest || canaryIsNewer(canary, newest))) {
     const why = Array.isArray(canary.reasons) && canary.reasons.length ? canary.reasons.join('; ') : 'canary failed';
     return out('broken', `canary failed: ${why}`);
   }
@@ -112,16 +123,23 @@ export function computeStatus(entry, opts = {}) {
     }
     return out('degraded', 'returned nothing (no baseline yet)');
   }
-  if (newest.withTitle / raw < 0.8 || newest.withUrl / raw < 0.8) {
+  // Missing completeness fields count as 0, so a record built outside
+  // summariseRun can never silently pass. A linkless source (expectsUrl false,
+  // e.g. Google Jobs) is exempt from the link half only.
+  const withTitle = newest.withTitle || 0;
+  const withUrl = newest.withUrl || 0;
+  const withCompany = newest.withCompany || 0;
+  const withLocation = newest.withLocation || 0;
+  const linkBad = newest.expectsUrl !== false && withUrl / raw < 0.8;
+  if (withTitle / raw < 0.8 || linkBad) {
     return out('broken', 'cards found but title/link missing: the page layout changed');
   }
-  if (newest.withCompany / raw < 0.5 || newest.withLocation / raw < 0.5) {
+  if (withCompany / raw < 0.5 || withLocation / raw < 0.5) {
     return out('degraded', 'many cards are missing company or location');
   }
   if (baseline.samples >= 3 && raw < 0.3 * baseline.median) {
     return out('degraded', `yield dropped to ${raw} from ~${baseline.median}`);
   }
-  void opts;
   return out('healthy', '');
 }
 
@@ -144,7 +162,7 @@ export function applyRun(entry, run, now = Date.now()) {
   if (isSuccess(run)) next.lastSuccessAt = run.at;
 
   if (run.kind === 'hunt') {
-    const { status, reason } = computeStatus(next, { now });
+    const { status, reason } = computeStatus(next);
     if (status === 'broken' && !run.blocked) {
       next.consecutiveBroken = (base.consecutiveBroken || 0) + 1;
       if (next.consecutiveBroken >= CIRCUIT_THRESHOLD && !next.circuit.open) {
@@ -156,7 +174,10 @@ export function applyRun(entry, run, now = Date.now()) {
     }
     const hunts = next.runs.filter((r) => r.kind === 'hunt');
     const n = hunts.length;
-    if (n >= 2 && hunts[n - 1].blocked && hunts[n - 2].blocked) {
+    // Login blocks never cool down (the user fixes them by signing in);
+    // only challenge/denied/rate-limit blocks do.
+    const coolBlock = (r) => r.blocked && r.blockKind !== 'login';
+    if (n >= 2 && coolBlock(hunts[n - 1]) && coolBlock(hunts[n - 2])) {
       next.cooldownUntil = new Date(now + COOLDOWN_MS).toISOString();
     }
   } else if (run.kind === 'canary' && isSuccess(run)) {

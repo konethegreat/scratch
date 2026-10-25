@@ -1,6 +1,6 @@
 // healthStore persists through db/helper.js, which reads DB_PATH at import
 // time, so the temp paths are set BEFORE the dynamic imports.
-import test from 'node:test';
+import test, { describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,6 +21,9 @@ const hunt = (over = {}) => ({
   error: null, ms: 10, via: 'css', stopReason: 'done', ...over
 });
 
+after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+describe('source health store', () => {
 test('unknown id returns an empty entry without writing', () => {
   helper.readDb(); // first read creates db.json with defaults
   const before = fs.readFileSync(process.env.DB_PATH, 'utf-8');
@@ -43,12 +46,33 @@ test('recordRun persists and getHealthEntry round-trips', () => {
 });
 
 test('recordCanary stores the canary and pushes a canary run', () => {
+  const id = 'canary-source';
+  store.recordRun(id, hunt());
   const canary = { at: '2026-10-25T11:00:00.000Z', pass: false, reasons: ['no cards'], raw: 0, ms: 7 };
-  const e = store.recordCanary('pnet', canary);
+  const e = store.recordCanary(id, canary);
   assert.deepEqual(e.canary, canary);
   assert.equal(e.runs.at(-1).kind, 'canary');
   assert.equal(e.circuit.open, false);
   assert.equal(computeStatus(e).status, 'broken');
+});
+
+test('recordCanary prefers caller-supplied blocked/blockKind and defaults a missing at', () => {
+  const id = 'canary-blocked';
+  const e = store.recordCanary(id, { pass: false, reasons: ['looks fine'], raw: 0, ms: 1, blocked: true, blockKind: 'login' });
+  const r = e.runs.at(-1);
+  assert.equal(r.blocked, true);
+  assert.equal(r.blockKind, 'login');
+  assert.ok(!Number.isNaN(Date.parse(e.canary.at)));
+  // the regex is only a fallback: an explicit blocked:false wins over the wording
+  const f = store.recordCanary('canary-explicit', { at: '2026-10-25T11:00:00.000Z', pass: false, reasons: ['captcha text in selector name'], raw: 0, ms: 1, blocked: false });
+  assert.equal(f.runs.at(-1).blocked, false);
+});
+
+test('a corrupted non-array runs value is normalised to []', () => {
+  fs.writeFileSync(process.env.DB_PATH, JSON.stringify({ sourceHealth: { weird: { runs: 'oops' }, junk: 5 } }));
+  assert.deepEqual(store.getHealthEntry('weird').runs, []);
+  assert.deepEqual(store.getHealthEntry('junk'), emptyEntry());
+  assert.equal(store.recordRun('weird', hunt()).runs.length, 1);
 });
 
 test('setEnabled(false) persists and computeStatus reads disabled', () => {
@@ -84,4 +108,5 @@ test('db.json written by older versions (no sourceHealth) still loads', () => {
   assert.deepEqual(helper.readDb().sourceHealth, {});
   store.recordRun('pnet', hunt());
   assert.equal(store.getHealthEntry('pnet').runs.length, 1);
+});
 });

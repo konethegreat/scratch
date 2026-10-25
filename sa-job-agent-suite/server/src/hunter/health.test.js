@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STATUSES, summariseRun, baselineRaw, computeStatus, shouldSkip, applyRun, emptyEntry
@@ -21,6 +21,8 @@ function run(over = {}) {
 }
 const entryWith = (runs, over = {}) => ({ ...emptyEntry(), runs, ...over });
 const goodRuns = (n, raw = 10) => Array.from({ length: n }, () => run({ raw }));
+
+describe('source health model', () => {
 
 test('STATUSES lists every status', () => {
   assert.deepEqual(STATUSES, ['healthy', 'degraded', 'broken', 'blocked', 'needs-login', 'disabled', 'unknown']);
@@ -252,4 +254,69 @@ test('shouldSkip reports disabled, circuit and cooldown', () => {
   assert.deepEqual(shouldSkip(cd, NOW), { skip: true, reason: 'cooling down after repeated blocks' });
   const past = { ...emptyEntry(), cooldownUntil: new Date(NOW - HOUR).toISOString() };
   assert.equal(shouldSkip(past, NOW).skip, false);
+});
+
+test('computeStatus: a linkless source (expectsUrl false) is healthy with titles and no links', () => {
+  const linkless = (over = {}) => run({ raw: 20, withUrl: 0, expectsUrl: false, ...over });
+  assert.equal(computeStatus(entryWith([linkless()])).status, 'healthy');
+  // same run, expectsUrl true or omitted -> broken
+  assert.equal(computeStatus(entryWith([linkless({ expectsUrl: true })])).status, 'broken');
+  assert.equal(computeStatus(entryWith([run({ raw: 20, withUrl: 0 })])).status, 'broken');
+  // titles missing still breaks a linkless run
+  assert.equal(computeStatus(entryWith([linkless({ withTitle: 5 })])).status, 'broken');
+});
+
+test('applyRun on three linkless healthy hunts never opens the circuit', () => {
+  let e = emptyEntry();
+  for (let i = 0; i < 5; i++) e = applyRun(e, run({ raw: 20, withUrl: 0, expectsUrl: false }), NOW);
+  assert.equal(e.consecutiveBroken, 0);
+  assert.equal(e.circuit.open, false);
+});
+
+test('summariseRun stores expectsUrl (default true)', () => {
+  assert.equal(summariseRun({ items: [] }).expectsUrl, true);
+  assert.equal(summariseRun({ items: [], expectsUrl: false }).expectsUrl, false);
+});
+
+test('summariseRun does not count a Confidential company as filled', () => {
+  const r = summariseRun({
+    items: [
+      { title: 'A', company: 'Confidential', location: 'Confidential' },
+      { title: 'B', company: ' confidential ', location: 'JHB' },
+      { title: 'C', company: 'Acme', location: 'CPT' }
+    ]
+  });
+  assert.equal(r.withCompany, 1);
+  assert.equal(r.withLocation, 3); // locations are not special-cased
+});
+
+test('login blocks never set a cooldown; challenge blocks do', () => {
+  const blockedRun = (blockKind) => run({ raw: 0, blocked: true, blockKind });
+  let login = applyRun(applyRun(emptyEntry(), blockedRun('login'), NOW), blockedRun('login'), NOW);
+  assert.equal(login.cooldownUntil, null);
+  assert.equal(shouldSkip(login, NOW).skip, false);
+  assert.equal(computeStatus(login).status, 'needs-login');
+
+  const challenge = applyRun(applyRun(emptyEntry(), blockedRun('challenge'), NOW), blockedRun('challenge'), NOW);
+  assert.equal(challenge.cooldownUntil, new Date(NOW + 6 * HOUR).toISOString());
+
+  const mixed = applyRun(applyRun(emptyEntry(), blockedRun('challenge'), NOW), blockedRun('login'), NOW);
+  assert.equal(mixed.cooldownUntil, null);
+});
+
+test('computeStatus: missing completeness fields count as 0', () => {
+  const bare = { at: iso(++tick), kind: 'hunt', raw: 10 };
+  assert.equal(computeStatus(entryWith([bare])).status, 'broken');
+  const titledOnly = { ...bare, withTitle: 10, withUrl: 10 };
+  assert.equal(computeStatus(entryWith([titledOnly])).status, 'degraded');
+});
+
+test('computeStatus: a failing canary with an invalid or missing at is not ignored', () => {
+  for (const at of ['not-a-date', undefined, null, '']) {
+    const canary = { at, pass: false, reasons: ['selector gone'], raw: 0, ms: 1 };
+    const s = computeStatus(entryWith(goodRuns(3), { canary }));
+    assert.equal(s.status, 'broken', `at=${String(at)}`);
+    assert.match(s.reason, /selector gone/);
+  }
+});
 });

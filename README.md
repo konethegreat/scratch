@@ -44,7 +44,7 @@ A React dashboard sits on top: live agent terminal, KPI tiles, job pipeline, pro
 - **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, lenient SA-location filter.
 - **AI tailoring** — Claude (Anthropic only; Sonnet 5.5 by default, per-task model overrides); ATS-friendly CVs + cover letters in SA English, rendered to PDF.
 - **Persistent Apply Copilot** — a floating HUD that survives navigation and follows new tabs/popups (e.g. PNet's "I'm interested").
-- **Auto-pilot** — fills each real form, attaches your CV PDF, and clicks Apply / I'm interested / Continue / Next to walk multi-step flows. Toggle on/off in the HUD.
+- **Auto-pilot** — fills each real form, attaches your CV PDF, and walks multi-step flows: on listing pages it may click Apply / I'm interested to reach the form, but once inside the application it only clicks Next / Continue / Proceed (a bare "Apply" or any Submit is left to you). Toggle on/off in the HUD.
 - **Page understanding** — a per-page AI **planner** comprehends each page (form vs listing vs login) and decides what to do, instead of brittle keyword rules. Optional **vision fallback** (screenshot → multimodal model) for tricky/custom pages.
 - **Smart-fill, 3 passes** — (1) deterministic fill from your structured profile + saved answers (no guessing on demographics/salary), (2) AI for free-text screening questions, (3) captures any unanswered required question so you answer it once.
 - **Learn-as-you-go answer bank** — questions Agent 3 can't answer are saved to Settings; answer them once and they auto-fill on every future application across any site.
@@ -249,7 +249,7 @@ Web search adds about $0.01 per search. Prices are the registry's estimates (`pa
 - **Keys** travel UI → `keys.json` only; the client sees booleans, never raw keys.
 - **Never auto-submits** an application and **never solves CAPTCHAs** — challenges are detected, the window is brought forward, and the session waits for you.
 - **Prompt-injection scanning** runs on every page; hidden manipulation text is flagged in the HUD. Form labels are treated as untrusted in all AI prompts.
-- The planner can recommend a click, but `clickButtonByText()` refuses submit / send / finish / confirm / pay wording — the final action is always yours.
+- The planner can recommend a click, but the click policy (`submitGuard.js` / `controls.js`) refuses submit / send / finish / confirm / pay wording and account actions, and on a form page allows only Next / Continue / Proceed — the final action is always yours.
 - **Demographics/salary are never guessed** — they're filled only from values you explicitly entered. ID/passport number is not stored.
 - All data is local; the only outbound calls are to job sites (Playwright) and the Anthropic API.
 
@@ -259,7 +259,7 @@ Web search adds about $0.01 per search. Prices are the registry's estimates (`pa
 
 **Hunter saved 0 jobs** — check the Run Summary on the Dashboard. Usually: AI search off, no Anthropic key, or keywords matched nothing. Enable AI search and add an Anthropic key.
 
-**Autopilot typed into a search box / didn't enter the application** — fixed: it now skips search boxes, detects real forms, and clicks Apply/Continue to reach the form. If a site is unusual, enable the vision fallback or click Apply yourself; it takes over from there.
+**Autopilot typed into a search box / didn't enter the application** — fixed: it now skips search boxes, detects real forms, and clicks Apply/Continue on listing pages to reach the form. If a site is unusual, enable the vision fallback or click Apply yourself; it takes over from there.
 
 **A field wasn't filled** — open Settings → Standard application answers. Anything the copilot couldn't answer is queued under "Questions to answer"; answer it once and it's remembered.
 

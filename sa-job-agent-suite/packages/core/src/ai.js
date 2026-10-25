@@ -122,6 +122,16 @@ export function resetLearnedCapabilities() {
   learned.refusalFallback = true;
   learned.schemaWithTools = true;
   learned.haikuSearch = true;
+  announced.clear();
+}
+
+// Lessons already announced by an up-front application (one notice per process per lesson).
+const announced = new Set();
+
+// First ~120 chars of an error message, secrets scrubbed BEFORE cutting (a key cut in half
+// would no longer match the key pattern), whitespace collapsed.
+function excerptOf(message) {
+  return scrubSecrets(String(message ?? '')).replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
 const isWebSearchTool = (t) => Boolean(t) && typeof t.type === 'string' && t.type.startsWith('web_search');
@@ -137,8 +147,11 @@ export function degradeStepFor(err, request) {
   if (!msg) return null;
   const has = (...needles) => needles.some((n) => msg.includes(n));
   if (request.beta && has('fallback', 'server-side-fallback', 'betas')) return STEP_FALLBACK;
-  if (request.hasTools && request.hasFormat && has('output_config', 'format', 'json_schema', 'structured')) return STEP_SCHEMA;
-  if (request.hasWebSearch && request.model === MODEL_IDS.haiku && has('web_search', 'tool')) return STEP_HAIKU;
+  // The schema and Haiku steps only make sense on the first request of a call: a search that
+  // already succeeded earlier in this call followed by a continuation 400 teaches nothing true.
+  const first = (request.attempt ?? 0) === 0;
+  if (first && request.hasTools && request.hasFormat && has('output_config', 'format', 'json_schema', 'structured')) return STEP_SCHEMA;
+  if (first && request.hasWebSearch && request.model === MODEL_IDS.haiku && has('web_search', 'tool')) return STEP_HAIKU;
   return null;
 }
 
@@ -174,6 +187,16 @@ export async function callClaude(req, hooks = {}) {
     dropFormat: Boolean(format && tools && !learned.schemaWithTools),
     model: hasWebSearch && model === MODEL_IDS.haiku && !learned.haikuSearch ? MODEL_IDS.sonnet : model
   };
+  // Make a silent swap visible once per process per lesson (the Haiku->Sonnet swap is ~20x the price).
+  const upFront = [];
+  if ((req.refusalFallback ?? REFUSAL_FALLBACK_DEFAULT) && !learned.refusalFallback) upFront.push(STEP_FALLBACK);
+  if (variant.dropFormat) upFront.push(STEP_SCHEMA);
+  if (variant.model !== model) upFront.push(STEP_HAIKU);
+  for (const step of upFront) {
+    if (announced.has(step)) continue;
+    announced.add(step);
+    log(`${task}: ${step} was rejected earlier; running without it`, 'system');
+  }
   const tried = new Set();   // degrade steps already applied in this call (each at most once)
   const pending = [];        // applied but not yet confirmed by a successful response
   const degraded = [];       // confirmed this call (not those learned earlier)
@@ -210,7 +233,8 @@ export async function callClaude(req, hooks = {}) {
           hasTools: Boolean(tools),
           hasFormat: Boolean(format && !variant.dropFormat),
           hasWebSearch,
-          model: variant.model
+          model: variant.model,
+          attempt
         });
         if (!step || tried.has(step)) throw wrapSdkError(err);
         tried.add(step);
@@ -218,7 +242,7 @@ export async function callClaude(req, hooks = {}) {
         if (step === STEP_FALLBACK) variant.useFallback = false;
         else if (step === STEP_SCHEMA) variant.dropFormat = true;
         else variant.model = MODEL_IDS.sonnet;
-        log(`${task}: ${step} not accepted by the API; retried without it`, 'system');
+        log(`${task}: ${step} not accepted by the API (${excerptOf(err.message)}); retried without it`, 'system');
         continue;
       }
       break;
@@ -231,7 +255,7 @@ export async function callClaude(req, hooks = {}) {
     }
     const ctx = { task, model: variant.model, attempt };
 
-    const usage = fromAnthropicUsage(response.model || model, response.usage);
+    const usage = fromAnthropicUsage(response.model || variant.model, response.usage);
     addUsage(total, usage);
     if (response._request_id) requestIds.push(response._request_id);
     if (hooks.onUsage) hooks.onUsage(usage, ctx);
@@ -258,8 +282,8 @@ export async function callClaude(req, hooks = {}) {
     content: response.content,
     stopReason: response.stop_reason,
     truncated,
-    usage: { model: response.model || model, ...total },
-    model: response.model || model,
+    usage: { model: response.model || variant.model, ...total },
+    model: response.model || variant.model,
     messages: [...messages, { role: 'assistant', content: response.content }],
     requestIds,
     degraded

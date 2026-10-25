@@ -484,7 +484,12 @@ test('degrade notices are logged once per step and never contain the key', async
     await callClaude({ apiKey: KEY, task: 'tailor', prompt: 'hi' }, { client: f.client, onLog: (m, t) => logs.push({ m, t }) });
     const notices = logs.filter((l) => l.m.includes('not accepted by the API'));
     assert.equal(notices.length, 1);
-    assert.equal(notices[0].m, 'tailor: refusal-fallback not accepted by the API; retried without it');
+    assert.ok(
+      notices[0].m.startsWith('tailor: refusal-fallback not accepted by the API (fallbacks: Extra inputs are not permitted for ')
+        && notices[0].m.endsWith('); retried without it'),
+      notices[0].m
+    );
+    assert.ok(notices[0].m.includes('redacted'), 'the planted key is scrubbed in the excerpt');
     assert.equal(notices[0].t, 'system');
     assert.ok(logs.every((l) => !l.m.includes(KEY)));
   } finally {
@@ -499,4 +504,89 @@ test('degradeStepFor is pure and keyed on the request shape', () => {
   assert.equal(degradeStepFor({ status: 500, message: 'fallbacks' }, beta), null);
   assert.equal(degradeStepFor(null, beta), null);
   assert.equal(degradeStepFor({ status: 400 }, beta), null);
+});
+
+test('the degrade notice carries a short whitespace-collapsed excerpt of the error (at most ~120 chars)', async () => {
+  resetLearnedCapabilities();
+  try {
+    const logs = [];
+    const long = 'fallbacks:\n   Extra inputs   are not permitted ' + 'x'.repeat(300);
+    const f = fakeClient([plain400(long), reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client, onLog: (m) => logs.push(m) });
+    const n = logs.find((m) => m.includes('not accepted'));
+    const excerpt = n.slice(n.indexOf('(') + 1, n.lastIndexOf(')'));
+    assert.ok(excerpt.startsWith('fallbacks: Extra inputs are not permitted x'));
+    assert.ok(excerpt.length <= 120);
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('a learned lesson applied up front is announced once per process, not listed in degraded', async () => {
+  resetLearnedCapabilities();
+  try {
+    const learn = fakeClient([plain400('fallbacks: Extra inputs are not permitted'), reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: learn.client });
+
+    const logs = [];
+    const onLog = (m, t) => logs.push({ m, t });
+    const f = fakeClient([reply([text('ok')])]);
+    const second = await callClaude({ apiKey: KEY, task: 'tailor', prompt: 'hi' }, { client: f.client, onLog });
+    assert.deepEqual(second.degraded, []);
+    assert.deepEqual(logs, [{ m: 'tailor: refusal-fallback was rejected earlier; running without it', t: 'system' }]);
+
+    const third = await callClaude({ apiKey: KEY, task: 'tailor', prompt: 'hi' }, { client: f.client, onLog });
+    assert.deepEqual(third.degraded, []);
+    assert.equal(logs.length, 1, 'no further notice for the same lesson');
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('a learned Haiku to Sonnet swap is announced and priced as Sonnet', async () => {
+  resetLearnedCapabilities();
+  try {
+    const learn = fakeClient([plain400('web_search tool is not supported for this model'), reply([text('ok')])]);
+    await callClaude({ apiKey: KEY, task: 'planner', prompt: 'hi', tools: [webSearchTool()] }, { client: learn.client });
+    const logs = [];
+    // the (fake) response carries no model, so reporting must use the swapped model
+    const f = fakeClient([{ ...reply([text('ok')]), model: undefined }]);
+    const r = await callClaude({ apiKey: KEY, task: 'planner', prompt: 'hi', tools: [webSearchTool()] }, { client: f.client, onLog: (m) => logs.push(m) });
+    assert.ok(logs.includes('planner: haiku-search was rejected earlier; running without it'));
+    assert.equal(r.model, MODEL_IDS.sonnet);
+    assert.equal(r.usage.model, MODEL_IDS.sonnet);
+  } finally {
+    resetLearnedCapabilities();
+  }
+});
+
+test('the schema and Haiku steps are not taken on a pause_turn continuation', async () => {
+  resetLearnedCapabilities();
+  const paused = reply([{ type: 'server_tool_use', id: 's1', name: 'web_search', input: {} }], { stop_reason: 'pause_turn' });
+  const a = fakeClient([paused, plain400('output_config.format is not supported with this tool')]);
+  await assert.rejects(
+    callClaude({ apiKey: KEY, task: 'ai-search', prompt: 'hi', schema: schema1, tools: [webSearchTool()] }, { client: a.client }),
+    (e) => e.message.includes('output_config.format')
+  );
+  assert.equal(a.calls.length, 2, 'no retry');
+  const b = fakeClient([paused, plain400('web_search tool is not supported for this model')]);
+  await assert.rejects(
+    callClaude({ apiKey: KEY, task: 'planner', prompt: 'hi', tools: [webSearchTool()] }, { client: b.client }),
+    (e) => e.message.includes('web_search')
+  );
+  assert.equal(b.calls.length, 2, 'no retry');
+  assert.deepEqual(getLearnedCapabilities(), ALL_ALLOWED);
+});
+
+test('the fallback step is still allowed on a continuation', async () => {
+  resetLearnedCapabilities();
+  try {
+    const paused = reply([{ type: 'server_tool_use', id: 's1', name: 'web_search', input: {} }], { stop_reason: 'pause_turn' });
+    const f = fakeClient([paused, plain400('fallbacks: Extra inputs are not permitted'), reply([text('done')])]);
+    const r = await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client });
+    assert.equal(f.calls.length, 3);
+    assert.deepEqual(r.degraded, ['refusal-fallback']);
+  } finally {
+    resetLearnedCapabilities();
+  }
 });

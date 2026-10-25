@@ -168,7 +168,7 @@ test('a rejected optional API feature degrades, logs a notice to the activity lo
   assert.equal(getLearnedCapabilities().refusalFallback, false);
   const notice = helper.getLogs().find((l) => l.message.includes('not accepted by the API'));
   assert.ok(notice, 'the degrade notice reached the activity log');
-  assert.equal(notice.message, 'tailor: refusal-fallback not accepted by the API; retried without it');
+  assert.equal(notice.message, 'tailor: refusal-fallback not accepted by the API (fallbacks: Extra inputs are not permitted); retried without it');
   assert.equal(notice.type, 'system');
   assert.ok(!JSON.stringify(helper.getLogs()).includes(KEY));
   assert.equal(helper.getUsageSummary().today.byBucket.tailor.calls, 1, 'only the response that came back is metered');

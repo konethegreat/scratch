@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
   callClaude, makeClient, estimateCostUSD, extractJson, scrubSecrets, normalizeKeyInput,
-  MODEL_IDS, webSearchTool, REFUSAL_FALLBACK_DEFAULT
+  MODEL_IDS, webSearchTool, REFUSAL_FALLBACK_DEFAULT, resetLearnedCapabilities
 } from '@sajas/core';
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
@@ -67,13 +67,18 @@ export function probeContext(argv = []) {
 
 const cost = (res) => (res?.usage ? estimateCostUSD(res.usage) : 0);
 
+// callClaude retries without an optional feature the API rejects (and still returns text), which
+// would turn every probe here into a false PASS. Each probe reports what was degraded so that
+// runProbe can FAIL it.
+const degradedOf = (...results) => results.flatMap((r) => r?.degraded || []);
+
 /** Each probe: async ({ apiKey, client }) => { ok, reason, costUSD }. */
 export const probes = [
   {
     name: '1. Haiku text call',
     async run({ apiKey, client, fallback }) {
       const res = await callClaude({ apiKey, task: 'core', model: MODEL_IDS.haiku, prompt: 'Reply with the single word OK.', refusalFallback: fallback }, { client });
-      return { ok: res.text.trim().length > 0, reason: `stop_reason ${res.stopReason}, ${res.usage.outputTokens} output tokens`, costUSD: cost(res) };
+      return { ok: res.text.trim().length > 0, reason: `stop_reason ${res.stopReason}, ${res.usage.outputTokens} output tokens`, costUSD: cost(res), degraded: degradedOf(res) };
     }
   },
   {
@@ -84,7 +89,7 @@ export const probes = [
         prompt: 'What is the capital of South Africa that hosts the national executive? Answer in the "answer" field.', refusalFallback: fallback
       }, { client });
       const parsed = extractJson(res.text);
-      return { ok: typeof parsed?.answer === 'string' && parsed.answer.length > 0, reason: `schema-valid JSON ${parsed ? 'parsed' : 'not parsed'}`, costUSD: cost(res) };
+      return { ok: typeof parsed?.answer === 'string' && parsed.answer.length > 0, reason: `schema-valid JSON ${parsed ? 'parsed' : 'not parsed'}`, costUSD: cost(res), degraded: degradedOf(res) };
     }
   },
   {
@@ -96,7 +101,7 @@ export const probes = [
       }, { client });
       const parsed = extractJson(res.text);
       const ok = Array.isArray(parsed?.jobs);
-      return { ok, reason: ok ? `searches ${res.usage.webSearches}, ${parsed.jobs.length} job(s) in schema-shaped JSON` : 'search + schema combination did not return {"jobs":[...]}', costUSD: cost(res) };
+      return { ok, reason: ok ? `searches ${res.usage.webSearches}, ${parsed.jobs.length} job(s) in schema-shaped JSON` : 'search + schema combination did not return {"jobs":[...]}', costUSD: cost(res), degraded: degradedOf(res) };
     }
   },
   {
@@ -108,7 +113,7 @@ export const probes = [
         tools: [webSearchTool({ maxUses: 1 })], maxContinuations: 3, refusalFallback: fallback
       }, { client });
       // An unsupported tool would throw a 400 (caught as FAIL), so a clean non-empty reply is a PASS.
-      return { ok: res.text.trim().length > 0, reason: `no error, searches used ${res.usage.webSearches}, stop_reason ${res.stopReason}`, costUSD: cost(res) };
+      return { ok: res.text.trim().length > 0, reason: `no error, searches used ${res.usage.webSearches}, stop_reason ${res.stopReason}`, costUSD: cost(res), degraded: degradedOf(res) };
     }
   },
   {
@@ -118,7 +123,7 @@ export const probes = [
       // refusalFallback:true sends the beta header + fallbacks:'default' exactly as production does.
       // Sonnet, not Haiku: on Haiku the parameter is a documented no-op, so it proves nothing.
       const res = await callClaude({ apiKey, task: 'core', model: MODEL_IDS.sonnet, effort: 'low', prompt: 'Reply with the single word OK.', refusalFallback: true }, { client });
-      return { ok: res.text.trim().length > 0, reason: `beta ${FALLBACK_BETA} accepted on Sonnet, stop_reason ${res.stopReason}`, costUSD: cost(res) };
+      return { ok: res.text.trim().length > 0, reason: `beta ${FALLBACK_BETA} accepted on Sonnet, stop_reason ${res.stopReason}`, costUSD: cost(res), degraded: degradedOf(res) };
     }
   },
   {
@@ -126,7 +131,7 @@ export const probes = [
     async run({ apiKey, client, noFallback }) {
       if (noFallback) return { skipped: true, ok: true, reason: 'skipped with --no-fallback', costUSD: 0 };
       const res = await callClaude({ apiKey, task: 'core', model: MODEL_IDS.haiku, prompt: 'Reply with the single word OK.', refusalFallback: true }, { client });
-      return { ok: res.text.trim().length > 0, reason: `beta ${FALLBACK_BETA} accepted on Haiku, stop_reason ${res.stopReason}`, costUSD: cost(res) };
+      return { ok: res.text.trim().length > 0, reason: `beta ${FALLBACK_BETA} accepted on Haiku, stop_reason ${res.stopReason}`, costUSD: cost(res), degraded: degradedOf(res) };
     }
   },
   {
@@ -139,7 +144,8 @@ export const probes = [
       return {
         ok: read > 0,
         reason: `call 1 wrote ${first.usage.cacheWriteTokens} tokens, call 2 read ${read} tokens`,
-        costUSD: cost(first) + cost(second)
+        costUSD: cost(first) + cost(second),
+        degraded: degradedOf(first, second)
       };
     }
   },
@@ -153,6 +159,25 @@ export const probes = [
     }
   }
 ];
+
+/**
+ * Runs one probe in isolation: forgets anything callClaude learned in an earlier probe (so a lesson
+ * from probe 1 cannot change what probe 2 sends), and turns "the API rejected a feature and
+ * callClaude retried without it" into a FAIL, because that is exactly what these probes detect.
+ */
+export async function runProbe(probe, args) {
+  resetLearnedCapabilities();
+  let r;
+  try {
+    r = await probe.run(args);
+  } catch (err) {
+    return { ok: false, reason: scrubSecrets(`${err?.name || 'Error'}: ${err?.message || err}`).slice(0, 200), costUSD: 0 };
+  }
+  if (r.degraded?.length) {
+    return { ...r, ok: false, reason: `API rejected ${r.degraded.join(', ')}; callClaude retried without it` };
+  }
+  return r;
+}
 
 const TRANSPORT_NOTE = ' This probe used the production fallback beta transport: if the error mentions the beta, fallbacks or an unknown parameter, re-run with --no-fallback and, if it then passes, flip REFUSAL_FALLBACK_DEFAULT instead.';
 const ADVICE = {
@@ -172,12 +197,7 @@ async function main(argv, env) {
   let total = 0;
   const failed = [];
   for (const probe of probes) {
-    let r;
-    try {
-      r = await probe.run({ apiKey, client, ...ctx });
-    } catch (err) {
-      r = { ok: false, reason: scrubSecrets(`${err?.name || 'Error'}: ${err?.message || err}`).slice(0, 200), costUSD: 0 };
-    }
+    const r = await runProbe(probe, { apiKey, client, ...ctx });
     total += r.costUSD || 0;
     console.log(`${r.skipped ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'}  ${probe.name}  ~$${(r.costUSD || 0).toFixed(5)}  ${r.reason}`);
     if (!r.ok) failed.push(probe);

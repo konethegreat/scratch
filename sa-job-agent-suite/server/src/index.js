@@ -69,6 +69,7 @@ import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
 import { demoOrigin, installDemo } from './demo.js';
 import { localGuard } from './localGuard.js';
+import { createSingleFlight } from './singleFlight.js';
 import { MODELS } from '@sajas/core';
 
 const app = express();
@@ -94,6 +95,8 @@ app.use(cors(corsOptions));
 // Refuse foreign Host/Origin (DNS rebinding, cross-site forms) and require the
 // X-SAJAS-Client header on non-GET routes. Runs after cors (which answers the
 // preflight) and before the body parser and every route.
+// (An OPTIONS preflight without an Origin is answered by cors before this Host
+// check; it carries no data and changes nothing.)
 app.use(localGuard({ port: PORT }));
 // Raised from 10mb so a base64-encoded supporting-document PDF (ID, matric,
 // degree, academic record) fits comfortably in a single upload request.
@@ -746,10 +749,15 @@ app.post('/api/browser/setup', (req, res) => {
   });
 });
 
-app.get('/api/browser/login-status', async (req, res) => {
+// A POST (not a GET) because it launches a headless Chrome on the real browser
+// profile: a GET could be fired from any web page (img tag, no-cors fetch). The
+// single-flight guard keeps a second request from starting a second Chrome.
+const loginStatusFlight = createSingleFlight();
+app.post('/api/browser/login-status', async (req, res) => {
   try {
-    const statuses = await checkLoginStatuses();
-    res.json({ success: true, statuses });
+    const result = await loginStatusFlight(() => checkLoginStatuses());
+    if (result.busy) return res.status(409).json({ success: false, error: 'A login check is already running.' });
+    res.json({ success: true, statuses: result.value });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

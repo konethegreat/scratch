@@ -59,7 +59,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
     await t.test('API blocks live work, credentials, backup restore and arbitrary applications', async () => {
       for (const [method, route] of [['POST', '/api/jobs/hunter'], ['POST', `/api/jobs/${DEMO_JOB_ID}/tailor`],
         ['POST', '/api/jobs/tailor-batch'], ['POST', '/api/jobs/revalidate'], ['POST', '/api/browser/setup'],
-        ['GET', '/api/browser/login-status'], ['POST', '/api/profile'], ['POST', '/api/profile/preset'],
+        ['POST', '/api/browser/login-status'], ['POST', '/api/profile'], ['POST', '/api/profile/preset'],
         ['POST', '/api/backup/restore'], ['POST', '/api/routines'], ['POST', '/api/memory/dream'],
         ['POST', `/api/jobs/${DEMO_JOB_ID}/referral`], ['POST', '/api/jobs/other-job/apply']]) {
         // The client header is sent so the refusal is the demo allowlist's, not the local guard's.
@@ -248,6 +248,28 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       assert.deepEqual(await foreign.json(), { error: 'Origin not allowed' });
       const viteOrigin = await call('/api/profile', { headers: { Origin: 'http://localhost:4173' } });
       assert.equal(viteOrigin.status, 200);
+    });
+    await t.test('login-status launches Chrome, so it is POST-only: GET is not a route and POST needs the header', async () => {
+      const get = await fetch(origin + '/api/browser/login-status');
+      assert.equal(get.status, 404);
+      const head = await fetch(origin + '/api/browser/login-status', { method: 'HEAD' });
+      assert.equal(head.status, 404);
+      const noHeader = await fetch(origin + '/api/browser/login-status', { method: 'POST' });
+      assert.equal(noHeader.status, 403);
+      assert.deepEqual(await noHeader.json(), { error: 'Missing X-SAJAS-Client header' });
+    });
+    await t.test('CORS preflight: the custom header is reflected for localhost, a foreign Origin gets no CORS headers', async () => {
+      const preflight = await fetch(origin + '/api/profile', { method: 'OPTIONS', headers: {
+        Origin: 'http://localhost:4173', 'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'x-sajas-client,content-type' } });
+      assert.equal(preflight.status, 204);
+      assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://localhost:4173');
+      assert.match(preflight.headers.get('access-control-allow-headers') || '', /x-sajas-client/i);
+      const foreign = await fetch(origin + '/api/profile', { method: 'OPTIONS', headers: {
+        Origin: 'https://evil.example', 'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'x-sajas-client,content-type' } });
+      assert.equal(foreign.status, 403);
+      assert.equal(foreign.headers.get('access-control-allow-origin'), null);
     });
     await t.test('POST /api/profile rejects an Admin key with 400 and stores nothing', async () => {
       const response = await call('/api/profile', { method: 'POST', body: JSON.stringify({ anthropicApiKey: adminKey }) });

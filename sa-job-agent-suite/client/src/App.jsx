@@ -677,7 +677,7 @@ export default function App() {
   const fetchLoginStatuses = async () => {
     setIsCheckingLogins(true);
     try {
-      const res = await fetch(`${API_BASE}/browser/login-status`);
+      const res = await fetch(`${API_BASE}/browser/login-status`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setLoginStatuses(data.statuses);

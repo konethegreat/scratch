@@ -198,7 +198,7 @@ Served from `http://localhost:5000`.
 | `POST` | `/api/jobs/:id/tailor` | Start Agent 2. |
 | `POST` | `/api/jobs/:id/apply` | Start Agent 3 (opens a visible browser; one session at a time). |
 | `POST` | `/api/browser/setup` | Open a visible browser to sign into SA job sites once. |
-| `GET` | `/api/browser/login-status` | Check which sites are logged in. |
+| `POST` | `/api/browser/login-status` | Check which sites are logged in. |
 
 ### Logs & status
 | Method | Path | Description |

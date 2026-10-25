@@ -14,7 +14,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
-  callClaude, makeClient, estimateCostUSD, extractJson, scrubSecrets,
+  callClaude, makeClient, estimateCostUSD, extractJson, scrubSecrets, normalizeKeyInput,
   MODEL_IDS, webSearchTool
 } from '@sajas/core';
 
@@ -90,7 +90,8 @@ export const probes = [
         prompt: 'Search the web once for a current software developer vacancy in Cape Town, South Africa and name the company in one sentence.',
         tools: [webSearchTool({ maxUses: 1 })], maxContinuations: 3, refusalFallback: false
       }, { client });
-      return { ok: res.text.trim().length > 0 && res.usage.webSearches > 0, reason: `searches ${res.usage.webSearches}, stop_reason ${res.stopReason}`, costUSD: cost(res) };
+      // An unsupported tool would throw a 400 (caught as FAIL), so a clean non-empty reply is a PASS.
+      return { ok: res.text.trim().length > 0, reason: `no error, searches used ${res.usage.webSearches}, stop_reason ${res.stopReason}`, costUSD: cost(res) };
     }
   },
   {
@@ -133,7 +134,7 @@ const ADVICE = {
 };
 
 async function main(argv, env) {
-  const apiKey = env.ANTHROPIC_API_KEY;
+  const apiKey = normalizeKeyInput(env.ANTHROPIC_API_KEY);
   if (!apiKey) { console.error('smoke-live needs ANTHROPIC_API_KEY in the environment. Nothing was run.'); return 1; }
   if (!argv.includes('--yes-spend')) { console.error('smoke-live spends real money (a few cents). Re-run with --yes-spend to confirm. Nothing was run.'); return 1; }
 

@@ -72,5 +72,5 @@ test('fixtures are well-formed', () => {
   assert.equal(pages.length, 3);
   for (const p of pages) assert.ok(p.expected.pageType && p.expected.action && p.snapshot && p.job);
   const words = baseCv.split(/\s+/).filter(Boolean).length;
-  assert.ok(words >= 500 && words <= 750, `cv words: ${words}`);
+  assert.ok(words >= 700 && words <= 1000, `cv words: ${words}`);
 });

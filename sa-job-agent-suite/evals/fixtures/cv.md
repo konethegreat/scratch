@@ -25,6 +25,8 @@ January 2019 to February 2022
 - Implemented SMS and email order notifications through third-party gateways, with retry logic and idempotency keys to prevent duplicate messages.
 - Worked with the data analyst to build reporting views in SQL that replaced three spreadsheets used for monthly stock reviews.
 - Took part in an on-call rotation and wrote runbooks for the five most common incidents.
+- Paired with the warehouse supervisors at the Philippi distribution centre to observe how stock was received, then simplified the receiving screen from nine fields to four, which cut data-capture errors noticeably.
+- Introduced a lightweight design-review habit: every change touching money, stock levels or customer messages got a short written note and a second pair of eyes before merging.
 
 ### Junior Developer, Bluegum Digital Studio, Cape Town
 February 2017 to December 2018
@@ -32,6 +34,8 @@ February 2017 to December 2018
 - Built marketing sites and small booking systems for local small businesses using JavaScript, HTML, CSS and a WordPress back end.
 - Learned version control, code review and basic deployment practices, and automated the studio's manual FTP deployments with a simple shell script.
 - Supported clients directly, translating requests into tasks and estimates.
+- Wrote plain-language handover notes for every site so that clients could update their own content without calling the studio.
+- Spent a six-week stretch on a booking system for a guesthouse group in the Overberg, handling availability rules, seasonal pricing and email confirmations from first sketch to launch.
 
 ## Education
 
@@ -52,6 +56,19 @@ National Senior Certificate, Bellville High School, 2012
 - Reduced dispatch API latency by about 77 percent while keeping the public interface unchanged.
 - Delivered a stock-reconciliation service that eliminated roughly 500 hours of manual work a year.
 - Mentored three junior developers, two of whom were promoted within eighteen months.
+- Wrote the incident review template now used across the engineering department, focused on what the system allowed to happen rather than on who was on call, and facilitated the first dozen reviews.
+- Replaced a fragile nightly export with an event-driven feed so that depot managers see delays within a minute instead of the next morning, without adding any new infrastructure to operate.
+
+## Community and professional development
+
+- Volunteer mentor with a Cape Town coding bootcamp for school leavers since 2020, running a monthly code-review evening and helping graduates prepare for their first technical interviews.
+- Regular speaker at the internal engineering guild at Karoo Freight Systems, with talks on API versioning, writing useful tests and keeping runbooks honest.
+- Completed short courses on database performance tuning and on secure web development, and applies the checklists from both in everyday reviews.
+- Contributes occasional fixes and documentation improvements to small open-source libraries used at work.
+
+## Working style
+
+Prefers short feedback loops, written decisions and boring, well-understood technology where it fits. Believes that a good handover note is worth more than a clever shortcut, and that the people who will operate a system at three in the morning should be consulted while it is being designed. Comfortable presenting trade-offs to non-technical stakeholders and saying no, politely, to scope that would put delivery at risk.
 
 ## Languages
 

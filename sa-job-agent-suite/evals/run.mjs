@@ -14,7 +14,7 @@
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { callClaude, makeClient, taskConfig, priceFor, estimateCostUSD, extractJson } from '@sajas/core';
+import { callClaude, makeClient, taskConfig, priceFor, estimateCostUSD, extractJson, normalizeKeyInput, scrubSecrets } from '@sajas/core';
 import { fakeClient } from '@sajas/core/testing';
 import { buildTailorPrompts } from '../server/src/agents/tailorPrompts.js';
 import { buildPlanPrompt, normalizePlan, PLAN_SCHEMA } from '../server/src/agents/pageBrain.js';
@@ -144,7 +144,7 @@ export async function runCases({ cases, baseCv, apiKey, client, budgetUSD = Infi
   const stats = {};
   let spent = 0;
   for (const c of cases) {
-    const s = (stats[c.cls] ??= { n: 0, completed: 0, passed: 0, costUSD: 0, inputTokens: 0, outputTokens: 0, cacheRead: 0, failures: [] });
+    const s = (stats[c.cls] ??= { n: 0, completed: 0, passed: 0, threw: 0, costUSD: 0, inputTokens: 0, outputTokens: 0, cacheRead: 0, failures: [] });
     s.n += 1;
     const label = c.cls === 'tailor' ? `${c.kind} / ${c.job.title}` : c.page.name;
     if (spent >= budgetUSD) { s.failures.push(`${label}: skipped, upper-bound budget reached`); continue; }
@@ -163,26 +163,38 @@ export async function runCases({ cases, baseCv, apiKey, client, budgetUSD = Infi
       s.cacheRead += u.cacheReadTokens;
       const verdict = evaluate(c, baseCv, res.text);
       if (verdict.pass) s.passed += 1;
-      else s.failures.push(`${label}: ${verdict.failures.join('; ')}`);
+      else s.failures.push(scrubSecrets(`${label}: ${verdict.failures.join('; ')}`));
     } catch (err) {
-      s.failures.push(`${label}: call failed (${String(err?.message || err).slice(0, 160)})`);
+      // LIMITATION: callClaude accumulates usage across its requests but its thrown
+      // errors (e.g. ClaudeRefusalError, raised after a billed response) carry no
+      // usage, so a call that throws is counted at $0 here. The result file flags
+      // this with spendUnderReported so a live total is read as a lower bound.
+      s.threw += 1;
+      s.failures.push(scrubSecrets(`${label}: call failed (${String(err?.message || err).slice(0, 160)})`));
     }
   }
   const out = {};
+  let spendUnderReported = false;
   for (const [cls, s] of Object.entries(stats)) {
+    if (s.threw) spendUnderReported = true;
     out[cls] = {
       n: s.n,
       passRate: s.n ? s.passed / s.n : 0,
-      // Cost of the calls that returned an answer, divided by how many did.
-      costPerCompletedTaskUSD: s.completed ? s.costUSD / s.completed : null,
+      // Quality-adjusted: total class spend / tasks that PASSED their checks (null if none did).
+      costPerCompletedTaskUSD: s.passed ? s.costUSD / s.passed : null,
+      // Plain average over the calls that returned a response.
+      avgCostPerCallUSD: s.completed ? s.costUSD / s.completed : null,
       // Cache reads as a share of all input tokens (uncached + cache read + cache write).
+      // CAVEAT: a prompt prefix below the model's minimum cacheable size is never cached,
+      // so a ratio near 0 can mean the system block is too short, not a cache regression.
+      // The fixture CV is sized so the tailor system block is well above that minimum.
       cacheHitRatio: s.inputTokens ? s.cacheRead / s.inputTokens : 0,
       inputTokens: s.inputTokens,
       outputTokens: s.outputTokens,
       failures: s.failures
     };
   }
-  return { classes: out, spentUSD: spent };
+  return { classes: out, spentUSD: spent, spendUnderReported };
 }
 
 async function main() {
@@ -193,7 +205,7 @@ async function main() {
   }
   let apiKey;
   if (args.live) {
-    apiKey = process.env.ANTHROPIC_API_KEY;
+    apiKey = normalizeKeyInput(process.env.ANTHROPIC_API_KEY);
     if (!apiKey) { console.error('--live needs ANTHROPIC_API_KEY in the environment. Nothing was run.'); process.exitCode = 1; return; }
     if (!args.yesSpend) { console.error('--live spends real money. Re-run with --yes-spend after reading the estimate (run without --live to see it). Nothing was run.'); process.exitCode = 1; return; }
   }
@@ -215,7 +227,7 @@ async function main() {
   }
 
   const startedAt = new Date();
-  const { classes, spentUSD } = await runCases({ cases, baseCv, apiKey, client, budgetUSD: args.live ? est.total : Infinity });
+  const { classes, spentUSD, spendUnderReported } = await runCases({ cases, baseCv, apiKey, client, budgetUSD: args.live ? est.total : Infinity });
 
   const result = {
     mode: args.live ? 'live' : 'dry',
@@ -223,6 +235,7 @@ async function main() {
     trials: args.trials,
     estimateUpperBoundUSD: est.total,
     estimatedSpendUSD: args.live ? spentUSD : 0,
+    spendUnderReported,
     classes
   };
   const dir = path.join(here, 'results');
@@ -232,10 +245,12 @@ async function main() {
 
   for (const [cls, r] of Object.entries(classes)) {
     const cost = r.costPerCompletedTaskUSD == null ? 'n/a' : `$${r.costPerCompletedTaskUSD.toFixed(5)}`;
-    console.log(`${cls}: n=${r.n} passRate=${(r.passRate * 100).toFixed(0)}% cost/task=${cost} cacheHit=${(r.cacheHitRatio * 100).toFixed(0)}% tokens in/out=${r.inputTokens}/${r.outputTokens}`);
+    const avg = r.avgCostPerCallUSD == null ? 'n/a' : `$${r.avgCostPerCallUSD.toFixed(5)}`;
+    console.log(`${cls}: n=${r.n} passRate=${(r.passRate * 100).toFixed(0)}% cost/passed-task=${cost} avg/call=${avg} cacheHit=${(r.cacheHitRatio * 100).toFixed(0)}% tokens in/out=${r.inputTokens}/${r.outputTokens}`);
     for (const f of r.failures.slice(0, 10)) console.log(`  FAIL ${f}`);
   }
   console.log(`Result written to ${path.relative(process.cwd(), file)}`);
+  if (spendUnderReported) console.log('Note: at least one call threw; its spend (if billed) is not counted, so the total is a lower bound.');
   if (!args.live) console.log('(Dry run: responses are deterministic fakes. A 100% pass rate here only proves the plumbing.)');
 }
 

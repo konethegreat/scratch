@@ -15,18 +15,30 @@
 //   • It stops on any CAPTCHA / "verify you are human" / login text.
 //   • Bounded by a per-session step cap so cost can't run away.
 //
-// Anthropic-only (the computer-use tool is Anthropic's). Gated by
+// Anthropic-only (the computer-use toolset is Anthropic's). Gated by
 // profile.useComputerUse; skipped silently otherwise.
+//
+// Wire format (computer_toolset_20260801, GA, no beta header): Claude's calls
+// are tool_use blocks whose `name` IS the member action (screenshot,
+// left_click, type, key, ...) with toolset_name 'computer' and no `action` in
+// input. A turn may hold several blocks; each is answered by exactly one
+// tool_result (also carrying toolset_name 'computer'), run in order, and after
+// the first failure the rest answer "Not executed". The model call itself goes
+// through callLlmFull, which resolves the model, enforces the daily budget
+// before every request and meters usage under the 'computer-use' bucket.
 
-import Anthropic from '@anthropic-ai/sdk';
-import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
-import { fromAnthropicUsage } from '../db/costs.js';
+import { addLog, budgetStatus, budgetMessage } from '../db/helper.js';
 import { isRefusedForModel, classifyControl } from './submitGuard.js';
-import { hasAnthropicKey } from './llm.js';
+import { hasAnthropicKey, callLlmFull } from './llm.js';
 
-const COMPUTER_USE_BETA = 'computer-use-2025-11-24';
-const COMPUTER_TOOL_TYPE = 'computer_20251124';
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const COMPUTER_TOOLS = [{ type: 'computer_toolset_20260801', configs: { zoom: { enabled: false } } }];
+const TOOLSET_NAME = 'computer';
+const NOT_EXECUTED = 'Not executed: an earlier computer action in this turn failed.';
+
+/** Step cap for the loop: 1-40, defaulting to 20 when unset or unparseable. */
+export function resolveMaxSteps(value) {
+  return Math.max(1, Math.min(40, parseInt(value, 10) || 20));
+}
 
 // Which controls the model must never click is decided in submitGuard.js, the
 // same policy autopilot and the planner use. It is matched against the visible
@@ -277,16 +289,17 @@ function imageResult(toolUseId, b64) {
   return {
     type: 'tool_result',
     tool_use_id: toolUseId,
+    toolset_name: TOOLSET_NAME,
     content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } }]
   };
 }
 function textResult(toolUseId, text, isError = false) {
-  return { type: 'tool_result', tool_use_id: toolUseId, content: [{ type: 'text', text }], is_error: isError };
+  return { type: 'tool_result', tool_use_id: toolUseId, toolset_name: TOOLSET_NAME, content: [{ type: 'text', text }], is_error: isError };
 }
 
 /**
- * Carries out ONE computer-use tool_use against the page and returns the
- * tool_result to send back. Every click is hit-tested (through shadow roots and
+ * Carries out ONE computer-use tool_use (dispatching on its `name`, the toolset
+ * member) against the page and returns the tool_result to send back. Every click is hit-tested (through shadow roots and
  * frames) and every key press or typed string is checked against what has focus,
  * so nothing here can send the application. `stats` is updated in place
  * ({ filled, refusals }). Exported so tests can drive it with a synthetic
@@ -295,7 +308,7 @@ function textResult(toolUseId, text, isError = false) {
 export async function executeComputerAction(page, tu, { toCss = (v) => Math.round(v), stats = { filled: 0, refusals: 0 } } = {}) {
   const toolResults = [];
   const result = stats;
-  const action = tu.input?.action;
+  const action = tu.name;   // the toolset member: left_click, type, key, ...
   const coord = tu.input?.coordinate || tu.input?.start_coordinate;
   try {
     if (action === 'screenshot') {
@@ -375,10 +388,32 @@ export async function executeComputerAction(page, tu, { toCss = (v) => Math.roun
 }
 
 /**
+ * Runs one turn's tool_uses in order and answers EVERY one. A policy refusal
+ * (submit guard) is a normal result and the batch carries on; the first action
+ * that actually fails (an error result) stops execution, and each later block
+ * answers "Not executed" with is_error so the model knows it never ran.
+ * @returns {Promise<object[]>} one tool_result per tool_use, in order
+ */
+export async function executeComputerBatch(page, toolUses, opts = {}) {
+  const results = [];
+  let failed = false;
+  for (const tu of toolUses || []) {
+    if (failed) {
+      results.push({ type: 'tool_result', tool_use_id: tu.id, toolset_name: TOOLSET_NAME, is_error: true, content: NOT_EXECUTED });
+      continue;
+    }
+    const r = await executeComputerAction(page, tu, opts);
+    results.push(r);
+    if (r.is_error === true) failed = true;
+  }
+  return results;
+}
+
+/**
  * Run the computer-use loop to finish filling the current form page.
  * @returns {Promise<{filled:number, steps:number, refusals:number, stopped:string}>}
  */
-export async function computerUseFillForm(page, profile, job, { maxSteps = 12 } = {}) {
+export async function computerUseFillForm(page, profile, job, { maxSteps } = {}) {
   const result = { filled: 0, steps: 0, refusals: 0, stopped: '' };
   if (!computerUseSupported(profile)) { result.stopped = 'unsupported'; return result; }
   {
@@ -392,9 +427,7 @@ export async function computerUseFillForm(page, profile, job, { maxSteps = 12 } 
     }
   }
 
-  const steps = Math.max(1, Math.min(25, parseInt(maxSteps, 10) || 12));
-  const model = (profile.computerUseModel || '').trim() || DEFAULT_MODEL;
-  const anthropic = new Anthropic({ apiKey: profile.anthropicApiKey });
+  const steps = resolveMaxSteps(maxSteps);
 
   // Logical (CSS) viewport + device pixel ratio so we can map the model's
   // image-space coordinates back to page coordinates.
@@ -403,9 +436,8 @@ export async function computerUseFillForm(page, profile, job, { maxSteps = 12 } 
 
   let snap;
   try { snap = await shoot(page); } catch (e) { result.stopped = 'screenshot-failed'; return result; }
-  // The model reasons in screenshot-pixel space; report those exact dims.
-  const display_width_px = snap.width || 1280;
-  const display_height_px = snap.height || 800;
+  // The model reasons in the pixel space of the screenshots we return; toCss
+  // maps those coordinates back to page (CSS) pixels.
   const toCss = (v) => Math.round(v / (dpr || 1));
 
   const data = buildCandidateData(profile, job);
@@ -418,6 +450,7 @@ ABSOLUTE RULES:
 - If you see a CAPTCHA, "verify you are human", a login wall, or any human-verification step, STOP — do not attempt it.
 - Do not navigate away from this page. Do not open new tabs. Only fill what is visible (scroll if needed to reach a field).
 - Only use the candidate data provided. Do not invent personal details (ID numbers, salaries, etc.) that aren't given.
+- Coordinates are in the pixel space of the screenshots you are shown. If an action in a batch fails, the later ones in that batch are not run — take a fresh screenshot before continuing.
 - When all reachable fields are filled, stop and briefly say you're done.
 
 CANDIDATE DATA:
@@ -431,26 +464,32 @@ ${data}`;
     ]
   }];
 
-  addLog(`🖥️ Computer-use finisher engaged (model ${model}, up to ${steps} steps).`, 'agent3');
+  addLog(`🖥️ Computer-use finisher engaged (up to ${steps} steps).`, 'agent3');
 
   for (let i = 0; i < steps; i++) {
     result.steps = i + 1;
     let resp;
     try {
-      resp = await anthropic.beta.messages.create({
-        model,
-        max_tokens: 1200,
-        betas: [COMPUTER_USE_BETA],
-        tools: [{ type: COMPUTER_TOOL_TYPE, name: 'computer', display_width_px, display_height_px }],
+      // The adapter resolves the model, checks the daily budget before the
+      // request, and records usage under the 'computer-use' bucket.
+      resp = await callLlmFull(profile, {
+        task: 'computer-use',
         system,
-        messages
+        cacheSystem: true,
+        messages,
+        tools: COMPUTER_TOOLS,
+        maxTokens: 2048
       });
     } catch (e) {
-      addLog(`Computer-use call failed: ${e.message}`, 'error');
-      result.stopped = 'api-error';
+      if (e?.code === 'BUDGET_EXCEEDED') {
+        addLog('🖥️ Computer-use stopped mid-form — daily AI budget reached.', 'system');
+        result.stopped = 'budget';
+      } else {
+        addLog(`Computer-use call failed: ${e.message}`, 'error');
+        result.stopped = 'api-error';
+      }
       break;
     }
-    addUsage({ ...fromAnthropicUsage(model, resp.usage || {}), bucket: 'computer-use' });
     // Stop mid-session the moment the cap trips — each step is expensive.
     if (budgetStatus().exceeded) {
       addLog('🖥️ Computer-use stopped mid-form — daily AI budget reached.', 'system');
@@ -458,19 +497,18 @@ ${data}`;
       break;
     }
 
-    messages.push({ role: 'assistant', content: resp.content });
+    // resp.messages is the conversation so far plus this assistant turn.
+    messages = resp.messages;
     const toolUses = (resp.content || []).filter((b) => b.type === 'tool_use');
 
-    if (!toolUses.length || resp.stop_reason === 'end_turn') {
+    if (!toolUses.length || resp.stopReason === 'end_turn') {
       result.stopped = 'model-done';
       break;
     }
 
-    const toolResults = [];
+    // One tool_result per tool_use, in order; stops at the first failure.
+    const toolResults = await executeComputerBatch(page, toolUses, { toCss, stats: result });
     let challengeHit = false;
-    for (const tu of toolUses) {
-      toolResults.push(await executeComputerAction(page, tu, { toCss, stats: result }));
-    }
 
     // Stop the loop if a verification challenge has appeared on the page.
     try {

@@ -1,8 +1,20 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { keyPressVerdict, planTyping, describeFocus, elementTextAt, executeComputerAction, isSubmitText, mapKey } from './computerUse.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fakeClient } from '@sajas/core/testing';
 import { launchTestBrowser } from '../testSupport/browser.js';
 import { page as fixturePage, RECORDER } from '../testSupport/fixturePages.js';
+
+// The db (usage ledger, budget) must be a throwaway file BEFORE helper.js loads,
+// so the module under test is imported dynamically after DB_PATH is set.
+const dbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sajas-cu-'));
+process.env.DB_PATH = path.join(dbDir, 'db.json');
+delete process.env.SAJAS_DEMO_ORIGIN;
+const { keyPressVerdict, planTyping, describeFocus, elementTextAt, executeComputerAction, executeComputerBatch, computerUseFillForm, resolveMaxSteps, isSubmitText, mapKey } = await import('./computerUse.js');
+const { setClaudeClientForTests } = await import('./llm.js');
+after(() => fs.rmSync(dbDir, { recursive: true, force: true }));
 
 // ---- headless Chrome: the real page, a synthetic tool_use, no model ---------------
 
@@ -26,7 +38,9 @@ async function withPage(html, fn) {
   });
 }
 
-const use = (input) => ({ type: 'tool_use', id: 'toolu_test', name: 'computer', input });
+// On the toolset a call's `name` IS the member action (left_click, type, ...)
+// and `input` carries no `action` field.
+const use = ({ action, ...input }, id = 'toolu_test') => ({ type: 'tool_use', id, name: action, toolset_name: 'computer', input });
 const clicks = (p) => p.evaluate(() => window.__clicks);
 const centre = async (locator) => {
   const b = await locator.boundingBox();
@@ -334,5 +348,135 @@ withBrowser('typing while a submit button has focus is refused', async () => {
     const r = await executeComputerAction(p, use({ action: 'type', text: 'hello world' }));
     assert.equal(isRefusal(r), true);
     assert.deepEqual(await clicks(p), []);
+  });
+});
+
+// ---- toolset semantics: toolset_name, batches, step cap ---------------------------------
+
+withBrowser('results carry toolset_name computer', async () => {
+  const html = fixturePage('Buttons', '<button type="button" id="n">Next</button> <button type="button" id="s">Submit application</button>');
+  await withPage(html, async (p) => {
+    const next = await centre(p.locator('#n'));
+    const submit = await centre(p.locator('#s'));
+    const results = await executeComputerBatch(p, [
+      use({ action: 'screenshot' }, 'toolu_a'),
+      use({ action: 'left_click', coordinate: next }, 'toolu_b'),
+      use({ action: 'left_click', coordinate: submit }, 'toolu_c'),
+      use({ action: 'type', text: 'x' }, 'toolu_d'),
+      use({ action: 'scroll', coordinate: [100, 100], scroll_direction: 'down', scroll_amount: 1 }, 'toolu_e')
+    ]);
+    assert.deepEqual(results.map((r) => r.tool_use_id), ['toolu_a', 'toolu_b', 'toolu_c', 'toolu_d', 'toolu_e']);
+    for (const r of results) {
+      assert.equal(r.type, 'tool_result');
+      assert.equal(r.toolset_name, 'computer', r.tool_use_id);
+    }
+    // a single action carries it too, including a bare tool_use with no input
+    assert.equal((await executeComputerAction(p, { type: 'tool_use', id: 'toolu_bare', name: 'screenshot' })).toolset_name, 'computer');
+  });
+});
+
+withBrowser('a failing action makes later actions in the batch answer "Not executed" with is_error', async () => {
+  const html = fixturePage('Buttons', '<button type="button" id="n">Next</button>');
+  await withPage(html, async (p) => {
+    const at = await centre(p.locator('#n'));
+    p.mouse.click = async () => { throw new Error('page is gone'); };   // the first click blows up
+    const results = await executeComputerBatch(p, [
+      use({ action: 'left_click', coordinate: at }, 'toolu_1'),
+      use({ action: 'screenshot' }, 'toolu_2'),
+      use({ action: 'left_click', coordinate: at }, 'toolu_3')
+    ]);
+    assert.equal(results.length, 3, 'every block is answered');
+    assert.equal(results[0].is_error, true);
+    assert.match(results[0].content[0].text, /page is gone/);
+    for (const [i, id] of [[1, 'toolu_2'], [2, 'toolu_3']]) {
+      assert.deepEqual(results[i], {
+        type: 'tool_result',
+        tool_use_id: id,
+        toolset_name: 'computer',
+        is_error: true,
+        content: 'Not executed: an earlier computer action in this turn failed.'
+      });
+    }
+    assert.deepEqual(await clicks(p), []);
+  });
+});
+
+withBrowser('a refused submit click does not stop the batch', async () => {
+  const html = fixturePage('Buttons', '<button type="button" id="n">Next</button> <button type="button" id="s">Submit application</button>');
+  await withPage(html, async (p) => {
+    const stats = { filled: 0, refusals: 0 };
+    const results = await executeComputerBatch(p, [
+      use({ action: 'left_click', coordinate: await centre(p.locator('#s')) }, 'toolu_1'),
+      use({ action: 'left_click', coordinate: await centre(p.locator('#n')) }, 'toolu_2'),
+      use({ action: 'screenshot' }, 'toolu_3')
+    ], { stats });
+    assert.equal(isRefusal(results[0]), true);
+    assert.notEqual(results[0].is_error, true, 'a policy refusal is a normal result');
+    assert.equal(results[1].content[0].type, 'image');
+    assert.equal(results[2].content[0].type, 'image');
+    assert.equal(stats.refusals, 1);
+    assert.deepEqual(await clicks(p), ['Next']);
+  });
+});
+
+test('resolveMaxSteps clamps to 1-40 and defaults to 20', () => {
+  assert.equal(resolveMaxSteps(undefined), 20);
+  assert.equal(resolveMaxSteps(0), 20);
+  assert.equal(resolveMaxSteps(null), 20);
+  assert.equal(resolveMaxSteps('abc'), 20);
+  assert.equal(resolveMaxSteps(100), 40);
+  assert.equal(resolveMaxSteps(-5), 1);
+  assert.equal(resolveMaxSteps('7'), 7);
+  assert.equal(resolveMaxSteps(40), 40);
+});
+
+// ---- the conversation loop over a fake model --------------------------------------------
+
+const KEY = 'sk-' + 'ant-api03-' + 'A'.repeat(40);
+const modelTurn = (blocks, stop = 'tool_use') => ({
+  id: 'msg_x', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5',
+  content: blocks, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 }
+});
+const call = (id, name, input = {}) => ({ type: 'tool_use', id, name, toolset_name: 'computer', input });
+
+withBrowser('computerUseFillForm declares the toolset, runs a multi-block turn through the batch, and answers every block', async () => {
+  const html = fixturePage('Buttons', '<button type="button" id="n">Next</button> <button type="button" id="s">Submit application</button>');
+  await withPage(html, async (p) => {
+    const submit = await centre(p.locator('#s'));
+    const f = fakeClient([
+      modelTurn([call('toolu_1', 'screenshot'), call('toolu_2', 'left_click', { coordinate: submit }), call('toolu_3', 'screenshot')]),
+      modelTurn([{ type: 'text', text: 'Done.' }], 'end_turn')
+    ]);
+    setClaudeClientForTests(f.client);
+    try {
+      const out = await computerUseFillForm(p, { anthropicApiKey: KEY }, { title: 'Dev', company: 'Acme' }, { maxSteps: 5 });
+      assert.equal(out.stopped, 'model-done');
+      assert.equal(out.refusals, 1);
+      assert.equal(f.calls.length, 2);
+      assert.deepEqual(f.calls[0].tools, [{ type: 'computer_toolset_20260801', configs: { zoom: { enabled: false } } }]);
+      assert.equal((f.calls[0].betas || []).includes('computer-use-2025-11-24'), false);
+      const second = f.calls[1].messages.at(-1);
+      assert.equal(second.role, 'user');
+      assert.deepEqual(second.content.map((b) => b.tool_use_id), ['toolu_1', 'toolu_2', 'toolu_3']);
+      for (const b of second.content) assert.equal(b.toolset_name, 'computer');
+      assert.deepEqual(await clicks(p), []);
+    } finally {
+      setClaudeClientForTests(null);
+    }
+  });
+});
+
+withBrowser('computerUseFillForm stops at the step cap when the model keeps calling tools', async () => {
+  await withPage(formHtml('Next'), async (p) => {
+    const f = fakeClient([modelTurn([call('toolu_1', 'screenshot')])]);   // repeats forever
+    setClaudeClientForTests(f.client);
+    try {
+      const out = await computerUseFillForm(p, { anthropicApiKey: KEY }, { title: 'Dev', company: 'Acme' }, { maxSteps: 2 });
+      assert.equal(out.stopped, 'step-cap');
+      assert.equal(out.steps, 2);
+      assert.equal(f.calls.length, 2);
+    } finally {
+      setClaudeClientForTests(null);
+    }
   });
 });

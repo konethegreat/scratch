@@ -22,6 +22,8 @@ test('every TASKS entry names a registry model and a valid effort', () => {
     assert.ok(t.maxTokens > 0, `${name} maxTokens`);
   }
   assert.equal(Object.keys(TASKS).length, 12);
+  // Agent 2 documents are long; adaptive thinking shares the budget (a cut-off CV is never saved).
+  assert.equal(TASKS.tailor.maxTokens, 16000);
 });
 
 test('taskConfig falls back to core for unknown tasks', () => {

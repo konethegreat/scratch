@@ -1,6 +1,6 @@
 import path from 'path';
 import { getProfile, readDb, updateJob, addLog, buildMemoryDigest, buildEmployerNotes, GENERATED_DOCS_PATH } from '../db/helper.js';
-import { callLlm, assertAnthropicKey } from './llm.js';
+import { callLlmFull, assertAnthropicKey } from './llm.js';
 import { renderMarkdownToPdf } from './pdf.js';
 import { researchCompany, researchFanoutReady } from './companyResearch.js';
 import { buildTailorPrompts, INJECTION_SHIELD } from './tailorPrompts.js';
@@ -14,6 +14,7 @@ import { withTask } from '../telemetry.js';
  *   (T4). When the batch orchestrator fans research out in parallel it passes the
  *   brief in so we don't research twice; for a lone run we fetch it here if the
  *   research-fan-out toggle is on.
+ * @param {Function} [opts.renderPdf] Tests only: replaces renderMarkdownToPdf.
  */
 export function runDocumentTailorAgent(...args) {
   return withTask('tailor', () => runDocumentTailorAgentInner(...args));
@@ -66,11 +67,25 @@ async function runDocumentTailorAgentInner(jobId, opts = {}) {
     .replace(/^```[a-zA-Z]*\s*\r?\n?/, '')
     .replace(/\r?\n?```\s*$/, '')
     .trim();
-  const generate = async (prompt) => stripFences(await callLlm(profile, prompt, { system: cvSystem, cacheSystem: true, bucket: 'tailor' }));
+  // A document that was cut off (max_tokens) or came back empty (adaptive
+  // thinking can use the whole budget) must never be saved as finished: Agent 3
+  // may attach the PDF to a real application. Throw a user-facing error instead.
+  const generate = async (prompt, what) => {
+    const r = await callLlmFull(profile, { task: 'tailor', prompt, system: cvSystem, cacheSystem: true });
+    const out = stripFences(r.text);
+    if (r.truncated) {
+      throw new Error(`The ${what} was cut off before it finished (the model hit its output limit), so it was not saved. Try again.`);
+    }
+    if (!out) {
+      throw new Error(`The ${what} came back empty, so nothing was saved. Try again.`);
+    }
+    return out;
+  };
+  const render = opts.renderPdf || renderMarkdownToPdf;
 
   // ── CV generation — if this throws, the caller reverts status to 'found' ──
   addLog('Generating tailored CV...', 'agent2');
-  const tailoredCv = await generate(cvPrompt);
+  const tailoredCv = await generate(cvPrompt, 'tailored CV');
 
   // B2 fix: save CV immediately so it's never lost even if cover letter fails.
   // Status moves to 'tailored' now — a partial result (CV only) is still useful.
@@ -82,7 +97,7 @@ async function runDocumentTailorAgentInner(jobId, opts = {}) {
   try {
     const cvPdfPath = path.join(GENERATED_DOCS_PATH, `${jobId}-CV.pdf`);
     const docTitle = `${profile.fullName || 'CV'} — ${job.title}`;
-    await renderMarkdownToPdf(tailoredCv, cvPdfPath, docTitle);
+    await render(tailoredCv, cvPdfPath, docTitle);
     updateJob(jobId, { tailoredCvPath: cvPdfPath });
     addLog('CV PDF generated for upload.', 'agent2');
   } catch (err) {
@@ -92,12 +107,12 @@ async function runDocumentTailorAgentInner(jobId, opts = {}) {
   // ── Cover letter — best-effort; failure is logged but does not throw ───────
   addLog('Generating tailored cover letter...', 'agent2');
   try {
-    const tailoredCoverLetter = await generate(coverLetterPrompt);
+    const tailoredCoverLetter = await generate(coverLetterPrompt, 'cover letter');
     updateJob(jobId, { tailoredCoverLetterText: tailoredCoverLetter });
     addLog('Cover letter tailored and saved.', 'agent2');
     try {
       const clPdfPath = path.join(GENERATED_DOCS_PATH, `${jobId}-CoverLetter.pdf`);
-      await renderMarkdownToPdf(tailoredCoverLetter, clPdfPath, `Cover Letter — ${job.title}`);
+      await render(tailoredCoverLetter, clPdfPath, `Cover Letter — ${job.title}`);
       updateJob(jobId, { tailoredCoverLetterPath: clPdfPath });
       addLog('Cover letter PDF generated.', 'agent2');
     } catch (err) {

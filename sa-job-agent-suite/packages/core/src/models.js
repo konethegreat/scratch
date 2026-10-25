@@ -47,7 +47,7 @@ export const TASKS = Object.freeze({
   'research':        { model: S, effort: 'low',    maxTokens: 6000 },
   'referral-search': { model: S, effort: 'low',    maxTokens: 6000 },
   'referral':        { model: S, effort: 'low',    maxTokens: 3000 },
-  'tailor':          { model: S, effort: 'medium', maxTokens: 8000 },
+  'tailor':          { model: S, effort: 'medium', maxTokens: 16000 },
   'smart-fill':      { model: S, effort: 'low',    maxTokens: 8000 },
   'planner':         { model: MODEL_IDS.haiku, effort: 'low', maxTokens: 2000 },
   'vision':          { model: S, effort: 'low',    maxTokens: 2000 },

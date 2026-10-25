@@ -19,6 +19,14 @@ export const MODEL_IDS = Object.freeze({
   fable: 'claude-fable-5-1'
 });
 
+/**
+ * Capability flags decided by the live smoke probes (scripts/smoke-live.mjs).
+ * Defaults are the documented behaviour; flip a flag to false if its probe fails.
+ *   searchStructuredOutput: Sonnet + web_search + json_schema output works together.
+ *   haikuWebSearch: Haiku supports the web_search tool (the Token Saver search model).
+ */
+export const CAPABILITIES = Object.freeze({ searchStructuredOutput: true, haikuWebSearch: true });
+
 export const DEFAULT_MODEL_ID = MODEL_IDS.sonnet;
 
 export const MODELS = Object.freeze({

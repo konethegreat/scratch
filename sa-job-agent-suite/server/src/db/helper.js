@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
 import { currentTask } from './taskContext.js';
-import { scrubSecrets, MODEL_IDS, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
+import { scrubSecrets, MODEL_IDS, CAPABILITIES, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
 import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS } from './migrations.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1217,7 +1217,7 @@ export const PERFORMANCE_PRESETS = {
     description: 'Cheapest useful setup: AI search on Haiku 5.5 at light depth, all optional AI off, caching on. Roughly a tenth of Maximum\'s spend.',
     values: {
       useAiSearch: true,
-      aiSearchModel: MODEL_IDS.haiku,
+      aiSearchModel: CAPABILITIES.haikuWebSearch ? MODEL_IDS.haiku : MODEL_IDS.sonnet,
       searchDepth: 'light',
       useLinkValidation: true,   // free safety — probing isn't billed
       useLinkRepair: false,

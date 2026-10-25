@@ -1,4 +1,4 @@
-import { webSearchTool, salvageJsonArray } from '@sajas/core';
+import { webSearchTool, salvageJsonArray, CAPABILITIES } from '@sajas/core';
 import { addLog, budgetStatus, budgetMessage, SEARCH_DEPTHS } from '../db/helper.js';
 import { callLlmFull, extractJson, hasAnthropicKey } from './llm.js';
 // Junk repost-aggregator list — owned by the link validator (single link-policy
@@ -61,7 +61,7 @@ export const JOBS_SCHEMA = {
  * other change. (`callLlmFull` also drops the schema when the user turns
  * `useStructuredOutputs` off.)
  */
-export const SEARCH_USES_SCHEMA = true;
+export const SEARCH_USES_SCHEMA = CAPABILITIES.searchStructuredOutput;
 
 export function resolveSearchDepth(profile = {}) {
   const d = String(profile.searchDepth || '').trim();

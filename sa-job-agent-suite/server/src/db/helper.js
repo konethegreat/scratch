@@ -144,6 +144,8 @@ const DEFAULT_DB = {
     // Settings; provider-agnostic (uses whichever key is set). Default ON, but
     // no-ops gracefully when no provider key is available.
     useMemoryReflection: true,
+    // Tier-3 AI page extractor for broken scrapers; Anthropic-only, best-effort; Haiku, cents.
+    useAiExtractFallback: true,
     // Free-form "anything else" catch-all the user volunteers. Still used by
     // Agent 3's AI field-mapper as extra context, but the structured
     // applicationProfile below is now the primary, deterministic source.
@@ -234,7 +236,11 @@ const DEFAULT_DB = {
   //                           byBucket: { [bucket]: same-shape-minus-byBucket },
   //                           byTask: { [type]: { runs, failures, calls, estCostUSD,
   //                             inputTokens, cacheReadTokens, cacheWriteTokens } } } }
-  usage: { days: {} }
+  usage: { days: {} },
+  // ── Source health (hunter v2) ───────────────────────────────────────────────
+  // Per-scraper run history + circuit breaker, keyed by source id. See
+  // hunter/health.js (pure model) and hunter/healthStore.js (persistence).
+  sourceHealth: {}
 };
 
 const DEFAULT_KEYS = {
@@ -314,7 +320,8 @@ export function readDb() {
       applyState:  { ...DEFAULT_DB.applyState,  ...(parsed.applyState  || {}) },
       usage: (parsed.usage && typeof parsed.usage === 'object' && parsed.usage.days)
         ? parsed.usage
-        : { days: {} }
+        : { days: {} },
+      sourceHealth: (parsed.sourceHealth && typeof parsed.sourceHealth === 'object' && !Array.isArray(parsed.sourceHealth)) ? parsed.sourceHealth : {}
     };
   } catch {
     return { ...DEFAULT_DB };

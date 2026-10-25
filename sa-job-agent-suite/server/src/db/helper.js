@@ -822,6 +822,21 @@ export function buildMemoryDigest({ company = '', maxInsights = 14 } = {}) {
   return lines.join('\n').trim();
 }
 
+/**
+ * Employer-specific notes for ONE company, formatted exactly as buildMemoryDigest
+ * used to embed them. Kept out of the digest so the cached system prompt stays
+ * company-independent; Agent 2 places this in the per-job prompts instead.
+ * Returns '' when the company is unknown or has no notes.
+ */
+export function buildEmployerNotes(company) {
+  const norm = normalizeQuestion(company || '');
+  if (!norm) return '';
+  const mem = readDb().candidateMemory || {};
+  const target = (mem.employers || []).find((e) => e.normalized === norm);
+  if (!target || !target.notes || !target.notes.length) return '';
+  return `Employer notes:\n- ${target.company}: ${target.notes.join(' | ')}`;
+}
+
 export function clearKey(provider) {
   if (provider !== 'anthropic') return false;
   writeKeys({ anthropicApiKey: '' });

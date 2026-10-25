@@ -9,6 +9,9 @@ import { computerUseFillForm, computerUseSupported } from './computerUse.js';
 import { reflectOnApplication } from './memoryReflect.js';
 import { demoOrigin } from '../demo.js';
 
+// Max characters of the base CV excerpted into the smart-fill LLM prompt.
+const CV_EXCERPT_CHARS = 12000;
+
 const demoContexts = new Set();
 export async function closeDemoBrowsers() {
   await Promise.all([...demoContexts].map(context => context.close().catch(() => {})));
@@ -541,7 +544,7 @@ CANDIDATE DATA:
 ${JSON.stringify(candidate)}
 
 CANDIDATE BASE CV (truthful source material):
-${(profile.baseCv || '').slice(0, 4000)}
+${(profile.baseCv || '').slice(0, CV_EXCERPT_CHARS)}
 
 CANDIDATE STRUCTURED ANSWERS (declared in Settings — use verbatim where they match):
 ${JSON.stringify(appProfile)}
@@ -999,7 +1002,7 @@ export async function runApplyAssistantAgent(jobId, { headless = false, pollInte
     const noFormNoted = new Set();       // URLs we have already flagged as "no form here"
     const plannedUrls = new Set();        // URLs the planner has already analysed
     let plannerCalls = 0;                 // per-session planner call counter
-    const PLANNER_CAP = 25;               // max planner LLM calls per apply session
+    const PLANNER_CAP = 60;               // max planner LLM calls per apply session
 
     // Advance once per page + label, under the click policy in submitGuard.js.
     // Inside the application (a form page, or any page after a form was filled)

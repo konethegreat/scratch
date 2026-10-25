@@ -42,7 +42,8 @@ test('a legacy install loads: profile fields survive, aiProvider is gone, foreig
   assert.equal(profile.baseCv, 'x'.repeat(100));
   assert.ok(!('aiProvider' in profile));
   assert.equal(profile.selectedModel, '');
-  assert.equal(profile.aiSearchModel, '');
+  // A legacy Claude ID maps to the same family's current registry ID, never to ''.
+  assert.equal(profile.aiSearchModel, MODEL_IDS.sonnet);
   assert.equal(profile.schemaVersion, 2);
   assert.equal(profile.anthropicApiKey, ak);
   assert.ok(!('geminiApiKey' in profile));
@@ -123,7 +124,7 @@ test('migrateProfile is idempotent', () => {
   assert.ok(!('aiProvider' in once));
   assert.equal(once.selectedModel, '');
   assert.equal(once.aiSearchModel, MODEL_IDS.opus);
-  assert.equal(once.computerUseModel, '');
+  assert.equal(once.computerUseModel, MODEL_IDS.sonnet);
   assert.equal(once.computerUseMaxSteps, 40);
   assert.equal(once.schemaVersion, mig.PROFILE_SCHEMA_VERSION);
   assert.equal(once.fullName, 'Keep');
@@ -132,4 +133,39 @@ test('migrateProfile is idempotent', () => {
   assert.equal(mig.migrateProfile({ computerUseMaxSteps: 0 }).computerUseMaxSteps, 1);
   assert.deepEqual(mig.LEGACY_PROFILE_FIELDS, ['aiProvider']);
   assert.deepEqual(mig.LEGACY_KEY_FIELDS, ['geminiApiKey', 'openRouterApiKey']);
+});
+
+test('legacy Claude model IDs map to the same family; unknown and non-Claude IDs are blanked', () => {
+  const m = (v) => mig.migrateProfile({ aiSearchModel: v }).aiSearchModel;
+  assert.equal(m('claude-haiku-4-5'), MODEL_IDS.haiku);
+  assert.equal(m('claude-3-5-haiku-20241022'), MODEL_IDS.haiku);
+  assert.equal(m('claude-sonnet-4-6'), MODEL_IDS.sonnet);
+  assert.equal(m('claude-opus-4-8'), MODEL_IDS.opus);
+  assert.equal(m('Claude-Fable-2'), MODEL_IDS.fable);
+  // A registry ID is kept as is.
+  for (const id of Object.values(MODEL_IDS)) assert.equal(m(id), id);
+  // No family word, or not a Claude ID at all: blank.
+  assert.equal(m('claude-mystery'), '');
+  assert.equal(m('gemini-1.5-flash'), '');
+  assert.equal(m('gpt-sonnet-fan'), '');
+  assert.equal(m(''), '');
+  // Non-string values are left untouched (they are not model IDs).
+  assert.equal(m(undefined), undefined);
+  // Idempotent.
+  const once = mig.migrateProfile({ selectedModel: 'claude-opus-4-8', aiSearchModel: 'claude-mystery' });
+  assert.deepEqual(mig.migrateProfile(once), once);
+});
+
+test('a Token Saver user whose legacy Haiku id was migrated still reads as the Saver preset', () => {
+  writeDbFile({ profile: {} });
+  fs.rmSync(process.env.KEYS_PATH, { force: true });
+  helper.applyPerformancePreset('saver');
+  // Simulate the stored value an older release wrote for the same preset.
+  const db = JSON.parse(fs.readFileSync(process.env.DB_PATH, 'utf-8'));
+  db.profile.aiSearchModel = 'claude-haiku-4-' + '5';
+  db.profile.schemaVersion = 1;
+  writeDbFile(db);
+  const profile = helper.getProfile();
+  assert.equal(profile.aiSearchModel, MODEL_IDS.haiku);
+  assert.equal(helper.detectActivePreset(profile), 'saver');
 });

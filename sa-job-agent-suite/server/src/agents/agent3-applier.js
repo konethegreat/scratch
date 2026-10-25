@@ -8,6 +8,7 @@ import { findAdvanceControl, clickControl } from './controls.js';
 import { computerUseFillForm, computerUseSupported } from './computerUse.js';
 import { reflectOnApplication } from './memoryReflect.js';
 import { demoOrigin } from '../demo.js';
+import { withTask } from '../telemetry.js';
 
 // Max characters of the base CV excerpted into the smart-fill LLM prompt.
 const CV_EXCERPT_CHARS = 12000;
@@ -902,7 +903,11 @@ async function injectHud(page, hudData) {
 
 // Test options let the regression exercise the actual copilot on local fixtures.
 // The HTTP route supplies none: ordinary sessions remain visible and supervised.
-export async function runApplyAssistantAgent(jobId, { headless = false, pollIntervalMs = 3000, onPageReady } = {}) {
+export function runApplyAssistantAgent(...args) {
+  return withTask('apply', () => runApplyAssistantAgentInner(...args));
+}
+
+async function runApplyAssistantAgentInner(jobId, { headless = false, pollIntervalMs = 3000, onPageReady } = {}) {
   const profile = getProfile();
   const fixtureOrigin = demoOrigin();
 

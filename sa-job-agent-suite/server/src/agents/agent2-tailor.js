@@ -4,6 +4,7 @@ import { callLlm, assertAnthropicKey } from './llm.js';
 import { renderMarkdownToPdf } from './pdf.js';
 import { researchCompany, researchFanoutReady } from './companyResearch.js';
 import { buildTailorPrompts, INJECTION_SHIELD } from './tailorPrompts.js';
+import { withTask } from '../telemetry.js';
 
 /**
  * Tailors the CV + cover letter for one job.
@@ -14,7 +15,11 @@ import { buildTailorPrompts, INJECTION_SHIELD } from './tailorPrompts.js';
  *   brief in so we don't research twice; for a lone run we fetch it here if the
  *   research-fan-out toggle is on.
  */
-export async function runDocumentTailorAgent(jobId, opts = {}) {
+export function runDocumentTailorAgent(...args) {
+  return withTask('tailor', () => runDocumentTailorAgentInner(...args));
+}
+
+async function runDocumentTailorAgentInner(jobId, opts = {}) {
   const profile = getProfile();
 
   addLog(`Starting Agent 2: Document Tailor for Job ID: ${jobId}...`, 'agent2');

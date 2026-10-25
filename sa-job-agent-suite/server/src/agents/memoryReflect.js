@@ -3,6 +3,7 @@ import {
   getCandidateMemory, reinforceInsight, deleteInsight, recordDreamResult
 } from '../db/helper.js';
 import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
+import { withTask } from '../telemetry.js';
 
 /**
  * Reflection schema (constrained decoding on Anthropic; ignored by other
@@ -40,7 +41,11 @@ const REFLECT_SCHEMA = {
  * @param {object} ctx       { job, transcript } — transcript = [{question, answer}]
  * @returns {Promise<{insights:number, employerNote:boolean}>}
  */
-export async function reflectOnApplication(profile, { job, transcript = [] } = {}) {
+export function reflectOnApplication(...args) {
+  return withTask('memory-reflect', () => reflectOnApplicationInner(...args));
+}
+
+async function reflectOnApplicationInner(profile, { job, transcript = [] } = {}) {
   if (!profile || profile.useMemoryReflection === false) return { insights: 0, employerNote: false };
 
   if (!hasAnthropicKey(profile)) {
@@ -154,7 +159,11 @@ const DECISIVE_OUTCOMES = ['interview', 'offer', 'rejected'];
  *
  * @returns {Promise<{added:number, reinforced:number, pruned:number, skipped?:string}>}
  */
-export async function dreamOverMemory(profile) {
+export function dreamOverMemory(...args) {
+  return withTask('memory-dream', () => dreamOverMemoryInner(...args));
+}
+
+async function dreamOverMemoryInner(profile) {
   const noop = { added: 0, reinforced: 0, pruned: 0 };
   if (!profile || profile.useDreaming === false) return { ...noop, skipped: 'disabled' };
 

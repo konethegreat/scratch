@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { addJob, addLog, getProfile, getHunterState, BROWSER_PROFILE_PATH } from '../db/helper.js';
 import { huntViaClaudeSearch, findDirectPostingUrl } from './jobSearchAI.js';
 import { validateJobs, validateLink, createProbeContext } from './linkValidator.js';
+import { withTask } from '../telemetry.js';
 
 // Max AI link-repair attempts per run (each is a billed grounded search), only
 // when profile.useLinkRepair is on AND an Anthropic key is present.
@@ -917,7 +918,11 @@ async function scrapeJobPlacements(page, keyword) {
 /**
  * Main entry point: Runs Agent 1 Job Hunter across all sources.
  */
-export async function runJobHunterAgent() {
+export function runJobHunterAgent(...args) {
+  return withTask('hunt', () => runJobHunterAgentInner(...args));
+}
+
+async function runJobHunterAgentInner() {
   const profile = getProfile();
   const keywords = (profile.keywords || '').split(',').map(k => k.trim()).filter(Boolean);
   const locations = (profile.locations || '').split(',').map(l => l.trim()).filter(Boolean);

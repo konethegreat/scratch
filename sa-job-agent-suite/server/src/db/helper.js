@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
+import { currentTask } from './taskContext.js';
 import { scrubSecrets, MODEL_IDS, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
 import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS } from './migrations.js';
 
@@ -230,7 +231,9 @@ const DEFAULT_DB = {
   // draining the key. Pruned to the most recent ~35 days. See db/costs.js.
   //   days: { 'YYYY-MM-DD': { calls, inputTokens, outputTokens, cacheReadTokens,
   //                           cacheWriteTokens, webSearches, estCostUSD,
-  //                           byBucket: { [bucket]: same-shape-minus-byBucket } } }
+  //                           byBucket: { [bucket]: same-shape-minus-byBucket },
+  //                           byTask: { [type]: { runs, failures, calls, estCostUSD,
+  //                             inputTokens, cacheReadTokens, cacheWriteTokens } } } }
   usage: { days: {} }
 };
 
@@ -1066,6 +1069,14 @@ function emptyTally() {
   return { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0 };
 }
 
+function emptyDay() {
+  return { ...emptyTally(), byBucket: {}, byTask: {} };
+}
+
+function emptyTaskTally() {
+  return { runs: 0, failures: 0, calls: 0, estCostUSD: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+}
+
 function accumulate(t, u, cost) {
   t.calls += 1;
   t.inputTokens      += u.inputTokens || 0;
@@ -1087,10 +1098,21 @@ export function addUsage({ provider: _provider, model = '', bucket = 'core', ...
     const db = readDb();
     if (!db.usage || !db.usage.days) db.usage = { days: {} };
     const key = todayKey();
-    const day = db.usage.days[key] || { ...emptyTally(), byBucket: {} };
+    const day = db.usage.days[key] || emptyDay();
     accumulate(day, tokens, cost);
     day.byBucket[bucket] = day.byBucket[bucket] || emptyTally();
     accumulate(day.byBucket[bucket], tokens, cost);
+    // Per-task attribution: ONLY when a task is active (see telemetry.withTask).
+    const task = currentTask();
+    if (task && task.type) {
+      day.byTask = day.byTask || {};
+      const tt = day.byTask[task.type] = day.byTask[task.type] || emptyTaskTally();
+      tt.calls += 1;
+      tt.estCostUSD += cost;
+      tt.inputTokens += tokens.inputTokens || 0;
+      tt.cacheReadTokens += tokens.cacheReadTokens || 0;
+      tt.cacheWriteTokens += tokens.cacheWriteTokens || 0;
+    }
     db.usage.days[key] = day;
     // Prune old days so db.json never balloons.
     const keys = Object.keys(db.usage.days).sort();
@@ -1102,11 +1124,54 @@ export function addUsage({ provider: _provider, model = '', bucket = 'core', ...
   }
 }
 
+/**
+ * Counts one finished run of a task type (hunt/tailor/apply/memory-reflect/...).
+ * Best-effort: never throws.
+ */
+export function recordTaskRun(type, ok = true) {
+  try {
+    const db = readDb();
+    if (!db.usage || !db.usage.days) db.usage = { days: {} };
+    const key = todayKey();
+    const day = db.usage.days[key] || emptyDay();
+    day.byTask = day.byTask || {};
+    const tt = day.byTask[type] = day.byTask[type] || emptyTaskTally();
+    tt.runs += 1;
+    if (!ok) tt.failures += 1;
+    db.usage.days[key] = day;
+    const keys = Object.keys(db.usage.days).sort();
+    while (keys.length > USAGE_KEEP_DAYS) delete db.usage.days[keys.shift()];
+    writeDb(db);
+  } catch {
+    /* ledger failures must never break an agent */
+  }
+}
+
+function summariseTasks(byTask = {}) {
+  const out = {};
+  for (const [type, t] of Object.entries(byTask)) {
+    const denom = (t.inputTokens || 0) + (t.cacheReadTokens || 0) + (t.cacheWriteTokens || 0);
+    out[type] = {
+      runs: t.runs || 0,
+      failures: t.failures || 0,
+      calls: t.calls || 0,
+      estCostUSD: t.estCostUSD || 0,
+      inputTokens: t.inputTokens || 0,
+      cacheReadTokens: t.cacheReadTokens || 0,
+      cacheWriteTokens: t.cacheWriteTokens || 0,
+      cacheHitRatio: denom > 0 ? (t.cacheReadTokens || 0) / denom : 0,
+      avgCostUSD: t.runs > 0 ? (t.estCostUSD || 0) / t.runs : 0
+    };
+  }
+  return out;
+}
+
 /** Today's tally + a short history, for the Settings usage panel. */
 export function getUsageSummary() {
   const db = readDb();
   const days = (db.usage && db.usage.days) || {};
-  const today = days[todayKey()] || { ...emptyTally(), byBucket: {} };
+  const rawToday = days[todayKey()] || emptyDay();
+  const today = { ...rawToday, byBucket: rawToday.byBucket || {}, byTask: summariseTasks(rawToday.byTask) };
   const sorted = Object.keys(days).sort().slice(-14);
   const history = sorted.map((d) => ({ date: d, estCostUSD: days[d].estCostUSD || 0, calls: days[d].calls || 0 }));
   const last7 = history.slice(-7).reduce((s, d) => s + d.estCostUSD, 0);

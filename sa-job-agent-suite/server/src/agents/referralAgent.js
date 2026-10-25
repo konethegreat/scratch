@@ -1,7 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
-import { fromAnthropicUsage } from '../db/costs.js';
-import { callLlm, extractJson } from './llm.js';
+import { webSearchTool } from '@sajas/core';
+import { addLog, budgetStatus, budgetMessage } from '../db/helper.js';
+import { callLlm, callLlmFull, extractJson, hasAnthropicKey } from './llm.js';
 
 // ── Referral pipeline (post-application "direct outreach channel") ──────────────
 // A counter-measure to algorithmic ATS screening: the moment an application is
@@ -16,21 +15,20 @@ import { callLlm, extractJson } from './llm.js';
 //     It NEVER invents a person; if it can't verify one it falls back to a
 //     pre-built LinkedIn people-search link the user follows themselves.
 //   • PROVIDER-AGNOSTIC drafting — the message is written via callLlm(), so it
-//     honours whichever key (Gemini / Anthropic / OpenRouter) the user selected.
+//     goes through the shared Claude adapter (bucket 'referral').
 //   • HUMAN-ON-THE-LOOP — it only drafts. Nothing is sent, connected, or messaged
 //     automatically. The user reviews, edits, and reaches out.
 //   • BEST-EFFORT — never throws; a failure degrades to the search-link fallback
 //     so the channel is always actionable.
 
-const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 3 };
+const REFERRAL_MAX_SEARCHES = 3;
 
 // Roles we prioritise, most senior/relevant for an engineering referral first.
 const TARGET_ROLES = 'Engineering Manager, Tech Lead, Team Lead, Head of Engineering, or CTO (at a smaller company)';
 
 /** True when grounded discovery is possible (a real Anthropic key is present). */
 export function groundedReferralReady(profile = {}) {
-  const key = profile.anthropicApiKey;
-  return Boolean(key && !String(key).includes('your_'));
+  return hasAnthropicKey(profile);
 }
 
 /**
@@ -78,9 +76,6 @@ export async function findReferralContact(profile, job) {
     return fallback;
   }
 
-  const model = (profile.aiSearchModel || '').trim() || 'claude-sonnet-4-6';
-  const anthropic = new Anthropic({ apiKey: profile.anthropicApiKey });
-
   const prompt = `You are helping a South African software engineer find ONE real person to reach out to for a referral, after applying for a role.
 
 Company: ${company}
@@ -102,34 +97,14 @@ Rules:
 - The person must currently work at "${company}".
 - If you cannot verify a specific real person, return full_name "" and profile_url "".`;
 
-  let messages = [{ role: 'user', content: prompt }];
-  const tools = [{
-    ...WEB_SEARCH_TOOL,
-    user_location: { type: 'approximate', country: 'ZA', timezone: 'Africa/Johannesburg' }
-  }];
-
   try {
     addLog(`[Referral] Searching for an engineering contact at ${company}…`, 'agent3');
-    let final = null;
-    for (let turn = 0; turn < 4; turn++) {
-      const resp = await anthropic.messages.create({ model, max_tokens: 1024, messages, tools });
-      addUsage({ ...fromAnthropicUsage(model, resp.usage || {}), bucket: 'referral' });
-      if (resp.stop_reason === 'pause_turn') {
-        messages.push({ role: 'assistant', content: resp.content });
-        continue;
-      }
-      final = resp;
-      break;
-    }
-    if (!final) {
-      addLog('[Referral] Search kept pausing — using a LinkedIn search link instead.', 'system');
-      return fallback;
-    }
-    const text = (final.content || [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
+    const result = await callLlmFull(profile, {
+      task: 'referral-search',
+      prompt,
+      tools: [webSearchTool({ maxUses: REFERRAL_MAX_SEARCHES })]
+    });
+    const text = (result.text || '').trim();
     const parsed = extractJson(text);
     if (!parsed || !parsed.full_name) {
       addLog(`[Referral] No specific contact verified at ${company} — using a LinkedIn search link.`, 'system');

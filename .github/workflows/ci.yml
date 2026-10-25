@@ -60,8 +60,10 @@ jobs:
           cache-dependency-path: sa-job-agent-suite/package-lock.json
       - name: Install (no install scripts, so the Electron binary is not downloaded)
         run: npm ci --ignore-scripts
-      - name: Server tests
-        run: npm test --workspace=server
+      - name: Unit tests
+        run: npm test
+      - name: Evals (dry run, no network)
+        run: node evals/run.mjs
       - name: Client build
         run: npm run build:client
 

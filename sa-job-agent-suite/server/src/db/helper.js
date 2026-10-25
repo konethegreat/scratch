@@ -271,6 +271,17 @@ function withoutLegacyKeys(profile) {
   return out;
 }
 
+// Once keys.json exists it is the only authority for the Anthropic key: a
+// plaintext `anthropicApiKey` still sitting in db.json's profile is stale and
+// must neither be read nor written back. (While keys.json does NOT exist the
+// field is left alone so readKeys' one-time migration can still move it.)
+function withoutStaleKey(profile) {
+  if (!profile || typeof profile !== 'object' || !('anthropicApiKey' in profile)) return profile;
+  if (!fs.existsSync(KEYS_PATH)) return profile;
+  const { anthropicApiKey, ...rest } = profile;
+  return rest;
+}
+
 export function readDb() {
   initDb();
   try {
@@ -281,7 +292,7 @@ export function readDb() {
       ...parsed,
       profile: migrateProfile({
         ...DEFAULT_DB.profile,
-        ...withoutLegacyKeys(parsed.profile),
+        ...withoutLegacyKeys(withoutStaleKey(parsed.profile)),
         // Deep-merge so newly-added structured keys still get defaults.
         applicationProfile: {
           ...DEFAULT_DB.profile.applicationProfile,
@@ -314,7 +325,8 @@ export function writeDb(data) {
   initDb();
   // Errors are allowed to propagate — a silent swallow here is what caused
   // writes to fail invisibly when the packaged ASAR directory was read-only.
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  const safe = data && data.profile ? { ...data, profile: withoutStaleKey(data.profile) } : data;
+  fs.writeFileSync(DB_PATH, JSON.stringify(safe, null, 2), 'utf-8');
 }
 
 // ── API-key helpers (separate file, never stored in db.json) ─────────────────

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callClaude, REFUSAL_FALLBACK_DEFAULT } from './ai.js';
+import { callClaude, makeClient, ANTHROPIC_BASE_URL, REFUSAL_FALLBACK_DEFAULT } from './ai.js';
 import { ClaudeAuthError, ClaudeRefusalError, ClaudeKeyError } from './errors.js';
 import { fakeClient } from './testing.js';
 import { MODEL_IDS } from './models.js';
@@ -238,4 +238,30 @@ test('collects request ids when the SDK provides them', async () => {
   const { p } = run({}, [reply([text('x')], { _request_id: 'req_1' })]);
   const r = await p;
   assert.deepEqual(r.requestIds, ['req_1']);
+});
+
+test('makeClient pins the API host even when ANTHROPIC_BASE_URL points elsewhere', () => {
+  const before = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = 'https://gateway.example.test';
+  try {
+    assert.equal(ANTHROPIC_BASE_URL, 'https://api.anthropic.com');
+    assert.equal(makeClient({ apiKey: KEY }).baseURL, ANTHROPIC_BASE_URL);
+  } finally {
+    if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = before;
+  }
+});
+
+test('a test-injected hooks.client bypasses makeClient entirely', async () => {
+  const before = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = 'https://gateway.example.test';
+  try {
+    const f = fakeClient([reply([text('ok')])]);
+    const r = await callClaude({ apiKey: KEY, task: 'core', prompt: 'hi' }, { client: f.client });
+    assert.equal(r.text, 'ok');
+    assert.equal(f.calls.length, 1);
+  } finally {
+    if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = before;
+  }
 });

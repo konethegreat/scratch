@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { addJob, addLog, getProfile, getHunterState, BROWSER_PROFILE_PATH } from '../db/helper.js';
 import { huntViaClaudeSearch, findDirectPostingUrl } from './jobSearchAI.js';
 import { validateJobs, validateLink, createProbeContext } from './linkValidator.js';
+import { hasAnthropicKey } from './llm.js';
 import { withTask } from '../telemetry.js';
 
 // Max AI link-repair attempts per run (each is a billed grounded search), only
@@ -955,8 +956,7 @@ async function runJobHunterAgentInner() {
 
   // Optional AI link repair: when a job is kept WITHOUT a usable link, ask Claude
   // (grounded) for the real posting URL. Gated + capped because each is billed.
-  const repairReady = profile.useLinkRepair === true &&
-    Boolean(profile.anthropicApiKey) && !String(profile.anthropicApiKey).includes('your_');
+  const repairReady = profile.useLinkRepair === true && hasAnthropicKey(profile);
   const repairState = { left: repairReady ? LINK_REPAIR_CAP : 0 };
 
   // Run-level link health, surfaced in the dashboard Run Summary.

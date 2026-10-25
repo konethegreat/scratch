@@ -169,3 +169,27 @@ test('a Token Saver user whose legacy Haiku id was migrated still reads as the S
   assert.equal(profile.aiSearchModel, MODEL_IDS.haiku);
   assert.equal(helper.detectActivePreset(profile), 'saver');
 });
+
+test('a plaintext key left in db.json is stripped once keys.json holds a key', () => {
+  const stored = anthropicKey('K');
+  const stale = anthropicKey('L');
+  writeKeysFile({ anthropicApiKey: stored });
+  writeDbFile({ profile: { fullName: 'Keep', anthropicApiKey: stale } });
+
+  // Reads never expose the stale db.json copy: keys.json wins.
+  assert.equal(helper.getProfile().anthropicApiKey, stored);
+  assert.equal(helper.readDb().profile.anthropicApiKey, undefined);
+
+  // Any write rewrites db.json without it.
+  helper.saveProfile({ fullName: 'Keep' });
+  const onDisk = fs.readFileSync(process.env.DB_PATH, 'utf-8');
+  assert.ok(!onDisk.includes('anthropicApiKey'), 'db.json holds no anthropicApiKey');
+  assert.ok(!onDisk.includes(stale));
+  assert.equal(readKeysFile().anthropicApiKey, stored);
+
+  // writeDb of a db read earlier cannot reintroduce one either.
+  const db = helper.readDb();
+  db.profile.anthropicApiKey = stale;
+  helper.writeDb(db);
+  assert.ok(!fs.readFileSync(process.env.DB_PATH, 'utf-8').includes('anthropicApiKey'));
+});

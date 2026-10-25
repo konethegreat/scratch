@@ -20,8 +20,13 @@ export const REFUSAL_FALLBACK_DEFAULT = true;
 const FALLBACK_BETAS = ['server-side-fallback-2026-07-01'];
 const DEFAULT_MAX_CONTINUATIONS = 12;
 
+// Pinned: the SDK would otherwise honour ANTHROPIC_BASE_URL, and Electron hands
+// the server the full process.env, so an environment variable (or a gateway URL
+// configured for another tool) could redirect the user's key to another host.
+export const ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+
 export function makeClient({ apiKey, maxRetries = 6, timeout } = {}) {
-  return new Anthropic({ apiKey, maxRetries, ...(timeout ? { timeout } : {}) });
+  return new Anthropic({ apiKey, baseURL: ANTHROPIC_BASE_URL, maxRetries, ...(timeout ? { timeout } : {}) });
 }
 
 function checkedKey(raw) {

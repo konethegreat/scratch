@@ -84,6 +84,16 @@ test('callLlm throws MISSING_KEY_MESSAGE without a key', async () => {
   assert.equal(llm.hasAnthropicKey(profile()), true);
 });
 
+test('hasAnthropicKey requires a key-shaped value, so a stored non-key string no longer passes the gate', () => {
+  assert.equal(llm.hasAnthropicKey({ anthropicApiKey: 'hello' }), false);
+  assert.equal(llm.hasAnthropicKey({ anthropicApiKey: 'sk-ant-nope' }), false);
+  assert.equal(llm.hasAnthropicKey({ anthropicApiKey: 'sk-' + 'ant-admin01-' + 'B'.repeat(40) }), false);
+  assert.equal(llm.hasAnthropicKey({ anthropicApiKey: 12345 }), false);
+  assert.equal(llm.hasAnthropicKey({ anthropicApiKey: `  "${KEY}"
+` }), true, 'a pasted key is normalised first');
+  assert.throws(() => llm.assertAnthropicKey({ anthropicApiKey: 'hello' }), (e) => e.message === llm.MISSING_KEY_MESSAGE);
+});
+
 test('the daily budget stops the next pause_turn continuation but keeps usage already spent', async () => {
   const db = helper.readDb();
   db.profile.dailyBudgetUSD = 0.01;

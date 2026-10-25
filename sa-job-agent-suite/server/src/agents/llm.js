@@ -1,4 +1,4 @@
-import { callClaude, resolveModel, extractJson } from '@sajas/core';
+import { callClaude, resolveModel, extractJson, isAnthropicKeyShape, normalizeKeyInput } from '@sajas/core';
 import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
 import { demoOrigin } from '../demo.js';
 
@@ -24,10 +24,16 @@ export const MISSING_KEY_MESSAGE = 'Anthropic API key is missing. Add it in Sett
 
 export { extractJson };
 
-/** True when the profile holds a non-placeholder Anthropic key. */
+/**
+ * True when the profile holds a key-shaped Anthropic API key (after the same
+ * normalisation saveProfile applies). A stored non-key string or a placeholder
+ * like "your_key_here" fails here, up front, instead of passing the gate and
+ * throwing inside callClaude after the caller has already done work.
+ */
 export function hasAnthropicKey(profile) {
   const key = profile?.anthropicApiKey;
-  return typeof key === 'string' && key.trim() !== '' && !key.includes('your_');
+  if (typeof key !== 'string') return false;
+  return isAnthropicKeyShape(normalizeKeyInput(key));
 }
 
 /** Throws a user-facing error when there is no usable Anthropic key. */

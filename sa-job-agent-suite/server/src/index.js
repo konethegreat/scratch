@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import { LEGACY_KEY_FIELDS, LEGACY_PROFILE_FIELDS } from './db/migrations.js';
 import {
   getProfile,
   saveProfile,
@@ -99,8 +100,8 @@ installDemo(app);
 // The only shape a profile ever leaves the server in: no key material (just a
 // hasAnthropicKey flag) and none of the retired multi-provider fields.
 function publicProfile(profile) {
-  // eslint-disable-next-line no-unused-vars
-  const { anthropicApiKey, geminiApiKey, openRouterApiKey, aiProvider, ...rest } = profile;
+  const { anthropicApiKey, ...rest } = profile;
+  for (const f of [...LEGACY_KEY_FIELDS, ...LEGACY_PROFILE_FIELDS]) delete rest[f];
   return { ...rest, hasAnthropicKey: Boolean(anthropicApiKey) };
 }
 
@@ -828,7 +829,7 @@ app.get('/api/health', (req, res) => {
 // machine-local, matching the single-user desktop trust model in SECURITY.md.
 const HOST = process.env.HOST || '127.0.0.1';
 if (demoOrigin() && HOST !== '127.0.0.1') throw new Error('The demo API must bind to 127.0.0.1.');
-// Drop Gemini/OpenRouter keys left in keys.json by an older install (before
+// Drop retired provider keys left in keys.json by an older install (before
 // listening, so nothing can read them in the meantime).
 if (!demoOrigin() && purgeLegacyKeys().purged) {
   addLog('Removed legacy provider keys from the key store.', 'system');

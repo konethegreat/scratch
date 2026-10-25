@@ -6,8 +6,8 @@ import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
 import { withTask } from '../telemetry.js';
 
 /**
- * Reflection schema (constrained decoding on Anthropic; ignored by other
- * providers). The model distils a just-completed application into durable
+ * Reflection schema (constrained decoding via structured outputs).
+ * The model distils a just-completed application into durable
  * dossier material: a few candidate insights and one optional employer note.
  */
 const REFLECT_SCHEMA = {
@@ -34,8 +34,8 @@ const REFLECT_SCHEMA = {
 /**
  * After a confirmed application, distil durable facts about the candidate into
  * the evolving dossier. Gated by profile.useMemoryReflection (default ON) and
- * skipped silently when no provider key is configured. Provider-agnostic via
- * callLlm — uses whichever key the user selected.
+ * skipped silently when no Anthropic key is configured. Calls go through
+ * callLlm under the 'memory' task.
  *
  * @param {object} profile   merged profile (from getProfile())
  * @param {object} ctx       { job, transcript } — transcript = [{question, answer}]
@@ -153,8 +153,8 @@ const DECISIVE_OUTCOMES = ['interview', 'offer', 'rejected'];
  * reinforce insights that align with interviews/offers, prune redundant ones,
  * and add cross-application learnings. This is the nightly "Dreaming" pass.
  *
- * Provider-agnostic via callLlm. Gated by profile.useDreaming (default ON),
- * skipped silently when no provider key is set. Best-effort: never throws.
+ * Calls go through callLlm. Gated by profile.useDreaming (default ON),
+ * skipped silently when no Anthropic key is set. Best-effort: never throws.
  * User-entered ('manual') insights are NEVER pruned — only AI-sourced ones.
  *
  * @returns {Promise<{added:number, reinforced:number, pruned:number, skipped?:string}>}

@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
 import { currentTask } from './taskContext.js';
 import { scrubSecrets, MODEL_IDS, CAPABILITIES, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
-import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS } from './migrations.js';
+import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS, LEGACY_PROFILE_FIELDS } from './migrations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -115,7 +115,7 @@ const DEFAULT_DB = {
     useLinkRepair: false,
     // Agent 3 page understanding. The planner is a cheap text call that lets the
     // copilot comprehend a page (form vs listing vs login) and decide what to do;
-    // vision is an opt-in screenshot fallback (more expensive, Gemini/Anthropic).
+    // vision is an opt-in screenshot fallback (more expensive).
     useAiPlanner: true,
     useVision: false,
     // T3 computer-use: opt-in Anthropic driver that SEES and operates the live
@@ -326,13 +326,12 @@ function readKeys() {
       const raw = fs.readFileSync(DB_PATH, 'utf-8');
       const old = JSON.parse(raw);
       const p = old.profile || {};
-      if (p.geminiApiKey || p.anthropicApiKey || p.openRouterApiKey) {
-        // Only the Anthropic key survives the move; the others are dropped.
+      if (p.anthropicApiKey || LEGACY_KEY_FIELDS.some((f) => p[f])) {
+        // Only the Anthropic key survives the move; retired keys are dropped.
         const migrated = { anthropicApiKey: p.anthropicApiKey || '' };
         writeKeys(migrated);
-        delete p.geminiApiKey;
         delete p.anthropicApiKey;
-        delete p.openRouterApiKey;
+        for (const f of LEGACY_KEY_FIELDS) delete p[f];
         fs.writeFileSync(DB_PATH, JSON.stringify(old, null, 2), 'utf-8');
         return { ...DEFAULT_KEYS, ...migrated };
       }
@@ -349,7 +348,7 @@ function readKeys() {
 
 /**
  * One-time cleanup for upgraded installs: rewrite keys.json so it holds ONLY the
- * Anthropic key (drops the Gemini/OpenRouter keys from disk). Returns
+ * Anthropic key (drops retired provider keys from disk). Returns
  * { purged: true } when something was removed, { purged: false } otherwise.
  */
 export function purgeLegacyKeys() {
@@ -383,9 +382,9 @@ export function saveProfile(profile) {
   const db = readDb();
   const currentKeys = readKeys();
 
-  // Foreign-provider keys / the retired provider switch are dropped on the floor.
-  // eslint-disable-next-line no-unused-vars
-  const { geminiApiKey, openRouterApiKey, aiProvider, anthropicApiKey, ...profileFields } = profile;
+  // Retired provider keys / the retired provider switch are dropped on the floor.
+  const { anthropicApiKey, ...profileFields } = profile;
+  for (const f of [...LEGACY_KEY_FIELDS, ...LEGACY_PROFILE_FIELDS]) delete profileFields[f];
 
   // Empty/whitespace incoming key keeps the existing one; anything else must be
   // a well-formed, non-Admin Anthropic key (validated BEFORE anything is written).

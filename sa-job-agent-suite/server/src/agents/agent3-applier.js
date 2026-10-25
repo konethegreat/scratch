@@ -373,8 +373,7 @@ async function attachSupportingDocs(page) {
  *   3) Capture — any REQUIRED field still empty is queued in pendingQuestions so
  *      the user can answer it once and have it remembered forever.
  *
- * Provider-agnostic: routes through callLlm(), so it honours whichever key the
- * user selected (Gemini / Anthropic / OpenRouter) — Agent 3 is not locked to one.
+ * Routes through callLlm(), which picks the model for the 'smart-fill' task.
  */
 async function smartFillForm(page, profile, job, transcript = null) {
   // 1) Tag fields and extract a snapshot.

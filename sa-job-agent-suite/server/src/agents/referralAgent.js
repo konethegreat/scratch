@@ -14,7 +14,7 @@ import { callLlm, callLlmFull, extractJson, hasAnthropicKey } from './llm.js';
 //     (real people + real profile URLs, same engine as jobSearchAI/companyResearch).
 //     It NEVER invents a person; if it can't verify one it falls back to a
 //     pre-built LinkedIn people-search link the user follows themselves.
-//   • PROVIDER-AGNOSTIC drafting — the message is written via callLlm(), so it
+//   • SHARED-ADAPTER drafting — the message is written via callLlm(), so it
 //     goes through the shared Claude adapter (bucket 'referral').
 //   • HUMAN-ON-THE-LOOP — it only drafts. Nothing is sent, connected, or messaged
 //     automatically. The user reviews, edits, and reaches out.

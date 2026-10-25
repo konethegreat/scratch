@@ -49,6 +49,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       }
       assert.deepEqual(JSON.parse(await fs.readFile(runtime.env.KEYS_PATH, 'utf8')), {});
       assert.deepEqual(await json('/api/routines'), []);
+      assert.equal((await json('/api/models')).length, 4, 'the Settings model dropdown can load in demo mode');
       assert.equal((await json('/api/jobs'))[0].source, 'Synthetic local fixture');
       client = await startDemoClient(runtime.origin, { port: 0 });
       const html = await (await fetch(`http://127.0.0.1:${client.httpServer.address().port}`)).text();

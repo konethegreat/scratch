@@ -83,7 +83,7 @@ export function isDue(routine, now = new Date()) {
 
 // ── Execution ─────────────────────────────────────────────────────────────────
 
-function tailorProviderReady(profile) {
+function tailoringReady(profile) {
   return hasAnthropicKey(profile);
 }
 
@@ -140,8 +140,8 @@ export async function runRoutine(routine, { trigger = 'schedule' } = {}) {
     // ── Optional auto-tailor of the top NEW matches ────────────────────────────
     if (routine.type === 'hunt_and_tailor' && (routine.autoTailorCount || 0) > 0) {
       const profile = getProfile();
-      if (!tailorProviderReady(profile)) {
-        result.note = 'Auto-tailor skipped: no AI provider key set.';
+      if (!tailoringReady(profile)) {
+        result.note = 'Auto-tailor skipped: no Anthropic API key set.';
         addLog(`Routine "${routine.name}": ${result.note}`, 'system');
       } else {
         const newFound = getJobs()

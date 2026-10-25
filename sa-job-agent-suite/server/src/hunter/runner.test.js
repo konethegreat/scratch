@@ -146,3 +146,113 @@ test('runner: the page number is passed through buildUrl', async (t) => {
     },
   );
 });
+
+const CARDS = '<ul><li class="job" data-id="1">Dev One</li><li class="job" data-id="2">Dev Two</li></ul>';
+const throwingSource = {
+  ...fakeSource,
+  extractInPage: () => { throw new Error('extractInPage must not run here'); },
+};
+
+test('runner: cards plus "Cloudflare" in a description are not blocked', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Developer jobs', `<p>Experience with Cloudflare Workers is a plus.</p>${CARDS}`) }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      assert.equal(items.length, 2);
+      assert.equal(meta.blocked, false);
+      assert.equal(meta.blockKind, null);
+      assert.equal(meta.blockHint, null);
+    },
+  );
+});
+
+test('runner: cards plus a "protected by reCAPTCHA" notice are not blocked', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Developer jobs', `${CARDS}<footer>This site is protected by reCAPTCHA.</footer>`) }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      assert.equal(items.length, 2);
+      assert.equal(meta.blocked, false);
+    },
+  );
+});
+
+test('runner: a soft text signal with items found is ignored and hinted', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Developer jobs', `<p>Checking your browser before accessing the site.</p>${CARDS}`) }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      assert.equal(items.length, 2);
+      assert.equal(meta.blocked, false);
+      assert.equal(meta.blockKind, null);
+      assert.equal(meta.blockHint, 'text signal ignored: items were found');
+    },
+  );
+});
+
+test('runner: an interstitial body with no cards is blocked as a challenge', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('PNet', '<p>Checking your browser before accessing the site.</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      assert.deepEqual(items, []);
+      assert.equal(meta.blocked, true);
+      assert.equal(meta.blockKind, 'challenge');
+      assert.equal(meta.error, null);
+    },
+  );
+});
+
+test('runner: a "Just a moment" TITLE is a strong block and evaluate is not run', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Just a moment...', CARDS) }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1);
+      assert.deepEqual(items, []);
+      assert.equal(meta.blocked, true);
+      assert.equal(meta.blockKind, 'challenge');
+      assert.equal(meta.error, null); // evaluate never ran, so it could not throw
+    },
+  );
+});
+
+test('runner: a 5xx response sets meta.error and skips extraction', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 503, contentType: 'text/html', body: html('Service unavailable', CARDS) }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1);
+      assert.deepEqual(items, []);
+      assert.equal(meta.error, 'HTTP 503');
+      assert.equal(meta.blocked, false);
+      assert.equal(meta.httpStatus, 503);
+    },
+  );
+});
+
+test('runner: a long-body 403 (not a challenge) sets meta.error HTTP 403 and is not blocked', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  await withPage(
+    (route) => route.fulfill({ status: 403, contentType: 'text/html', body: html('Forbidden', `<p>${'Some ordinary long explanation. '.repeat(20)}</p>`) }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1);
+      assert.deepEqual(items, []);
+      assert.equal(meta.error, 'HTTP 403');
+      assert.equal(meta.blocked, false);
+    },
+  );
+});
+
+test('runner: fetchSourcePage never throws, even with a missing source or query', async () => {
+  const page = { goto: async () => { throw new Error('should not be reached'); } };
+  for (const [source, query] of [[null, null], [undefined, undefined], [{}, { keyword: 'x' }], [{ name: 'X' }, null]]) {
+    const { items, meta } = await fetchSourcePage(page, source, query, 1);
+    assert.deepEqual(items, []);
+    assert.equal(typeof meta.error, 'string');
+  }
+});

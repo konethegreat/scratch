@@ -12,7 +12,8 @@
 export function withPageParam(url, pagination, pageNo) {
   if (!pagination || !pagination.param || !(pageNo > 1)) return url;
   const value = pagination.firstValue + (pageNo - 1) * pagination.step;
-  const re = new RegExp(`([?&])${pagination.param}=[^&#]*`);
+  const escaped = pagination.param.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`([?&])${escaped}=[^&#]*`);
   if (re.test(url)) return url.replace(re, `$1${pagination.param}=${value}`);
   const hash = url.indexOf('#');
   const base = hash === -1 ? url : url.slice(0, hash);

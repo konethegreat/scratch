@@ -20,6 +20,8 @@ const pnet = {
   pagination,
   canary: { keyword: 'developer', location: 'Johannesburg', minItems: 3 },
 
+  // Sources whose scope is not 'perLocation' must NOT emit a location param (no `l=null`);
+  // do not copy this location interpolation into oncePerKeyword/noLocation sources.
   buildUrl({ keyword, location }, pageNo = 1) {
     const url = `https://www.pnet.co.za/jobs/?k=${encodeURIComponent(keyword)}&l=${encodeURIComponent(location)}`;
     return withPageParam(url, pagination, pageNo);

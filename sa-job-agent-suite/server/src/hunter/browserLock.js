@@ -14,6 +14,10 @@ let holder = null;
  * @param {'hunt'|'canary'|'login-check'|'apply'} kind
  * @returns {(() => void) | null} a release function, or null when someone else holds the browser.
  *   Release is idempotent and a stale release can never free a newer holder.
+ *
+ * Every caller MUST call the release function in a `finally`. There is no
+ * staleness recovery or timeout: a holder that never releases blocks the browser
+ * until the process restarts.
  */
 export function tryAcquireBrowser(kind) {
   if (!BROWSER_LOCK_KINDS.includes(kind)) {

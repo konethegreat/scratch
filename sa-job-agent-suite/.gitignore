@@ -25,3 +25,8 @@ db.backup.json
 browser-profile/
 generated-docs/
 supporting-docs/
+
+# live pages recorded by `node scripts/hunter-record.mjs` (real site content,
+# possibly personal data) - never commit them; the contract test picks them up
+# locally when present and skips when the directory is absent
+server/src/hunter/fixtures/recorded/

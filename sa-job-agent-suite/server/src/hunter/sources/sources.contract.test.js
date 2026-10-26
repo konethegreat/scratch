@@ -1,13 +1,35 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 import { SOURCES, getSource } from '../registry.js';
 import { launchTestBrowser } from '../../testSupport/browser.js';
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
+const RECORDED_DIR = path.join(FIXTURES, 'recorded');
 const QUERY = { keyword: 'software engineer', location: 'Johannesburg' };
+
+/**
+ * Live pages recorded by `scripts/hunter-record.mjs` for one source:
+ * `<id>.html` or `<id>-*.html`, sorted. A missing directory yields [] (the
+ * directory is gitignored, so a fresh checkout has none). `dir` is a test seam.
+ */
+export function recordedFixtures(sourceId, dir = RECORDED_DIR) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const exact = `${sourceId}.html`;
+  const prefix = `${sourceId}-`;
+  return names
+    .filter((name) => name === exact || (name.startsWith(prefix) && name.endsWith('.html')))
+    .sort()
+    .map((name) => path.join(dir, name));
+}
 
 // Page-1 URLs copied from today's scrapers in agents/agent1-hunter.js for
 // ("software engineer", "Johannesburg"). Later tasks add one line per source.
@@ -46,16 +68,46 @@ let browser = null;
 before(async () => { browser = await launchTestBrowser(); });
 after(async () => { if (browser) await browser.close(); });
 
-async function extractFrom(source, file) {
+async function extractFromPath(source, filePath) {
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
-    await page.setContent(readFileSync(path.join(FIXTURES, file), 'utf8'));
+    await page.setContent(readFileSync(filePath, 'utf8'));
     return await page.evaluate(source.extractInPage, { keyword: QUERY.keyword, location: QUERY.location, origin: source.origin });
   } finally {
     await context.close();
   }
 }
+
+async function extractFrom(source, file) {
+  return extractFromPath(source, path.join(FIXTURES, file));
+}
+
+test('recordedFixtures lists only this source\'s .html recordings, sorted, and tolerates a missing directory', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'sajas-recorded-'));
+  try {
+    for (const name of [
+      'linkedin.html',
+      'linkedin-20251231.html',
+      'linkedin-20260101.html',
+      'linkedin.drifted.html',
+      'linkedin.txt',
+      'indeed.html',
+      'indeed-20260101.html',
+      'pnet.html.bak'
+    ]) {
+      writeFileSync(path.join(tmp, name), '<html></html>');
+    }
+    assert.deepEqual(
+      recordedFixtures('linkedin', tmp).map((file) => path.basename(file)),
+      ['linkedin-20251231.html', 'linkedin-20260101.html', 'linkedin.html']
+    );
+    assert.deepEqual(recordedFixtures('gumtree', tmp), [], 'another source has no recordings here');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  assert.deepEqual(recordedFixtures('linkedin', path.join(os.tmpdir(), 'sajas-no-such-recorded-dir')), []);
+});
 
 test('contract: source ids are unique, names are unique, tier/scope/saCheck are valid', () => {
   assert.ok(SOURCES.length >= 1);
@@ -130,5 +182,23 @@ for (const source of SOURCES) {
     const file = `${source.id}.drifted.html`;
     assert.ok(existsSync(path.join(FIXTURES, file)), `missing fixture ${file}`);
     assert.deepEqual(await extractFrom(source, file), []);
+  });
+
+  test(`contract[${source.id}]: recorded live pages (when present) yield >= 1 well-formed item each`, async (t) => {
+    const files = recordedFixtures(source.id);
+    if (!files.length) return t.skip(`no recorded fixtures for ${source.id}`);
+    if (!browser) return t.skip('no browser available');
+    for (const file of files) {
+      const label = path.basename(file);
+      const items = await extractFromPath(source, file);
+      assert.ok(items.length >= 1, `${label}: expected >= 1 item, got ${items.length}`);
+      for (const item of items) {
+        assert.ok(typeof item.title === 'string' && item.title.trim().length > 0, `${label}: empty title`);
+        assert.equal(typeof item.applyUrl, 'string', `${label}: applyUrl is always a string`);
+        if (!source.linkless) {
+          assert.match(item.applyUrl, /^https?:\/\//, `${label}: applyUrl is absolute`);
+        }
+      }
+    }
   });
 }

@@ -5,12 +5,14 @@
 // was closed still runs (if catchUp is on).
 //
 // SAFETY MODEL (read before extending):
-//   • Routines only ever run the Hunter and, optionally, the Tailor. They NEVER
-//     run Agent 3 and NEVER submit an application — the human is always present
-//     for the apply step. There is no auto-apply routine by design.
+//   • Routines only ever run the Hunter, the Tailor or a source-health canary.
+//     They NEVER run Agent 3 and NEVER submit an application — the human is
+//     always present for the apply step. There is no auto-apply routine by design.
 //   • Only ONE routine runs at a time (module `busy` flag), and a routine is
 //     skipped (deferred to the next tick) if a manual Hunter or Apply session is
 //     already running — so unattended work can't collide with the user.
+//   • A canary routine takes the 'canary' browser lock itself (the session closes
+//     its own context but does not take the lock) and releases it in `finally`.
 //   • every_n_hours has a 1-hour floor (enforced in helper.js), the auto-tailor
 //     count is capped, and tailoring is skipped silently when no provider key is
 //     set — so a misconfigured routine can't quietly burn API credit.
@@ -33,12 +35,24 @@ import { runJobHunterAgent } from './agent1-hunter.js';
 import { tailorJobsConcurrently } from './subAgents.js';
 import { dreamOverMemory } from './memoryReflect.js';
 import { hasAnthropicKey } from './llm.js';
+import { runCanarySession } from '../hunter/canary.js';
+import { tryAcquireBrowser } from '../hunter/browserLock.js';
 
 const TICK_MS = 60 * 1000;            // evaluate schedules once a minute
 const CATCHUP_WINDOW_MS = 90 * 60 * 1000; // for catchUp:false, how late we may still fire
 
 let tickTimer = null;
 let busy = false; // only one routine executes at a time, across ticks
+
+// The canary session is the only injected seam (T10): tests replace it so a
+// routine run never touches a browser. null restores the real session.
+const realCanarySession = (opts = {}) => runCanarySession(opts);
+let canarySession = realCanarySession;
+
+/** Test seam: replace the canary session; pass null to restore the real one. */
+export function __setCanarySessionForTests(fn) {
+  canarySession = typeof fn === 'function' ? fn : realCanarySession;
+}
 
 // ── Schedule evaluation ───────────────────────────────────────────────────────
 
@@ -102,6 +116,18 @@ export async function runRoutine(routine, { trigger = 'schedule' } = {}) {
     return null;
   }
 
+  // A canary opens the persistent browser profile, which only one process-wide
+  // owner may hold: if a hunt/apply/login-check has it, skip without running.
+  let releaseCanary = null;
+  if (routine.type === 'canary') {
+    releaseCanary = tryAcquireBrowser('canary');
+    if (!releaseCanary) {
+      setRoutineRunState(routine.id, { lastStatus: 'skipped' });
+      addLog(`Routine "${routine.name}" skipped — the browser is in use.`, 'system');
+      return null;
+    }
+  }
+
   busy = true;
   const startedAt = new Date().toISOString();
   setRoutineRunState(routine.id, { lastStatus: 'running' });
@@ -110,6 +136,21 @@ export async function runRoutine(routine, { trigger = 'schedule' } = {}) {
   const result = { trigger, startedAt, totalFound: 0, totalSaved: 0, tailored: 0, note: '' };
 
   try {
+    // ── Canary-only routine: source health, no hunting/tailoring/AI ──────────
+    if (routine.type === 'canary') {
+      const results = (await canarySession({})) || {};
+      const list = Object.values(results);
+      const passed = list.filter((entry) => entry && entry.pass === true).length;
+      result.canary = results;
+      result.tested = list.length;
+      result.passed = passed;
+      result.note = `Canary check: ${passed}/${list.length} source(s) passed.`;
+      result.finishedAt = new Date().toISOString();
+      setRoutineRunState(routine.id, { lastRun: result.finishedAt, lastStatus: 'ok', lastResult: result });
+      addLog(`✅ Routine "${routine.name}" finished — ${result.note}`, 'system');
+      return result;
+    }
+
     // ── Dream-only routine: curate the dossier, no hunting/applying ───────────
     if (routine.type === 'dream') {
       const d = await dreamOverMemory(getProfile());
@@ -177,6 +218,7 @@ export async function runRoutine(routine, { trigger = 'schedule' } = {}) {
     return result;
   } finally {
     busy = false;
+    if (releaseCanary) releaseCanary();
   }
 }
 

@@ -166,7 +166,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
       <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h3 style={{ fontSize: 18 }}>Your routines</h3>
-          <p className="muted" style={{ fontSize: 12 }}>Scheduled, unattended hunts. Toggle features per routine to control API cost.</p>
+          <p className="muted" style={{ fontSize: 12 }}>Scheduled hunts and source-health checks. Toggle features per routine to control API cost.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn-secondary btn-xs" onClick={refresh}><RefreshCw size={12} /> Refresh</button>
@@ -194,11 +194,13 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
                 <option value="hunt">Find jobs only (cheapest)</option>
                 <option value="hunt_and_tailor">Find &amp; tailor top matches</option>
                 <option value="dream">Reflect &amp; learn (Dreaming)</option>
+                <option value="canary">Check source health (no hunting)</option>
               </select>
               <span className="hint">
                 {form.type === 'hunt' && 'Just discovers and saves new jobs. No tailoring cost.'}
                 {form.type === 'hunt_and_tailor' && 'Discovers jobs, then writes a tailored CV + cover letter for the top matches.'}
                 {form.type === 'dream' && 'No hunting. Reviews your past application outcomes and curates your Candidate Memory — strengthens what wins interviews, drops noise. One small AI call. Best run nightly.'}
+                {form.type === 'canary' && 'Visits one page per enabled source, records each source’s health on the Hunter board, and never hunts, tailors, applies or calls the AI. Use it to notice a broken board early.'}
               </span>
             </div>
             <div>
@@ -272,7 +274,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               <div>
                 <div style={{ fontWeight: 700 }}>{r.name}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  {scheduleSummary(r)} · {r.type === 'hunt_and_tailor' ? `Find & tailor ${r.autoTailorCount}` : r.type === 'dream' ? 'Reflect & learn' : 'Find only'}
+                  {scheduleSummary(r)} · {r.type === 'hunt_and_tailor' ? `Find & tailor ${r.autoTailorCount}` : r.type === 'dream' ? 'Reflect & learn' : r.type === 'canary' ? 'Check sources' : 'Find only'}
                 </div>
               </div>
             </div>
@@ -294,10 +296,15 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               {r.lastResult && (r.lastStatus === 'ok' || r.lastStatus === 'error') && (
                 r.type === 'dream'
                   ? <>{r.lastResult.note ? ` · ${r.lastResult.note}` : ''}{r.lastResult.error ? ` · ${r.lastResult.error}` : ''}</>
-                  : <> · saved {r.lastResult.totalSaved ?? 0}, tailored {r.lastResult.tailored ?? 0}
-                      {r.lastResult.note ? ` · ${r.lastResult.note}` : ''}
-                      {r.lastResult.error ? ` · ${r.lastResult.error}` : ''}
-                    </>
+                  : r.type === 'canary'
+                    ? <> · tested {r.lastResult.tested ?? 0}, passed {r.lastResult.passed ?? 0}
+                        {r.lastResult.note ? ` · ${r.lastResult.note}` : ''}
+                        {r.lastResult.error ? ` · ${r.lastResult.error}` : ''}
+                      </>
+                    : <> · saved {r.lastResult.totalSaved ?? 0}, tailored {r.lastResult.tailored ?? 0}
+                        {r.lastResult.note ? ` · ${r.lastResult.note}` : ''}
+                        {r.lastResult.error ? ` · ${r.lastResult.error}` : ''}
+                      </>
               )}
             </div>
             <button className="btn-secondary btn-xs" onClick={() => runNow(r)} disabled={r.lastStatus === 'running'}>

@@ -985,7 +985,9 @@ export function setApplyState(updates) {
 // revisiting the whole human-on-the-loop safety model.
 // 'dream' = a Dreaming/reflection pass only (no hunting, no applying). Cheap:
 // one LLM call that curates the candidate dossier (see memoryReflect.js).
-export const ROUTINE_TYPES = ['hunt', 'hunt_and_tailor', 'dream'];
+// 'canary' = a scheduled source-health check (T10): one page per enabled source,
+// no hunting, no tailoring, no AI. See routineRunner.js.
+export const ROUTINE_TYPES = ['hunt', 'hunt_and_tailor', 'dream', 'canary'];
 export const ROUTINE_FREQUENCIES = ['daily', 'weekdays', 'every_n_hours'];
 const MAX_ROUTINES = 20;
 const MAX_AUTO_TAILOR = 10;

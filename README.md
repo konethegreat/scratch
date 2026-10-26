@@ -115,7 +115,23 @@ Save, return to the **Dashboard**, and click **Run Hunter**.
 ## How it works
 
 ### Agent 1 — Job Hunter
-Runs Claude grounded web search first (`jobSearchAI.js`, SA-localized, real source URLs, no invented jobs), then the 13 Playwright scrapers as fallback — each with a schema.org/JobPosting JSON-LD net. Token-aware scoring keeps anything ≥ 18; foreign-only locations are rejected. Cancellable mid-run.
+Runs Claude grounded web search first (`jobSearchAI.js`, SA-localized, real source URLs, no invented jobs), then the 12 Playwright scrapers as fallback — each with a schema.org/JobPosting JSON-LD net. Token-aware scoring keeps anything ≥ 18; foreign-only locations are rejected. Cancellable mid-run.
+
+### Source health
+
+The 12 fallback job boards are visible on the Hunter tab with a per-board health status, so "this source quietly stopped returning jobs" is something you can see instead of guess. Each status has a plain-language reason:
+
+- **Healthy** — the last hunt returned cards with titles and links.
+- **Degraded** — it returned nothing before it had a baseline, many cards are missing company/location, or its yield dropped sharply against what it normally returns.
+- **Broken** — it errored, returned nothing when it normally returns jobs, lost titles/links (a layout change), or its latest health check failed.
+- **Blocked / Needs login** — the site showed a bot wall or a login wall. Sign in through the login browser for the latter.
+- **Disabled / Unknown** — you turned the board off, or it has not run yet.
+
+**Test sources** runs a one-page health check for every enabled board (about two seconds apart, no jobs are saved). The result is recorded on the board and in the source's history. A **Check source health (no hunting)** routine does the same thing on a schedule: it never hunts, tailors, applies or calls the AI, and it is skipped when another browser job (a hunt or an apply session) is already using the browser.
+
+Two safety nets sit on top. After **three consecutive broken hunt runs** the circuit breaker opens and the Hunter skips that board until you press Reset; **two consecutive non-login blocks** put it on a 6-hour cooldown. Pages beyond page 1 are best-effort: every board's pagination parameter is marked **unverified** until a live run confirms the site honours it, so a board that only ever returns page 1 is still usable.
+
+Maintainers can record one real page per board with `node scripts/hunter-record.mjs <sourceId> --yes` (from `sa-job-agent-suite/`; it visits the live site, writes a sanitised, gitignored fixture, and the adapter contract test then re-runs itself against that page).
 
 ### Agent 2 — Document Tailor
 Rewrites the base CV for ATS keyword match and writes a 300–400 word cover letter per role (SA English, injection-hardened prompts), then renders both to PDF for upload. Status goes `tailoring → tailored`.

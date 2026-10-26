@@ -63,11 +63,14 @@ function snapshotInPage({ maxAnchors, maxAnchorTextChars, maxAnchorHrefChars }) 
       continue;
     }
     if (!/^https?:/i.test(href)) continue;
+    // A clipped href is a dead link that can also collide with another job, so
+    // an anchor whose real URL is over the cap is skipped entirely.
+    if (href.length > maxAnchorHrefChars) continue;
     const anchorText = (a.innerText || '').replace(/\s+/g, ' ').trim().slice(0, maxAnchorTextChars);
     if (!anchorText) continue;
     if (seen.has(href)) continue;
     seen.add(href);
-    anchors.push({ text: anchorText, href: href.trim().slice(0, maxAnchorHrefChars) });
+    anchors.push({ text: anchorText, href });
     if (anchors.length >= maxAnchors) break;
   }
 
@@ -94,11 +97,37 @@ function snapshotInPage({ maxAnchors, maxAnchorTextChars, maxAnchorHrefChars }) 
 }
 
 /**
+ * Node-side anchor normalisation. The page function already applies these
+ * rules, but a stubbed or alternate `page.evaluate` result must not be able to
+ * feed unbounded fields (or non-http(s) URLs) into the paid prompt: drop
+ * non-strings and non-http(s) hrefs, trim, drop empty text, clip text to 200,
+ * drop hrefs over 500 (never truncate them), dedupe by full href (first wins),
+ * preserve order and cap at `maxAnchors`.
+ */
+const normalizeAnchors = (anchors, maxAnchors) => {
+  const out = [];
+  const seen = new Set();
+  for (const anchor of Array.isArray(anchors) ? anchors : []) {
+    if (!anchor || typeof anchor.text !== 'string' || typeof anchor.href !== 'string') continue;
+    const href = anchor.href.trim();
+    if (!/^https?:\/\//i.test(href) || href.length > MAX_ANCHOR_HREF_CHARS) continue;
+    const text = anchor.text.replace(/\s+/g, ' ').trim().slice(0, MAX_ANCHOR_TEXT_CHARS);
+    if (!text) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    out.push({ text, href });
+    if (out.length >= maxAnchors) break;
+  }
+  return out;
+};
+
+/**
  * Snapshot the live page for the extractor: URL (clipped to 500 chars), title
  * (300), readable body text (scripts/styles/noscript/media removed, whitespace
  * collapsed, truncated to `maxChars`) and the visible http(s) anchors
  * (absolute, de-duplicated by full href in document order, text clipped to 200,
- * href clipped to 500, capped at `maxAnchors`). The page stays usable.
+ * anchors whose href exceeds 500 chars skipped, capped at `maxAnchors`). The
+ * page stays usable.
  */
 export async function snapshotForExtraction(page, opts = {}) {
   const maxChars = positiveInt(opts?.maxChars, DEFAULT_MAX_CHARS);
@@ -114,9 +143,7 @@ export async function snapshotForExtraction(page, opts = {}) {
     url: typeof url === 'string' ? url.trim().slice(0, MAX_URL_CHARS) : '',
     title: typeof title === 'string' ? title.trim().slice(0, MAX_TITLE_CHARS) : '',
     text: String(text || '').replace(/\s+/g, ' ').trim().slice(0, maxChars),
-    anchors: (Array.isArray(anchors) ? anchors : [])
-      .filter((a) => a && typeof a.text === 'string' && typeof a.href === 'string')
-      .slice(0, maxAnchors)
+    anchors: normalizeAnchors(anchors, maxAnchors)
   };
 }
 

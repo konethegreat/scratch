@@ -1,4 +1,7 @@
+import linkedin from './sources/linkedin.js';
+import indeed from './sources/indeed.js';
 import pnet from './sources/pnet.js';
+import careerjunction from './sources/careerjunction.js';
 
 /**
  * The hunter's scraper sources, in run order. Order matters: `addJob` keeps the
@@ -23,7 +26,7 @@ import pnet from './sources/pnet.js';
  */
 
 /** @type {HunterSource[]} */
-export const SOURCES = [pnet];
+export const SOURCES = [linkedin, indeed, pnet, careerjunction];
 
 export function getSource(id) {
   return SOURCES.find((s) => s.id === id);

@@ -1,0 +1,74 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our Indeed SA extractor depends on
+  (.job_seen_beacon / .tapItem / cardOutline cards, .jobTitle a, data-testid=company-name,
+  data-testid=text-location, snippet elements). It proves our extraction logic against a
+  page of that shape, NOT that the live Indeed site still looks like this. Companies,
+  roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer Jobs in Johannesburg | Synthetic Board</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/jobs">Jobs</a>
+    <a href="/career-advice">Career advice</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo/cv-review">Get a free CV review today</a>
+  </div>
+
+  <h1>software engineer Jobs in Johannesburg</h1>
+
+  <div class="results-shell">
+    <!-- 1: relative href, every field present -->
+    <div class="job_seen_beacon">
+      <h2 class="jobTitle"><a id="job_abc111" href="/rc/clk?jk=abc111&amp;fccid=synthetic">Senior Software Engineer</a></h2>
+      <span data-testid="company-name">Acme Software (Pty) Ltd</span>
+      <div data-testid="text-location">Johannesburg, Gauteng</div>
+      <div class="job-snippet">Design and build backend services for a fintech platform. Synthetic snippet.</div>
+    </div>
+
+    <!-- 2: .tapItem card, absolute href, no data-testid fields -->
+    <div class="tapItem">
+      <h2><a href="https://za.indeed.com/viewjob?jk=def222">Data Engineer</a></h2>
+      <span class="companyName">Globex Data</span>
+      <div class="companyLocation">Rosebank, Gauteng</div>
+      <div class="summary">Pipelines and warehousing.</div>
+    </div>
+
+    <!-- 3: cardOutline row, relative href, no company/location -> fallbacks -->
+    <ul class="cards">
+      <li class="cardOutline">
+        <h2><a id="job_ghi333" href="/viewjob?jk=ghi333">QA Analyst</a></h2>
+      </li>
+    </ul>
+
+    <!-- 4: .result card, .company fallback, no snippet -->
+    <div class="result">
+      <h2><a href="/viewjob?jk=jkl444">DevOps Engineer</a></h2>
+      <span class="company">Initech Cloud</span>
+      <span data-testid="text-location">Midrand, Gauteng</span>
+    </div>
+
+    <!-- Noise: matches a card selector but the title is too short -->
+    <div class="job_seen_beacon">
+      <h2><a href="/promo/advertise">Ad</a></h2>
+    </div>
+
+    <!-- Noise: matches a card selector but has no title link at all -->
+    <div class="job_seen_beacon">
+      <p>Sponsored placement. Post your vacancy here.</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

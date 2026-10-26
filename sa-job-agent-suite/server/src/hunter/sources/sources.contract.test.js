@@ -12,12 +12,18 @@ const QUERY = { keyword: 'software engineer', location: 'Johannesburg' };
 // Page-1 URLs copied from today's scrapers in agents/agent1-hunter.js for
 // ("software engineer", "Johannesburg"). Later tasks add one line per source.
 const EXPECTED_PAGE1_URL = {
+  linkedin: 'https://www.linkedin.com/jobs/search/?keywords=software%20engineer&location=South+Africa&geoId=103644278&sortBy=DD&f_WT=1%2C2%2C3%2C4',
+  indeed: 'https://za.indeed.com/jobs?q=software%20engineer&l=Johannesburg',
   pnet: 'https://www.pnet.co.za/jobs/?k=software%20engineer&l=Johannesburg',
+  careerjunction: 'https://www.careerjunction.co.za/jobs/results/?k=software%20engineer&radius=50&l=Johannesburg',
 };
 
 // Number of valid cards the synthetic fixture holds (noise cards are not counted).
 const EXPECTED_FIXTURE_ITEMS = {
+  linkedin: 4,
+  indeed: 4,
   pnet: 4,
+  careerjunction: 4,
 };
 
 let browser = null;

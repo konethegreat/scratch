@@ -52,9 +52,8 @@ class HiddenWindow extends electron.BrowserWindow {
         assert.equal(health.status, 200);
         assert.equal((await health.json()).status, 'ok');
         const profile = await (await fetch(`${api}/profile`)).json();
-        for (const provider of ['Gemini', 'Anthropic', 'OpenRouter']) {
-          assert.equal(profile[`has${provider}Key`], false);
-        }
+        assert.equal(profile.hasAnthropicKey, false);
+        assert.deepEqual(Object.keys(profile).filter((k) => /^has.+Key$/.test(k)), ['hasAnthropicKey']);
         finish();
       } catch (error) { finish(error); }
     });

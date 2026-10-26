@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { startDemoBackend } from './demo-runtime.mjs';
 import { startDemoClient } from './demo-client.mjs';
 import { DEMO_JOB_ID, DEMO_QUESTION } from '../server/src/demo.js';
@@ -26,7 +29,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
     assert.equal(response.status, 200, `${route}: ${await response.clone().text()}`);
     return response.json();
   };
-  const post = answer => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) });
+  const post = answer => ({ method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SAJAS-Client': '1' }, body: JSON.stringify({ answer }) });
   let session;
   let client;
   const evidence = process.env.SAJAS_DEMO_EVIDENCE_DIR;
@@ -40,9 +43,17 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       const profile = await json('/api/profile');
       assert.equal(profile.fullName, 'Alex Example');
       assert.equal(profile.email, 'alex@example.test');
+      assert.equal(profile.hasAnthropicKey, false);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey']) {
+        assert.ok(!(gone in profile), `profile must not expose ${gone}`);
+      }
       assert.deepEqual(JSON.parse(await fs.readFile(runtime.env.KEYS_PATH, 'utf8')), {});
       assert.deepEqual(await json('/api/routines'), []);
+      assert.equal((await json('/api/models')).length, 4, 'the Settings model dropdown can load in demo mode');
       assert.equal((await json('/api/jobs'))[0].source, 'Synthetic local fixture');
+      const sources = await json('/api/hunter/sources');
+      assert.equal(sources.sources.length, 12, 'the source health board is readable in the demo');
+      assert.ok(sources.sources.every(source => source.status === 'unknown'));
       client = await startDemoClient(runtime.origin, { port: 0 });
       const html = await (await fetch(`http://127.0.0.1:${client.httpServer.address().port}`)).text();
       assert.match(html, /id="root"/);
@@ -51,16 +62,18 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
     await t.test('API blocks live work, credentials, backup restore and arbitrary applications', async () => {
       for (const [method, route] of [['POST', '/api/jobs/hunter'], ['POST', `/api/jobs/${DEMO_JOB_ID}/tailor`],
         ['POST', '/api/jobs/tailor-batch'], ['POST', '/api/jobs/revalidate'], ['POST', '/api/browser/setup'],
-        ['GET', '/api/browser/login-status'], ['POST', '/api/profile'], ['POST', '/api/profile/preset'],
+        ['POST', '/api/browser/login-status'], ['POST', '/api/profile'], ['POST', '/api/profile/preset'],
         ['POST', '/api/backup/restore'], ['POST', '/api/routines'], ['POST', '/api/memory/dream'],
+        ['POST', '/api/hunter/sources/test'], ['PATCH', '/api/hunter/sources/pnet'],
         ['POST', `/api/jobs/${DEMO_JOB_ID}/referral`], ['POST', '/api/jobs/other-job/apply']]) {
-        const response = await fetch(runtime.origin + route, { method });
+        // The client header is sent so the refusal is the demo allowlist's, not the local guard's.
+        const response = await fetch(runtime.origin + route, { method, headers: { 'X-SAJAS-Client': '1' } });
         assert.equal(response.status, 403, route);
       }
     });
     await t.test('both AI entry points refuse before provider SDK calls', async () => {
-      await assert.rejects(callLlm({ aiProvider: 'gemini' }, 'synthetic prompt'), /AI calls are disabled/);
-      await assert.rejects(callLlmVision({ aiProvider: 'anthropic' }, 'synthetic prompt'), /AI calls are disabled/);
+      await assert.rejects(callLlm({}, 'synthetic prompt'), /AI calls are disabled/);
+      await assert.rejects(callLlmVision({}, 'synthetic prompt'), /AI calls are disabled/);
     });
 
     let ready;
@@ -151,4 +164,361 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
   await t.test('all disposable profile, key, browser and document files are removed', async () => {
     await assert.rejects(fs.stat(runtime.directory), { code: 'ENOENT' });
   });
+});
+
+// The demo API is read-only, so the Anthropic-only profile routes are exercised
+// against a plain (non-demo) server that runs on throwaway files.
+test('Anthropic-only profile routes, models endpoint and startup key purge', { timeout: 60000 }, async t => {
+  const suite = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'sajas-synthetic-'));
+  const port = await unusedPort();
+  const origin = `http://127.0.0.1:${port}`;
+  // Key-shaped values are assembled at runtime so no literal ever reaches the repo.
+  const legacy = { geminiApiKey: 'AIza' + 'x'.repeat(35), openRouterApiKey: 'sk-' + 'or-v1-' + 'b'.repeat(40) };
+  const adminKey = 'sk-' + 'ant-admin01-' + 'A'.repeat(40);
+  const realKey = 'sk-' + 'ant-api03-' + 'A'.repeat(40);
+  await fs.writeFile(path.join(directory, 'db.json'), JSON.stringify({
+    profile: { fullName: 'Alex Example', aiProvider: 'gemini', selectedModel: 'gemini-1.5-flash' }
+  }));
+  await fs.writeFile(path.join(directory, 'keys.json'), JSON.stringify({ ...legacy, anthropicApiKey: '' }));
+  const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1',
+    DB_PATH: path.join(directory, 'db.json'), KEYS_PATH: path.join(directory, 'keys.json'),
+    BROWSER_PROFILE_PATH: path.join(directory, 'browser-profile'),
+    GENERATED_DOCS_PATH: path.join(directory, 'generated-docs'),
+    SUPPORTING_DOCS_PATH: path.join(directory, 'supporting-docs') };
+  delete env.SAJAS_DEMO_ORIGIN;
+  const child = spawn(process.execPath, ['server/src/index.js'], { cwd: suite, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', b => { output += b; });
+  child.stderr.on('data', b => { output += b; });
+  const call = (route, options = {}) => fetch(origin + route, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', 'X-SAJAS-Client': '1', ...(options.headers || {}) }
+  });
+  // http.request lets a test set an explicit Host header, which fetch forbids.
+  const rawRequest = (route, { method = 'GET', headers = {} } = {}) => new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: route, method, headers }, res => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  // Jobs are seeded through the real API; POST forces today's date and score 75,
+  // so every fixture is PATCHed afterwards to give it a distinct date/status.
+  const seedJob = async ({ title, company, dateAdded, status, location }) => {
+    const created = await call('/api/jobs', { method: 'POST', body: JSON.stringify({ title, company }) });
+    assert.equal(created.status, 200, `${title}: ${await created.clone().text()}`);
+    const { job } = await created.json();
+    const patched = await call(`/api/jobs/${job.id}`, { method: 'PATCH', body: JSON.stringify({ dateAdded, status, location }) });
+    assert.equal(patched.status, 200, `${title} patch: ${await patched.clone().text()}`);
+    return (await patched.json()).job;
+  };
+  const jobPage = async (query) => {
+    const response = await call(`/api/jobs${query}`);
+    assert.equal(response.status, 200, `${query}: ${await response.clone().text()}`);
+    return response.json();
+  };
+  try {
+    const deadline = Date.now() + 15000;
+    for (;;) {
+      if (child.exitCode !== null) throw new Error('Server exited early.\n' + output);
+      if (Date.now() > deadline) throw new Error('Server startup timed out.\n' + output);
+      try { if ((await fetch(origin + '/api/health', { signal: AbortSignal.timeout(500) })).ok) break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    await t.test('startup purges legacy provider keys from keys.json and logs it', async () => {
+      assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'keys.json'), 'utf8')), { anthropicApiKey: '' });
+      const logs = await (await call('/api/logs')).json();
+      assert.ok(logs.some(entry => entry.message === 'Removed legacy provider keys from the key store.'));
+    });
+    await t.test('GET /api/profile is Anthropic-only and never exposes a key', async () => {
+      const response = await call('/api/profile');
+      assert.equal(response.status, 200);
+      const profile = await response.json();
+      assert.equal(profile.fullName, 'Alex Example');
+      assert.equal(profile.hasAnthropicKey, false);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey', 'geminiApiKey', 'openRouterApiKey']) {
+        assert.ok(!(gone in profile), `profile must not expose ${gone}`);
+      }
+    });
+    await t.test('local guard: a POST without X-SAJAS-Client is 403 and changes nothing; with it, it succeeds', async () => {
+      const before = (await (await call('/api/profile')).json()).fullName;
+      const body = JSON.stringify({ fullName: 'Guard Probe' });
+      const blocked = await fetch(origin + '/api/profile', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
+      assert.equal(blocked.status, 403);
+      assert.deepEqual(await blocked.json(), { error: 'Missing X-SAJAS-Client header' });
+      assert.equal((await (await call('/api/profile')).json()).fullName, before);
+      const allowed = await call('/api/profile', { method: 'POST', body });
+      assert.equal(allowed.status, 200);
+      assert.equal((await (await call('/api/profile')).json()).fullName, 'Guard Probe');
+      assert.equal((await call('/api/profile', { method: 'POST', body: JSON.stringify({ fullName: before }) })).status, 200);
+    });
+    await t.test('local guard: a foreign Host (DNS rebinding) or Origin is 403 even for GET', async () => {
+      const rebinding = await rawRequest('/api/profile', { headers: { Host: 'evil.example' } });
+      assert.equal(rebinding.status, 403);
+      assert.deepEqual(JSON.parse(rebinding.body), { error: 'Host not allowed' });
+      const rebindingPort = await rawRequest('/api/health', { headers: { Host: '127.0.0.1.evil.example:' + port } });
+      assert.equal(rebindingPort.status, 403);
+      const foreign = await call('/api/profile', { headers: { Origin: 'https://evil.example' } });
+      assert.equal(foreign.status, 403);
+      assert.deepEqual(await foreign.json(), { error: 'Origin not allowed' });
+      const viteOrigin = await call('/api/profile', { headers: { Origin: 'http://localhost:4173' } });
+      assert.equal(viteOrigin.status, 200);
+    });
+    await t.test('login-status launches Chrome, so it is POST-only: GET is not a route and POST needs the header', async () => {
+      const get = await fetch(origin + '/api/browser/login-status');
+      assert.equal(get.status, 404);
+      const head = await fetch(origin + '/api/browser/login-status', { method: 'HEAD' });
+      assert.equal(head.status, 404);
+      const noHeader = await fetch(origin + '/api/browser/login-status', { method: 'POST' });
+      assert.equal(noHeader.status, 403);
+      assert.deepEqual(await noHeader.json(), { error: 'Missing X-SAJAS-Client header' });
+    });
+    await t.test('CORS preflight: the custom header is reflected for localhost, a foreign Origin gets no CORS headers', async () => {
+      const preflight = await fetch(origin + '/api/profile', { method: 'OPTIONS', headers: {
+        Origin: 'http://localhost:4173', 'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'x-sajas-client,content-type' } });
+      assert.equal(preflight.status, 204);
+      assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://localhost:4173');
+      assert.match(preflight.headers.get('access-control-allow-headers') || '', /x-sajas-client/i);
+      const foreign = await fetch(origin + '/api/profile', { method: 'OPTIONS', headers: {
+        Origin: 'https://evil.example', 'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'x-sajas-client,content-type' } });
+      assert.equal(foreign.status, 403);
+      assert.equal(foreign.headers.get('access-control-allow-origin'), null);
+    });
+    await t.test('POST /api/profile rejects an Admin key with 400 and stores nothing', async () => {
+      const response = await call('/api/profile', { method: 'POST', body: JSON.stringify({ anthropicApiKey: adminKey }) });
+      assert.equal(response.status, 400);
+      const text = await response.text();
+      assert.match(JSON.parse(text).error, /Admin key/);
+      assert.ok(!text.includes(adminKey));
+      assert.equal((await (await call('/api/profile')).json()).hasAnthropicKey, false);
+      assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'keys.json'), 'utf8')), { anthropicApiKey: '' });
+    });
+    await t.test('POST /api/profile stores a valid key without echoing it; DELETE clears it', async () => {
+      const response = await call('/api/profile', { method: 'POST', body: JSON.stringify({ anthropicApiKey: realKey }) });
+      assert.equal(response.status, 200);
+      const text = await response.text();
+      assert.ok(!text.includes(realKey));
+      const body = JSON.parse(text);
+      assert.equal(body.profile.hasAnthropicKey, true);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey']) {
+        assert.ok(!(gone in body.profile), `POST response must not expose ${gone}`);
+      }
+      assert.equal((await (await call('/api/profile')).json()).hasAnthropicKey, true);
+      assert.equal((await call('/api/profile/key/anthropic', { method: 'DELETE' })).status, 200);
+      assert.equal((await (await call('/api/profile')).json()).hasAnthropicKey, false);
+      assert.ok(!output.includes(realKey) && !output.includes(adminKey));
+    });
+    await t.test('DELETE /api/profile/key/:provider is 404 for anything but anthropic', async () => {
+      for (const provider of ['gemini', 'openrouter', 'openai']) {
+        assert.equal((await call(`/api/profile/key/${provider}`, { method: 'DELETE' })).status, 404, provider);
+      }
+    });
+    await t.test('preset route response is Anthropic-only too', async () => {
+      const response = await call('/api/profile/preset', { method: 'POST', body: JSON.stringify({ mode: 'balanced' }) });
+      assert.equal(response.status, 200);
+      const { profile } = await response.json();
+      assert.equal(profile.hasAnthropicKey, false);
+      for (const gone of ['hasGeminiKey', 'hasOpenRouterKey', 'aiProvider', 'anthropicApiKey']) {
+        assert.ok(!(gone in profile), `preset response must not expose ${gone}`);
+      }
+    });
+    await t.test('GET /api/models lists the four registry models', async () => {
+      const response = await call('/api/models');
+      assert.equal(response.status, 200);
+      const models = await response.json();
+      assert.equal(models.length, 4);
+      const sonnet = models.find(model => model.label === 'Claude Sonnet 5.5');
+      assert.ok(sonnet, 'Sonnet is listed');
+      assert.deepEqual(Object.keys(sonnet).sort(), ['id', 'inputPerMTok', 'label', 'optIn', 'outputPerMTok', 'tier']);
+      assert.equal(sonnet.optIn, false);
+      assert.equal(models.filter(model => model.optIn).length, 1);
+      assert.ok(models.every(model => typeof model.id === 'string' && Number.isFinite(model.inputPerMTok) && Number.isFinite(model.outputPerMTok)));
+    });
+    await t.test('GET /api/hunter/sources returns the twelve sources as unknown on a fresh install', async () => {
+      const response = await call('/api/hunter/sources');
+      assert.equal(response.status, 200);
+      const board = await response.json();
+      assert.deepEqual(board.sources.map(source => source.id), ['linkedin', 'indeed', 'pnet', 'careerjunction',
+        'googlejobs', 'adzuna', 'executive', 'jobplacements', 'govza', 'jobmail', 'jobscoza', 'gumtree']);
+      for (const row of board.sources) {
+        assert.equal(row.status, 'unknown', row.id);
+        assert.equal(row.enabled, true, row.id);
+        assert.equal(row.canary, null, row.id);
+        assert.equal(row.lastRunAt, null, row.id);
+        assert.equal(row.lastSuccessAt, null, row.id);
+        assert.equal(row.lastRaw, null, row.id);
+        assert.equal(row.typicalRaw, 0, row.id);
+        assert.deepEqual(row.completeness, { title: 0, url: 0, company: 0, location: 0 }, row.id);
+        assert.equal(row.pages, 0, row.id);
+        assert.equal(row.stopReason, '', row.id);
+        assert.equal(row.via, '', row.id);
+        assert.ok(['major', 'secondary'].includes(row.tier), row.id);
+        assert.equal(row.pagination.verified, false, row.id);
+        assert.ok(row.pagination.param === null || typeof row.pagination.param === 'string', row.id);
+      }
+      assert.equal(board.browserBusy, null);
+      assert.equal(board.testing, false);
+    });
+    await t.test('PATCH /api/hunter/sources/:id flips enabled and accepts resetCircuit', async () => {
+      const response = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.source.id, 'pnet');
+      assert.equal(body.source.enabled, false);
+      assert.equal(body.source.status, 'disabled');
+      assert.equal(body.source.reason, 'turned off');
+      const row = (await (await call('/api/hunter/sources')).json()).sources.find(source => source.id === 'pnet');
+      assert.equal(row.status, 'disabled');
+      const reset = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: true, resetCircuit: true }) });
+      assert.equal(reset.status, 200);
+      const after = await reset.json();
+      assert.equal(after.source.enabled, true);
+      assert.equal(after.source.circuitOpen, false);
+    });
+    await t.test('PATCH /api/hunter/sources/:id answers 404 for an unknown source', async () => {
+      const response = await call('/api/hunter/sources/not-a-source', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      assert.equal(response.status, 404);
+      assert.deepEqual(await response.json(), { error: 'Unknown source.' });
+    });
+    await t.test('POST /api/hunter/sources/test needs the client header and validates ids before any browser work', async () => {
+      const noHeader = await fetch(origin + '/api/hunter/sources/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+      });
+      assert.equal(noHeader.status, 403);
+      assert.deepEqual(await noHeader.json(), { error: 'Missing X-SAJAS-Client header' });
+      const notArray = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: 'pnet' }) });
+      assert.equal(notArray.status, 400);
+      assert.deepEqual(await notArray.json(), { error: 'ids must be an array of source ids.' });
+      const unknown = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: ['pnet', 'nope'] }) });
+      assert.equal(unknown.status, 404);
+      assert.deepEqual(await unknown.json(), { error: 'Unknown source: nope.' });
+      const board = await (await call('/api/hunter/sources')).json();
+      assert.equal(board.browserBusy, null, 'validation happens before the lock is taken');
+      assert.equal(board.testing, false);
+    });
+    await t.test('POST /api/hunter/sources/test answers without launching when every requested source is disabled', async () => {
+      const off = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      assert.equal(off.status, 200);
+      const offBody = await off.json();
+      assert.equal(offBody.source.enabled, false);
+      assert.equal(offBody.source.status, 'disabled');
+      const startedAt = Date.now();
+      const response = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: ['pnet'] }) });
+      assert.equal(response.status, 202);
+      assert.deepEqual(await response.json(), { started: false, ids: [], message: 'No enabled sources to test.' });
+      assert.ok(Date.now() - startedAt < 5000, 'the empty-test guard returns promptly instead of launching a browser');
+      const board = await (await call('/api/hunter/sources')).json();
+      assert.equal(board.browserBusy, null, 'the empty-test guard takes no browser lock');
+      assert.equal(board.testing, false);
+      const on = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: true }) });
+      assert.equal(on.status, 200);
+      assert.equal((await on.json()).source.enabled, true);
+    });
+
+    // Seed six jobs in a known order. Every POST starts at score 75 / today, so
+    // the PATCH gives each fixture a distinct dateAdded and status.
+    const seeded = [];
+    for (const spec of [
+      { title: 'React Developer', company: 'Acme Labs', dateAdded: '2026-01-03', status: 'found' },
+      { title: 'Node.js Engineer', company: 'Bravo Tech', dateAdded: '2026-01-05', status: 'applied' },
+      { title: 'Data Analyst', company: 'Acme Labs', dateAdded: '2026-01-01', status: 'found' },
+      { title: 'QA Engineer', company: 'Delta Systems', dateAdded: '2026-01-04', status: 'found' },
+      { title: 'React Team Lead', company: 'Echo Works', dateAdded: '2026-01-06', status: 'applied' },
+      { title: 'Support Engineer', company: 'Foxtrot', dateAdded: '2026-01-02', status: 'found', location: 'React Campus, Johannesburg' }
+    ]) seeded.push(await seedJob(spec));
+    const [alpha, beta, gamma, delta, epsilon, foxtrot] = seeded;
+    const pageTitles = (page) => page.items.map(job => job.title);
+
+    await t.test('GET /api/jobs without limit still returns the full score-ordered array', async () => {
+      const jobs = await jobPage('');
+      assert.ok(Array.isArray(jobs), 'no limit means the legacy array response');
+      assert.deepEqual(jobs.map(job => job.id), seeded.map(job => job.id), 'equal scores keep the original array order');
+      assert.deepEqual(jobs.map(job => job.matchScore), [75, 75, 75, 75, 75, 75]);
+    });
+
+    await t.test('with limit=2 returns items, total and a nextCursor that walks to the end', async () => {
+      const first = await jobPage('?limit=2&sort=date');
+      assert.equal(first.total, 6);
+      assert.deepEqual(pageTitles(first), ['React Team Lead', 'Node.js Engineer']);
+      assert.equal(first.nextCursor, Buffer.from('2').toString('base64'));
+
+      const second = await jobPage(`?limit=2&sort=date&cursor=${encodeURIComponent(first.nextCursor)}`);
+      assert.equal(second.total, 6);
+      assert.deepEqual(pageTitles(second), ['QA Engineer', 'React Developer']);
+      assert.equal(second.nextCursor, Buffer.from('4').toString('base64'));
+
+      const third = await jobPage(`?limit=2&sort=date&cursor=${encodeURIComponent(second.nextCursor)}`);
+      assert.equal(third.total, 6);
+      assert.deepEqual(pageTitles(third), ['Support Engineer', 'Data Analyst']);
+      assert.equal(third.nextCursor, null, 'the final page has no cursor');
+    });
+
+    await t.test('status and q filters apply before paging', async () => {
+      const found = await jobPage('?limit=2&status=found');
+      assert.equal(found.total, 4, 'only the four found jobs count');
+      assert.deepEqual(pageTitles(found), ['React Developer', 'Data Analyst']);
+      assert.equal(found.nextCursor, Buffer.from('2').toString('base64'));
+      const foundTail = await jobPage(`?limit=2&status=found&cursor=${encodeURIComponent(found.nextCursor)}`);
+      assert.deepEqual(pageTitles(foundTail), ['QA Engineer', 'Support Engineer']);
+      assert.equal(foundTail.nextCursor, null);
+
+      const react = await jobPage('?limit=2&q=REACT');
+      assert.equal(react.total, 2, 'q is lowercased against titles; locations are excluded');
+      assert.deepEqual(pageTitles(react), ['React Developer', 'React Team Lead']);
+      assert.equal(react.nextCursor, null);
+
+      const reactTrimmed = await jobPage(`?limit=2&q=${encodeURIComponent('  react  ')}`);
+      assert.equal(reactTrimmed.total, 2, 'q is trimmed');
+
+      const acme = await jobPage('?limit=1&status=all&q=acme');
+      assert.equal(acme.total, 2, 'q also matches the company; status=all does not filter');
+      assert.deepEqual(pageTitles(acme), ['React Developer']);
+      assert.equal(acme.nextCursor, Buffer.from('1').toString('base64'));
+    });
+
+    await t.test('sort=date orders by dateAdded descending', async () => {
+      const page = await jobPage('?limit=50&sort=date');
+      assert.deepEqual(page.items.map(job => job.id), [epsilon.id, beta.id, delta.id, alpha.id, foxtrot.id, gamma.id]);
+      assert.deepEqual(page.items.map(job => job.dateAdded),
+        ['2026-01-06', '2026-01-05', '2026-01-04', '2026-01-03', '2026-01-02', '2026-01-01']);
+      assert.equal(page.nextCursor, null);
+    });
+
+    await t.test('a malformed cursor falls back to offset 0', async () => {
+      for (const cursor of ['not-a-cursor', Buffer.from('-3').toString('base64'), Buffer.from('1.5').toString('base64')]) {
+        const page = await jobPage(`?limit=2&cursor=${encodeURIComponent(cursor)}`);
+        assert.equal(page.total, 6, cursor);
+        assert.deepEqual(page.items.map(job => job.id), [alpha.id, beta.id], cursor);
+        assert.equal(page.nextCursor, Buffer.from('2').toString('base64'), cursor);
+      }
+    });
+
+    await t.test('limit is clamped and a cursor is ignored without limit', async () => {
+      const one = await jobPage('?limit=0');
+      assert.equal(one.total, 6);
+      assert.deepEqual(pageTitles(one), ['React Developer'], 'limit=0 clamps up to 1');
+      assert.equal(one.nextCursor, Buffer.from('1').toString('base64'));
+
+      const legacy = await jobPage(`?cursor=${encodeURIComponent(Buffer.from('2').toString('base64'))}`);
+      assert.ok(Array.isArray(legacy), 'cursor alone keeps the legacy array response');
+      assert.equal(legacy.length, 6);
+    });
+  } finally {
+    if (child.exitCode === null) {
+      const ended = new Promise(resolve => child.once('exit', resolve));
+      child.kill();
+      await ended;
+    }
+    if (path.dirname(directory) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('sajas-synthetic-')) {
+      throw new Error('Refusing to remove an unexpected test directory.');
+    }
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });

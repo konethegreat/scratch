@@ -50,7 +50,7 @@ export function installDemo(app) {
     <section><h2>Ready for your review</h2><pre id="details" style="white-space:pre-wrap"></pre>
     <button type="button" id="submit">Submit application</button><p id="result" role="status"></p></section>
     <script>const d=JSON.parse(sessionStorage.getItem('demoApplicant')||'{}');document.querySelector('#details').textContent=Object.entries(d).filter(([k])=>k!=='cv').map(([k,v])=>k+': '+v).join('\\n');
-    document.querySelector('#submit').onclick=async()=>{const r=await fetch('/api/demo/submit',{method:'POST'});if(r.ok)location.href='/demo/confirmation';};</script>`)));
+    document.querySelector('#submit').onclick=async()=>{const r=await fetch('/api/demo/submit',{method:'POST',headers:{'X-SAJAS-Client':'1'}});if(r.ok)location.href='/demo/confirmation';};</script>`)));
   app.post('/api/demo/submit', (_req, res) => { submissions++; res.json({ synthetic: true }); });
   app.get('/demo/confirmation', (_req, res) => {
     if (!submissions) return res.redirect('/demo/review');
@@ -60,7 +60,8 @@ export function installDemo(app) {
   // An allowlist prevents new routes from accidentally enabling live work here.
   const reads = new Set(['/api/profile', '/api/jobs', '/api/logs', '/api/status',
     '/api/documents', '/api/memory', '/api/routines', '/api/usage', '/api/health',
-    '/api/application/bank', '/api/application/pending', '/api/backup']);
+    '/api/application/bank', '/api/application/pending', '/api/backup', '/api/models',
+    '/api/hunter/sources']);
   app.use('/api', (req, res, next) => {
     const fullPath = '/api' + req.path;
     if (req.method === 'GET' && reads.has(fullPath)) return next();

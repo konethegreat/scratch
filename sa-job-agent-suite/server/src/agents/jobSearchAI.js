@@ -1,7 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { addLog, addUsage, budgetStatus, budgetMessage, SEARCH_DEPTHS } from '../db/helper.js';
-import { fromAnthropicUsage } from '../db/costs.js';
-import { extractJson } from './llm.js';
+import { webSearchTool, salvageJsonArray, CAPABILITIES } from '@sajas/core';
+import { addLog, budgetStatus, budgetMessage, SEARCH_DEPTHS } from '../db/helper.js';
+import { callLlmFull, extractJson, hasAnthropicKey } from './llm.js';
 // Junk repost-aggregator list — owned by the link validator (single link-policy
 // owner); used here so the prompt tells Claude to avoid those hosts at source.
 import { JUNK_AGGREGATOR_HOSTS as JUNK_AGGREGATORS } from './linkValidator.js';
@@ -26,10 +25,43 @@ import { JUNK_AGGREGATOR_HOSTS as JUNK_AGGREGATORS } from './linkValidator.js';
  *              (Maximum — the "look thoroughly" mode)
  */
 const DEPTH_SETTINGS = {
-  light:    { maxUses: 2, maxResults: 10, maxTokens: 3000, secondRound: false },
-  standard: { maxUses: 5, maxResults: 20, maxTokens: 4096, secondRound: false },
-  deep:     { maxUses: 8, maxResults: 25, maxTokens: 6000, secondRound: true }
+  light:    { maxUses: 2, maxResults: 10, secondRound: false },
+  standard: { maxUses: 5, maxResults: 20, secondRound: false },
+  deep:     { maxUses: 8, maxResults: 25, secondRound: true }
 };
+
+/**
+ * Structured-output schema for one search round: `{ jobs: [...] }`. Constrained
+ * decoding guarantees parseable JSON (no prose/fence stripping needed). Every
+ * field is required; the model uses "" for anything it did not find (notably
+ * `applyUrl`, which the link validator then treats as a linkless lead).
+ */
+const JOB_FIELDS = ['title', 'company', 'location', 'applyUrl', 'source', 'description', 'datePosted'];
+export const JOBS_SCHEMA = {
+  type: 'object',
+  properties: {
+    jobs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: Object.fromEntries(JOB_FIELDS.map((f) => [f, { type: 'string' }])),
+        required: JOB_FIELDS,
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['jobs'],
+  additionalProperties: false
+};
+
+/**
+ * Whether search requests ask for structured output. The model + web_search
+ * tool + json_schema combination is verified by the live smoke test; flip this
+ * to false to fall back to prose JSON parsing (+ truncation salvage) with no
+ * other change. (`callLlmFull` also drops the schema when the user turns
+ * `useStructuredOutputs` off.)
+ */
+export const SEARCH_USES_SCHEMA = CAPABILITIES.searchStructuredOutput;
 
 export function resolveSearchDepth(profile = {}) {
   const d = String(profile.searchDepth || '').trim();
@@ -92,6 +124,12 @@ function budgetBlocked(label) {
   return true;
 }
 
+// Output-shape wording follows the schema switch: the schema wraps the vacancies
+// in {"jobs":[...]}; without it the model returns a bare array. parseJobs reads both.
+const SHAPE_NOUN = SEARCH_USES_SCHEMA ? 'a JSON object {"jobs":[ ... ]} whose "jobs" array holds' : 'a JSON array';
+const EMPTY_RESULT = SEARCH_USES_SCHEMA ? '{"jobs":[]}' : '[]';
+const SHAPE_NOUN_SHORT = SEARCH_USES_SCHEMA ? 'a JSON object {"jobs":[ ... ]}' : 'a JSON array';
+
 function buildPrompt(keyword, locText, maxResults) {
   return `You are a South African job-search assistant with live web search. Find CURRENT, real job vacancies.
 
@@ -102,7 +140,7 @@ STRONGLY PREFER the major, reputable South African job boards and employer caree
 LinkedIn, PNet, Indeed, CareerJunction, and the employer's own careers/ATS site
 (Greenhouse, Lever, Workday, Workable, SmartRecruiters).
 
-Then return ONLY a JSON array (no prose, no markdown) of up to ${maxResults} REAL vacancies you actually found, each shaped exactly:
+Then return ONLY ${SHAPE_NOUN} (no prose, no markdown) of up to ${maxResults} REAL vacancies you actually found, each vacancy shaped exactly:
 {"title":"...","company":"...","location":"City, Province","applyUrl":"https://link-to-this-posting","source":"the board or site name, e.g. LinkedIn","description":"1-2 sentence summary","datePosted":"e.g. 2 days ago or 2026-06-01"}
 
 Rules:
@@ -112,38 +150,28 @@ Rules:
 - Do NOT return a generic search-results URL (e.g. /search, /jobs?q=, /browse, or a bare domain). If the ONLY link you have for a real job is a search page, still include the job but set "applyUrl" to "" — do NOT drop good vacancies just because the link isn't perfect.
 - "source" is the human name of the site the link is on (e.g. "LinkedIn", "PNet", "Greenhouse"). Favour the major boards above.
 - South African locations only. Exclude anything outside South Africa.
-- If you found fewer than ${maxResults}, return fewer. If you found none, return [].
-- Output the JSON array and nothing else.`;
+- If you found fewer than ${maxResults}, return fewer. If you found none, return ${EMPTY_RESULT}.
+- Output the JSON and nothing else.`;
 }
 
-// Runs one assistant turn to completion, continuing through 'pause_turn' stops
-// (long server-side searches). Meters every response into the usage ledger.
-async function runSearchTurns(anthropic, model, messages, tools, { maxTokens, bucket, maxTurns = 5 }) {
-  let final = null;
-  for (let turn = 0; turn < maxTurns; turn++) {
-    const resp = await anthropic.messages.create({ model, max_tokens: maxTokens, messages, tools });
-    addUsage({ ...fromAnthropicUsage(model, resp.usage || {}), bucket });
-    if (resp.stop_reason === 'pause_turn') {
-      messages.push({ role: 'assistant', content: resp.content });
-      continue;
-    }
-    final = resp;
-    break;
+/**
+ * Parses + normalises one round's output into job objects. Accepts the
+ * structured `{ jobs: [...] }` object or a bare array (prose/fenced allowed).
+ * When the JSON is cut off (max_tokens) the fully closed jobs before the cut
+ * are salvaged instead of discarding the whole round. Returns null when nothing
+ * usable is found.
+ */
+export function parseJobs(text, locText) {
+  let arr = null;
+  const parsed = extractJson(text);
+  if (Array.isArray(parsed)) arr = parsed;
+  else if (parsed && Array.isArray(parsed.jobs)) arr = parsed.jobs;
+  if (!arr) {
+    const salvaged = salvageJsonArray(text, { key: 'jobs' });
+    const rescued = salvaged.length ? salvaged : salvageJsonArray(text);
+    if (!rescued.length) return null;
+    arr = rescued;
   }
-  return final;
-}
-
-function textOf(resp) {
-  return ((resp && resp.content) || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
-}
-
-// Parses + normalises one round's JSON array into job objects.
-function parseJobs(text, locText) {
-  const arr = extractJson(text);
-  if (!Array.isArray(arr)) return null;
   return arr
     .filter((j) => j && j.title && String(j.title).trim().length > 3)
     .map((j) => {
@@ -168,8 +196,7 @@ function parseJobs(text, locText) {
 const dedupeKey = (j) => `${j.title.toLowerCase().trim()}::${j.company.toLowerCase().trim()}`;
 
 export async function huntViaClaudeSearch(profile, keyword, locations, maxResultsOverride = 0) {
-  const apiKey = profile.anthropicApiKey;
-  if (!apiKey || apiKey.includes('your_')) {
+  if (!hasAnthropicKey(profile)) {
     addLog('[AI Search] Skipped — add an Anthropic API key in Settings to enable Claude web-search job hunting.', 'agent1');
     return [];
   }
@@ -178,28 +205,30 @@ export async function huntViaClaudeSearch(profile, keyword, locations, maxResult
   const depth = resolveSearchDepth(profile);
   const cfg = DEPTH_SETTINGS[depth];
   const maxResults = maxResultsOverride > 0 ? maxResultsOverride : cfg.maxResults;
-
-  const model = (profile.aiSearchModel || '').trim() || 'claude-sonnet-4-6';
-  const anthropic = new Anthropic({ apiKey });
   const locText = (locations && locations.length) ? locations.join(', ') : 'South Africa';
+  const schema = SEARCH_USES_SCHEMA ? JOBS_SCHEMA : null;
 
-  const tools = [{
-    type: 'web_search_20250305', name: 'web_search', max_uses: cfg.maxUses,
-    user_location: { type: 'approximate', country: 'ZA', timezone: 'Africa/Johannesburg' }
-  }];
+  // One search round. Model comes from the 'ai-search' task (profile.aiSearchModel
+  // when it is a registry ID); pause_turn continuation lives in callClaude.
+  const runRound = async (request, maxUses) => {
+    const result = await callLlmFull(profile, {
+      task: 'ai-search',
+      ...request,
+      tools: [webSearchTool({ maxUses })],
+      schema
+    });
+    const jobs = parseJobs(result.text, locText);
+    if (result.truncated && jobs && jobs.length) {
+      addLog(`Search output was cut off; kept ${jobs.length} complete result(s).`, 'agent1');
+    }
+    return { result, jobs };
+  };
 
   try {
     addLog(`[AI Search] Searching the web via Claude for "${keyword}" in ${locText}… (depth: ${depth})`, 'agent1');
-    const messages = [{ role: 'user', content: buildPrompt(keyword, locText, maxResults) }];
-    const final = await runSearchTurns(anthropic, model, messages, tools, { maxTokens: cfg.maxTokens, bucket: 'ai-search' });
-    if (!final) {
-      addLog('[AI Search] Search kept pausing without completing — skipping this keyword.', 'error');
-      return [];
-    }
-
-    const jobs = parseJobs(textOf(final), locText);
+    const { result: first, jobs } = await runRound({ prompt: buildPrompt(keyword, locText, maxResults) }, cfg.maxUses);
     if (!jobs) {
-      addLog('[AI Search] Claude returned no usable JSON array for this keyword.', 'error');
+      addLog('[AI Search] Claude returned no usable JSON for this keyword.', 'error');
       return [];
     }
 
@@ -209,14 +238,14 @@ export async function huntViaClaudeSearch(profile, keyword, locations, maxResult
     // This is the "look thoroughly" half of the Hunter fix.
     if (cfg.secondRound && !budgetBlocked('AI Search · deep round')) {
       try {
-        messages.push({ role: 'assistant', content: final.content });
-        messages.push({
+        const followUp = {
           role: 'user',
-          content: `Good. Now search AGAIN with DIFFERENT queries for the same goal ("${keyword}" in ${locText}): target boards and employer ATS pages your previous searches did NOT cover (e.g. PNet, CareerJunction, Indeed, employer Greenhouse/Lever/Workday/Workable careers pages, university/bank/telecoms career portals). Return ONLY a JSON array (same exact shape and rules as before) of up to ${maxResults} ADDITIONAL real vacancies that were NOT in your previous answer. If you find none, return [].`
-        });
-        const tools2 = [{ ...tools[0], max_uses: Math.max(3, Math.floor(cfg.maxUses / 2)) }];
-        const final2 = await runSearchTurns(anthropic, model, messages, tools2, { maxTokens: cfg.maxTokens, bucket: 'ai-search' });
-        const extra = final2 ? parseJobs(textOf(final2), locText) : null;
+          content: `Good. Now search AGAIN with DIFFERENT queries for the same goal ("${keyword}" in ${locText}): target boards and employer ATS pages your previous searches did NOT cover (e.g. PNet, CareerJunction, Indeed, employer Greenhouse/Lever/Workday/Workable careers pages, university/bank/telecoms career portals). Return ONLY ${SHAPE_NOUN_SHORT} (same exact shape and rules as before) of up to ${maxResults} ADDITIONAL real vacancies that were NOT in your previous answer. If you find none, return ${EMPTY_RESULT}.`
+        };
+        const { jobs: extra } = await runRound(
+          { messages: [...first.messages, followUp] },
+          Math.max(3, Math.floor(cfg.maxUses / 2))
+        );
         if (extra && extra.length) {
           const seen = new Set(jobs.map(dedupeKey));
           const fresh = extra.filter((j) => !seen.has(dedupeKey(j)));
@@ -255,13 +284,10 @@ export async function huntViaClaudeSearch(profile, keyword, locations, maxResult
  * @returns {Promise<string>} a verified-shape http(s) URL, or '' if none found.
  */
 export async function findDirectPostingUrl(profile, job) {
-  const apiKey = profile.anthropicApiKey;
-  if (!apiKey || apiKey.includes('your_')) return '';
+  if (!hasAnthropicKey(profile)) return '';
   if (!job || !job.title) return '';
   if (budgetBlocked('Link repair')) return '';
 
-  const model = (profile.aiSearchModel || '').trim() || 'claude-sonnet-4-6';
-  const anthropic = new Anthropic({ apiKey });
   const prompt = `Find the SINGLE direct application/posting URL for this EXACT South African job vacancy and return ONLY that URL.
 
 Title: ${job.title}
@@ -275,20 +301,12 @@ Rules:
 - Do NOT return a homepage, careers landing page, category page, or search-results URL.
 - Output only the URL (or NONE). No prose, no markdown.`;
 
-  const messages = [{ role: 'user', content: prompt }];
-  const tools = [{
-    type: 'web_search_20250305', name: 'web_search', max_uses: 3,
-    user_location: { type: 'approximate', country: 'ZA', timezone: 'Africa/Johannesburg' }
-  }];
-
   try {
-    const final = await runSearchTurns(anthropic, model, messages, tools, { maxTokens: 1024, bucket: 'link-repair', maxTurns: 4 });
-    if (!final) return '';
-
-    const text = ((final.content || [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join(' '));
+    const { text } = await callLlmFull(profile, {
+      task: 'link-repair',
+      prompt,
+      tools: [webSearchTool({ maxUses: 3 })]
+    });
 
     const m = text.match(/https?:\/\/[^\s"'<>)\]]+/i);
     const url = m ? m[0].replace(/[.,;]+$/, '') : '';

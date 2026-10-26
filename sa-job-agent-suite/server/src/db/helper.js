@@ -3,6 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
+import { currentTask } from './taskContext.js';
+import { scrubSecrets, MODEL_IDS, CAPABILITIES, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
+import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS, LEGACY_PROFILE_FIELDS } from './migrations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,7 +79,7 @@ export function isRealPdfFile(filePath) {
 // ── Schema defaults ──────────────────────────────────────────────────────────
 const DEFAULT_DB = {
   profile: {
-    aiProvider: 'gemini',
+    schemaVersion: PROFILE_SCHEMA_VERSION,
     selectedModel: '',
     fullName: '',
     email: '',
@@ -112,7 +115,7 @@ const DEFAULT_DB = {
     useLinkRepair: false,
     // Agent 3 page understanding. The planner is a cheap text call that lets the
     // copilot comprehend a page (form vs listing vs login) and decide what to do;
-    // vision is an opt-in screenshot fallback (more expensive, Gemini/Anthropic).
+    // vision is an opt-in screenshot fallback (more expensive).
     useAiPlanner: true,
     useVision: false,
     // T3 computer-use: opt-in Anthropic driver that SEES and operates the live
@@ -120,7 +123,7 @@ const DEFAULT_DB = {
     // the most token-hungry feature). Never submits — see agents/computerUse.js.
     useComputerUse: false,
     computerUseModel: '',
-    computerUseMaxSteps: 12,
+    computerUseMaxSteps: 20,
     // T4 parallel sub-agents. tailorConcurrency caps how many jobs are tailored
     // at once (1–5; the cost cap / tier gate). useResearchFanout spawns a grounded
     // company-research sub-agent per job to enrich cover letters — Anthropic-only,
@@ -141,6 +144,8 @@ const DEFAULT_DB = {
     // Settings; provider-agnostic (uses whichever key is set). Default ON, but
     // no-ops gracefully when no provider key is available.
     useMemoryReflection: true,
+    // Tier-3 AI page extractor for broken scrapers; Anthropic-only, best-effort; Haiku, cents.
+    useAiExtractFallback: true,
     // Free-form "anything else" catch-all the user volunteers. Still used by
     // Agent 3's AI field-mapper as extra context, but the structured
     // applicationProfile below is now the primary, deterministic source.
@@ -228,15 +233,28 @@ const DEFAULT_DB = {
   // draining the key. Pruned to the most recent ~35 days. See db/costs.js.
   //   days: { 'YYYY-MM-DD': { calls, inputTokens, outputTokens, cacheReadTokens,
   //                           cacheWriteTokens, webSearches, estCostUSD,
-  //                           byBucket: { [bucket]: same-shape-minus-byBucket } } }
-  usage: { days: {} }
+  //                           byBucket: { [bucket]: same-shape-minus-byBucket },
+  //                           byTask: { [type]: { runs, failures, calls, estCostUSD,
+  //                             inputTokens, cacheReadTokens, cacheWriteTokens } } } }
+  usage: { days: {} },
+  // ── Source health (hunter v2) ───────────────────────────────────────────────
+  // Per-scraper run history + circuit breaker, keyed by source id. See
+  // hunter/health.js (pure model) and hunter/healthStore.js (persistence).
+  sourceHealth: {}
 };
 
 const DEFAULT_KEYS = {
-  geminiApiKey: '',
-  anthropicApiKey: '',
-  openRouterApiKey: ''
+  anthropicApiKey: ''
 };
+
+// Thrown by saveProfile when a pasted key is an Admin key or not key-shaped.
+export class InvalidKeyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidKeyError';
+    this.code = 'INVALID_KEY';
+  }
+}
 
 // ── In-memory log buffer ─────────────────────────────────────────────────────
 // Logs are intentionally not persisted — they're per-session agent output.
@@ -251,6 +269,25 @@ function initDb() {
   }
 }
 
+// Old installs may still carry provider keys inside db.json's profile; they
+// belong in keys.json only (readKeys migrates them) and must not leak into the profile.
+function withoutLegacyKeys(profile) {
+  const out = { ...(profile || {}) };
+  for (const f of LEGACY_KEY_FIELDS) delete out[f];
+  return out;
+}
+
+// Once keys.json exists it is the only authority for the Anthropic key: a
+// plaintext `anthropicApiKey` still sitting in db.json's profile is stale and
+// must neither be read nor written back. (While keys.json does NOT exist the
+// field is left alone so readKeys' one-time migration can still move it.)
+function withoutStaleKey(profile) {
+  if (!profile || typeof profile !== 'object' || !('anthropicApiKey' in profile)) return profile;
+  if (!fs.existsSync(KEYS_PATH)) return profile;
+  const { anthropicApiKey, ...rest } = profile;
+  return rest;
+}
+
 export function readDb() {
   initDb();
   try {
@@ -259,15 +296,15 @@ export function readDb() {
     return {
       ...DEFAULT_DB,
       ...parsed,
-      profile: {
+      profile: migrateProfile({
         ...DEFAULT_DB.profile,
-        ...(parsed.profile || {}),
+        ...withoutLegacyKeys(withoutStaleKey(parsed.profile)),
         // Deep-merge so newly-added structured keys still get defaults.
         applicationProfile: {
           ...DEFAULT_DB.profile.applicationProfile,
           ...((parsed.profile || {}).applicationProfile || {})
         }
-      },
+      }),
       supportingDocuments: (parsed.supportingDocuments && typeof parsed.supportingDocuments === 'object' && !Array.isArray(parsed.supportingDocuments)) ? parsed.supportingDocuments : {},
       answerBank:      Array.isArray(parsed.answerBank)      ? parsed.answerBank      : [],
       pendingQuestions: Array.isArray(parsed.pendingQuestions) ? parsed.pendingQuestions : [],
@@ -283,7 +320,8 @@ export function readDb() {
       applyState:  { ...DEFAULT_DB.applyState,  ...(parsed.applyState  || {}) },
       usage: (parsed.usage && typeof parsed.usage === 'object' && parsed.usage.days)
         ? parsed.usage
-        : { days: {} }
+        : { days: {} },
+      sourceHealth: (parsed.sourceHealth && typeof parsed.sourceHealth === 'object' && !Array.isArray(parsed.sourceHealth)) ? parsed.sourceHealth : {}
     };
   } catch {
     return { ...DEFAULT_DB };
@@ -294,7 +332,8 @@ export function writeDb(data) {
   initDb();
   // Errors are allowed to propagate — a silent swallow here is what caused
   // writes to fail invisibly when the packaged ASAR directory was read-only.
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  const safe = data && data.profile ? { ...data, profile: withoutStaleKey(data.profile) } : data;
+  fs.writeFileSync(DB_PATH, JSON.stringify(safe, null, 2), 'utf-8');
 }
 
 // ── API-key helpers (separate file, never stored in db.json) ─────────────────
@@ -306,16 +345,12 @@ function readKeys() {
       const raw = fs.readFileSync(DB_PATH, 'utf-8');
       const old = JSON.parse(raw);
       const p = old.profile || {};
-      if (p.geminiApiKey || p.anthropicApiKey || p.openRouterApiKey) {
-        const migrated = {
-          geminiApiKey:     p.geminiApiKey     || '',
-          anthropicApiKey:  p.anthropicApiKey  || '',
-          openRouterApiKey: p.openRouterApiKey || ''
-        };
+      if (p.anthropicApiKey || LEGACY_KEY_FIELDS.some((f) => p[f])) {
+        // Only the Anthropic key survives the move; retired keys are dropped.
+        const migrated = { anthropicApiKey: p.anthropicApiKey || '' };
         writeKeys(migrated);
-        delete p.geminiApiKey;
         delete p.anthropicApiKey;
-        delete p.openRouterApiKey;
+        for (const f of LEGACY_KEY_FIELDS) delete p[f];
         fs.writeFileSync(DB_PATH, JSON.stringify(old, null, 2), 'utf-8');
         return { ...DEFAULT_KEYS, ...migrated };
       }
@@ -323,9 +358,28 @@ function readKeys() {
     return { ...DEFAULT_KEYS };
   }
   try {
-    return { ...DEFAULT_KEYS, ...JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8')) };
+    const raw = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8'));
+    return { anthropicApiKey: typeof raw.anthropicApiKey === 'string' ? raw.anthropicApiKey : '' };
   } catch {
     return { ...DEFAULT_KEYS };
+  }
+}
+
+/**
+ * One-time cleanup for upgraded installs: rewrite keys.json so it holds ONLY the
+ * Anthropic key (drops retired provider keys from disk). Returns
+ * { purged: true } when something was removed, { purged: false } otherwise.
+ */
+export function purgeLegacyKeys() {
+  try {
+    if (!fs.existsSync(KEYS_PATH)) return { purged: false };
+    const raw = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8'));
+    const keys = Object.keys(raw || {});
+    if (keys.length === 1 && keys[0] === 'anthropicApiKey') return { purged: false };
+    writeKeys({ anthropicApiKey: typeof raw.anthropicApiKey === 'string' ? raw.anthropicApiKey : '' });
+    return { purged: true };
+  } catch {
+    return { purged: false };
   }
 }
 
@@ -347,18 +401,24 @@ export function saveProfile(profile) {
   const db = readDb();
   const currentKeys = readKeys();
 
-  const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...profileFields } = profile;
+  // Retired provider keys / the retired provider switch are dropped on the floor.
+  const { anthropicApiKey, ...profileFields } = profile;
+  for (const f of [...LEGACY_KEY_FIELDS, ...LEGACY_PROFILE_FIELDS]) delete profileFields[f];
 
-  const mergeKey = (incoming, existing) =>
-    (incoming !== undefined && typeof incoming === 'string' && incoming.trim().length > 0)
-      ? incoming.trim()
-      : existing;
-
-  const updatedKeys = {
-    geminiApiKey:     mergeKey(geminiApiKey,     currentKeys.geminiApiKey),
-    anthropicApiKey:  mergeKey(anthropicApiKey,  currentKeys.anthropicApiKey),
-    openRouterApiKey: mergeKey(openRouterApiKey, currentKeys.openRouterApiKey)
-  };
+  // Empty/whitespace incoming key keeps the existing one; anything else must be
+  // a well-formed, non-Admin Anthropic key (validated BEFORE anything is written).
+  let nextKey = currentKeys.anthropicApiKey;
+  if (typeof anthropicApiKey === 'string' && anthropicApiKey.trim().length > 0) {
+    const normalised = normalizeKeyInput(anthropicApiKey);
+    if (isAdminKeyShape(normalised)) {
+      throw new InvalidKeyError('That is an Admin key. SA-JAS only needs a regular API key — create one in the Anthropic Console and paste it here.');
+    }
+    if (!isAnthropicKeyShape(normalised)) {
+      throw new InvalidKeyError('That does not look like an Anthropic API key (it should start with sk-ant-api).');
+    }
+    nextKey = normalised;
+  }
+  const updatedKeys = { anthropicApiKey: nextKey };
 
   writeKeys(updatedKeys);
   // Deep-merge the structured applicationProfile so a partial save never wipes
@@ -366,7 +426,7 @@ export function saveProfile(profile) {
   const mergedAppProfile = profileFields.applicationProfile
     ? { ...db.profile.applicationProfile, ...profileFields.applicationProfile }
     : db.profile.applicationProfile;
-  db.profile = { ...db.profile, ...profileFields, applicationProfile: mergedAppProfile };
+  db.profile = migrateProfile({ ...db.profile, ...profileFields, applicationProfile: mergedAppProfile });
   // Sanitise the cost-control fields so a bad payload can't disable the budget
   // guard or set a nonsense search depth.
   if (!SEARCH_DEPTHS.includes(db.profile.searchDepth)) db.profile.searchDepth = 'standard';
@@ -783,16 +843,24 @@ export function buildMemoryDigest({ company = '', maxInsights = 14 } = {}) {
   return lines.join('\n').trim();
 }
 
+/**
+ * Employer-specific notes for ONE company, formatted exactly as buildMemoryDigest
+ * used to embed them. Kept out of the digest so the cached system prompt stays
+ * company-independent; Agent 2 places this in the per-job prompts instead.
+ * Returns '' when the company is unknown or has no notes.
+ */
+export function buildEmployerNotes(company) {
+  const norm = normalizeQuestion(company || '');
+  if (!norm) return '';
+  const mem = readDb().candidateMemory || {};
+  const target = (mem.employers || []).find((e) => e.normalized === norm);
+  if (!target || !target.notes || !target.notes.length) return '';
+  return `Employer notes:\n- ${target.company}: ${target.notes.join(' | ')}`;
+}
+
 export function clearKey(provider) {
-  const field = {
-    gemini:      'geminiApiKey',
-    anthropic:   'anthropicApiKey',
-    openrouter:  'openRouterApiKey'
-  }[provider];
-  if (!field) return false;
-  const keys = readKeys();
-  keys[field] = '';
-  writeKeys(keys);
+  if (provider !== 'anthropic') return false;
+  writeKeys({ anthropicApiKey: '' });
   return true;
 }
 
@@ -872,16 +940,8 @@ export function getLogs() {
 // log buffer (which the UI renders) or stdout. Belt-and-braces — keys should
 // never be interpolated into a log line, but an upstream error message (e.g. an
 // SDK exception echoing a request header) must not leak one either.
-const KEY_PATTERNS = [
-  /sk-ant-[A-Za-z0-9_-]{8,}/g,   // Anthropic
-  /sk-or-[A-Za-z0-9_-]{8,}/g,    // OpenRouter
-  /AIza[0-9A-Za-z_-]{20,}/g      // Google API keys
-];
-export function scrubSecrets(s) {
-  let out = String(s == null ? '' : s);
-  for (const re of KEY_PATTERNS) out = out.replace(re, '•••redacted-key•••');
-  return out;
-}
+// scrubSecrets lives in @sajas/core (shared with the other packages); re-exported here.
+export { scrubSecrets };
 
 export function addLog(message, type = 'info') {
   const safe = scrubSecrets(message);
@@ -1027,6 +1087,14 @@ function emptyTally() {
   return { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0 };
 }
 
+function emptyDay() {
+  return { ...emptyTally(), byBucket: {}, byTask: {} };
+}
+
+function emptyTaskTally() {
+  return { runs: 0, failures: 0, calls: 0, estCostUSD: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+}
+
 function accumulate(t, u, cost) {
   t.calls += 1;
   t.inputTokens      += u.inputTokens || 0;
@@ -1042,16 +1110,27 @@ function accumulate(t, u, cost) {
  * 'link-repair', 'research', 'referral', 'computer-use', 'vision', 'core', …).
  * Best-effort: never throws (a usage-ledger failure must never break an agent).
  */
-export function addUsage({ provider = 'unknown', model = '', bucket = 'core', ...tokens } = {}) {
+export function addUsage({ provider: _provider, model = '', bucket = 'core', ...tokens } = {}) {
   try {
-    const cost = estimateCostUSD({ provider, model, ...tokens });
+    const cost = estimateCostUSD({ model, ...tokens });
     const db = readDb();
     if (!db.usage || !db.usage.days) db.usage = { days: {} };
     const key = todayKey();
-    const day = db.usage.days[key] || { ...emptyTally(), byBucket: {} };
+    const day = db.usage.days[key] || emptyDay();
     accumulate(day, tokens, cost);
     day.byBucket[bucket] = day.byBucket[bucket] || emptyTally();
     accumulate(day.byBucket[bucket], tokens, cost);
+    // Per-task attribution: ONLY when a task is active (see telemetry.withTask).
+    const task = currentTask();
+    if (task && task.type) {
+      day.byTask = day.byTask || {};
+      const tt = day.byTask[task.type] = day.byTask[task.type] || emptyTaskTally();
+      tt.calls += 1;
+      tt.estCostUSD += cost;
+      tt.inputTokens += tokens.inputTokens || 0;
+      tt.cacheReadTokens += tokens.cacheReadTokens || 0;
+      tt.cacheWriteTokens += tokens.cacheWriteTokens || 0;
+    }
     db.usage.days[key] = day;
     // Prune old days so db.json never balloons.
     const keys = Object.keys(db.usage.days).sort();
@@ -1063,11 +1142,54 @@ export function addUsage({ provider = 'unknown', model = '', bucket = 'core', ..
   }
 }
 
+/**
+ * Counts one finished run of a task type (hunt/tailor/apply/memory-reflect/...).
+ * Best-effort: never throws.
+ */
+export function recordTaskRun(type, ok = true) {
+  try {
+    const db = readDb();
+    if (!db.usage || !db.usage.days) db.usage = { days: {} };
+    const key = todayKey();
+    const day = db.usage.days[key] || emptyDay();
+    day.byTask = day.byTask || {};
+    const tt = day.byTask[type] = day.byTask[type] || emptyTaskTally();
+    tt.runs += 1;
+    if (!ok) tt.failures += 1;
+    db.usage.days[key] = day;
+    const keys = Object.keys(db.usage.days).sort();
+    while (keys.length > USAGE_KEEP_DAYS) delete db.usage.days[keys.shift()];
+    writeDb(db);
+  } catch {
+    /* ledger failures must never break an agent */
+  }
+}
+
+function summariseTasks(byTask = {}) {
+  const out = {};
+  for (const [type, t] of Object.entries(byTask)) {
+    const denom = (t.inputTokens || 0) + (t.cacheReadTokens || 0) + (t.cacheWriteTokens || 0);
+    out[type] = {
+      runs: t.runs || 0,
+      failures: t.failures || 0,
+      calls: t.calls || 0,
+      estCostUSD: t.estCostUSD || 0,
+      inputTokens: t.inputTokens || 0,
+      cacheReadTokens: t.cacheReadTokens || 0,
+      cacheWriteTokens: t.cacheWriteTokens || 0,
+      cacheHitRatio: denom > 0 ? (t.cacheReadTokens || 0) / denom : 0,
+      avgCostUSD: t.runs > 0 ? (t.estCostUSD || 0) / t.runs : 0
+    };
+  }
+  return out;
+}
+
 /** Today's tally + a short history, for the Settings usage panel. */
 export function getUsageSummary() {
   const db = readDb();
   const days = (db.usage && db.usage.days) || {};
-  const today = days[todayKey()] || { ...emptyTally(), byBucket: {} };
+  const rawToday = days[todayKey()] || emptyDay();
+  const today = { ...rawToday, byBucket: rawToday.byBucket || {}, byTask: summariseTasks(rawToday.byTask) };
   const sorted = Object.keys(days).sort().slice(-14);
   const history = sorted.map((d) => ({ date: d, estCostUSD: days[d].estCostUSD || 0, calls: days[d].calls || 0 }));
   const last7 = history.slice(-7).reduce((s, d) => s + d.estCostUSD, 0);
@@ -1110,10 +1232,10 @@ export function budgetMessage(b = budgetStatus()) {
 export const PERFORMANCE_PRESETS = {
   saver: {
     label: 'Token Saver',
-    description: 'Cheapest useful setup: AI search on Haiku at light depth, all optional AI off, caching on. Roughly a tenth of Maximum\'s spend.',
+    description: 'Cheapest useful setup: AI search on Haiku 5.5 at light depth, all optional AI off, caching on. Roughly a tenth of Maximum\'s spend.',
     values: {
       useAiSearch: true,
-      aiSearchModel: 'claude-haiku-4-5',
+      aiSearchModel: CAPABILITIES.haikuWebSearch ? MODEL_IDS.haiku : MODEL_IDS.sonnet,
       searchDepth: 'light',
       useLinkValidation: true,   // free safety — probing isn't billed
       useLinkRepair: false,
@@ -1154,10 +1276,10 @@ export const PERFORMANCE_PRESETS = {
   },
   max: {
     label: 'Maximum',
-    description: 'Everything on: deep two-round search on Sonnet, AI link repair, company research, vision, computer-use finisher, 5-wide parallel tailoring. Most capable, most expensive.',
+    description: 'Everything on: deep two-round search on Opus 5.5, AI link repair, company research, vision, computer-use finisher, 5-wide parallel tailoring. Most capable, most expensive.',
     values: {
       useAiSearch: true,
-      aiSearchModel: 'claude-sonnet-4-6',
+      aiSearchModel: MODEL_IDS.opus,
       searchDepth: 'deep',
       useLinkValidation: true,
       useLinkRepair: true,

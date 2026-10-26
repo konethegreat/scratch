@@ -1,0 +1,67 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our Executive Placements
+  extractor depends on: "Details" anchors containing /Jobs/ and -Job-Search-, and
+  the smallest ancestor holding a bold title (strong/b/h2/h3). It proves our
+  extraction logic against a page of that shape, NOT that the live Executive
+  Placements site still looks like this. Companies, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs | Synthetic Executive Placements</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/Jobs/">Browse jobs</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo">Register your CV</a>
+  </div>
+
+  <h1>software engineer jobs</h1>
+
+  <div class="job-list">
+    <!-- 1: relative href, strong title, location line with "today" suffix -->
+    <div class="job-row">
+      <strong>Senior Software Engineer</strong>
+      <div class="jp-location">Johannesburg, Gauteng today</div>
+      <p>Build and maintain services for a growing fintech platform across South Africa.</p>
+      <a href="/Jobs/senior-software-engineer-1001-Job-Search-1.asp">Details</a>
+    </div>
+
+    <!-- 2: absolute href nested in an actions wrapper, no "today" suffix -->
+    <div class="job-row">
+      <strong>Data Engineer</strong>
+      <div class="jp-location">Rosebank, Gauteng</div>
+      <p>Pipelines and warehousing for a data platform serving millions of customers.</p>
+      <div class="actions">
+        <a href="https://www.executiveplacements.com/Jobs/data-engineer-1002-Job-Search-1.asp">Details</a>
+      </div>
+    </div>
+
+    <!-- 3: h2 title -->
+    <div class="job-row">
+      <h2>QA Analyst</h2>
+      <div class="jp-location">Cape Town</div>
+      <p>Manual and automated testing for web products, including regression suites.</p>
+      <a href="/Jobs/qa-analyst-1003-Job-Search-1.asp">Details</a>
+    </div>
+
+    <!-- 4: b title, no description long enough -->
+    <div class="job-row">
+      <b>DevOps Engineer</b>
+      <div class="jp-location">Midrand yesterday</div>
+      <p>Containers.</p>
+      <a href="/Jobs/devops-engineer-1004-Job-Search-1.asp">Details</a>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

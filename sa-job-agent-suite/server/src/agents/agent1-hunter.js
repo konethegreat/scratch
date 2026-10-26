@@ -4,10 +4,96 @@ import { v4 as uuidv4 } from 'uuid';
 import { addJob, addLog, getProfile, getHunterState, BROWSER_PROFILE_PATH } from '../db/helper.js';
 import { huntViaClaudeSearch, findDirectPostingUrl } from './jobSearchAI.js';
 import { validateJobs, validateLink, createProbeContext } from './linkValidator.js';
+import { hasAnthropicKey } from './llm.js';
+import { withTask } from '../telemetry.js';
+import { SOURCES } from '../hunter/registry.js';
+import { fetchSourcePage } from '../hunter/runner.js';
+import { crawlPages, pageCapForDepth, defaultKeyOf } from '../hunter/crawl.js';
+import { computeStatus, shouldSkip, summariseRun, baselineRaw } from '../hunter/health.js';
+import { getHealthEntry, recordRun } from '../hunter/healthStore.js';
+import { extractJobsFromPage } from '../hunter/aiExtract.js';
+import { tryAcquireBrowser, browserOwner } from '../hunter/browserLock.js';
 
 // Max AI link-repair attempts per run (each is a billed grounded search), only
 // when profile.useLinkRepair is on AND an Anthropic key is present.
 const LINK_REPAIR_CAP = 6;
+
+// Max raw cards processed per page load — guards against a runaway page.
+const MAX_CARDS_PER_PAGE = 80;
+
+// Max AI page-extractor attempts per run, shared across every source.
+const EXTRACT_CAP = 6;
+
+// Pacing between requests, kept from the original scraper loop.
+const DEFAULT_DELAYS = Object.freeze({ betweenQueriesMs: 2000, betweenSourcesMs: 1500 });
+
+// Test-only seams (ruling T7-f). These are the only hooks the pipeline has.
+let testSources = null;
+let testContext = null;
+let testDelays = null;
+
+/** Tests only: replace the registry (null restores SOURCES). */
+export function __setSourcesForTests(sources) {
+  testSources = Array.isArray(sources) ? sources : null;
+}
+
+/** Tests only: borrow an already-open browser context (the hunter never closes it). */
+export function __setContextForTests(context) {
+  testContext = context || null;
+}
+
+/** Tests only: override the inter-query/inter-source delays (null restores defaults). */
+export function __setDelaysForTests(delays) {
+  testDelays = delays && typeof delays === 'object'
+    ? {
+      betweenQueriesMs: Math.max(0, Number(delays.betweenQueriesMs) || 0),
+      betweenSourcesMs: Math.max(0, Number(delays.betweenSourcesMs) || 0)
+    }
+    : null;
+}
+
+/**
+ * The queries one source runs for a keyword/location matrix.
+ * perLocation -> keyword x location; oncePerKeyword and noLocation -> keyword x [null].
+ */
+export function queriesFor(source, keywords, locations) {
+  const kws = Array.isArray(keywords) ? keywords : [];
+  const locs = Array.isArray(locations) ? locations : [];
+  if (source?.scope === 'perLocation') {
+    return kws.flatMap((keyword) => locs.map((location) => ({ keyword, location })));
+  }
+  return kws.map((keyword) => ({ keyword, location: null }));
+}
+
+/** A registry source is enabled unless its health entry was turned off. */
+export function sourceEnabled(_profile, id) {
+  return getHealthEntry(id).enabled !== false;
+}
+
+function emptyResult(extra = {}) {
+  return {
+    totalFound: 0,
+    totalSaved: 0,
+    perSource: {},
+    linkStats: { live: 0, unverified: 0, noLink: 0, dead: 0, repaired: 0 },
+    perSourceStats: {},
+    stopped: false,
+    ...extra
+  };
+}
+
+const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
+
+// Remembers which extraction path produced a raw card without changing its shape.
+function tagOrigin(items, origin) {
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    try {
+      Object.defineProperty(item, '__origin', { value: origin, enumerable: false, configurable: true });
+    } catch { /* frozen item: leave it untagged */ }
+  }
+  return items;
+}
 
 /** Parse a value to an int within [min, max], falling back to `fallback`. */
 function clampInt(value, fallback, min, max) {
@@ -62,16 +148,6 @@ function parseDate(dateStr) {
 // description-only matches need more. Kept low on purpose — the prior threshold
 // of 25 with exact-phrase matching filtered out almost everything.
 const SCORE_THRESHOLD = 18;
-
-// Sources that search globally — a bare/unknown location is most likely foreign,
-// so STRICT validation applies (unknown → reject).
-const STRICT_GLOBAL_SOURCES = new Set(['LinkedIn', 'Google Jobs']);
-
-// SA-domain sources that occasionally surface foreign / "remote — worldwide"
-// cross-posts. LENIENT validation applies (unknown → accept; reject only when a
-// foreign place is explicitly named). SA-only boards not listed here are trusted
-// by domain and skipped entirely for speed.
-const SOFT_SA_CHECK_SOURCES = new Set(['Adzuna SA', 'Indeed SA']);
 
 const SA_LOCATION_TERMS = [
   'south africa', 'johannesburg', 'cape town', 'durban', 'pretoria',
@@ -164,598 +240,6 @@ function calculateMatchScore(title, description, targetKeywords) {
 }
 
 /**
- * Source 1: Scrape Indeed SA
- */
-async function scrapeIndeedSA(page, keyword, location) {
-  const jobs = [];
-  // za.indeed.com is the SA subdomain — always SA results
-  const searchUrl = `https://za.indeed.com/jobs?q=${encodeURIComponent(keyword)}&l=${encodeURIComponent(location)}`;
-
-  try {
-    addLog(`[Indeed SA] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[Indeed SA] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((loc) => {
-      const items = [];
-      // Indeed SA uses a mix of old (.job_seen_beacon) and new (.tapItem) selectors
-      const cards = document.querySelectorAll(
-        '.job_seen_beacon, .result, [class*="tapItem"], [class*="cardOutline"], ' +
-        '[data-jk], li[class*="job"]'
-      );
-
-      cards.forEach(card => {
-        // Title: new Indeed wraps in span.jobTitle > a
-        const titleEl =
-          card.querySelector('[class*="jobTitle"] a') ||
-          card.querySelector('h2 a[data-jk], h2 a[id^="job_"]') ||
-          card.querySelector('h2 a, a[data-jk]');
-        // Company
-        const companyEl =
-          card.querySelector('[data-testid="company-name"]') ||
-          card.querySelector('[class*="companyName"]') ||
-          card.querySelector('.company');
-        // Location
-        const locationEl =
-          card.querySelector('[data-testid="text-location"]') ||
-          card.querySelector('[class*="companyLocation"]') ||
-          card.querySelector('[class*="location"]');
-        // Snippet
-        const descEl =
-          card.querySelector('[class*="snippet"]') ||
-          card.querySelector('.summary, td.snip');
-
-        if (titleEl && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url.startsWith('/')) url = 'https://za.indeed.com' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : (loc + ', South Africa'),
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: 'Recently',
-            source: 'Indeed SA'
-          });
-        }
-      });
-      return items;
-    }, location);
-
-    addLog(`[Indeed SA] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[Indeed SA] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 3: Scrape LinkedIn Jobs (public search - no login required)
- */
-async function scrapeLinkedInJobs(page, keyword) {
-  // The location parameter is intentionally not used in the URL.
-  // We lock to South Africa via geoId=103644278 only — passing a city name
-  // (e.g. "Johannesburg") alongside the geoId causes LinkedIn to resolve the
-  // city name globally and can return US/UK results. The geoId alone is enough.
-  const geoId = '103644278'; // South Africa
-  const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(keyword)}&location=South+Africa&geoId=${geoId}&sortBy=DD&f_WT=1%2C2%2C3%2C4`;
-
-  const jobs = [];
-  try {
-    addLog(`[LinkedIn] Searching: "${keyword}" in South Africa`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    // LinkedIn renders cards via JS — wait for network to settle
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[LinkedIn] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate(() => {
-      const items = [];
-
-      // LinkedIn shows different HTML depending on whether the user is logged in.
-      // Logged-in view uses job-card-container; guest view uses base-card.
-      const loggedInCards = document.querySelectorAll(
-        '.job-card-container, .jobs-search-results__list-item, [data-job-id]'
-      );
-      const guestCards = document.querySelectorAll(
-        '.base-card, .job-search-card, .jobs-search__results-list li'
-      );
-      const cards = loggedInCards.length > 0 ? loggedInCards : guestCards;
-
-      cards.forEach(card => {
-        // Title
-        let titleEl =
-          card.querySelector('.job-card-list__title') ||
-          card.querySelector('.job-card-container__title') ||
-          card.querySelector('h3.base-search-card__title, .base-search-card__title') ||
-          card.querySelector('h3, h2');
-
-        // Company
-        let companyEl =
-          card.querySelector('.job-card-container__company-name') ||
-          card.querySelector('.job-card-container__primary-description') ||
-          card.querySelector('h4.base-search-card__subtitle, .base-search-card__subtitle') ||
-          card.querySelector('h4');
-
-        // Location — LinkedIn logged-in puts location in metadata items
-        let locationEl =
-          card.querySelector('.job-card-container__metadata-item--at-top') ||
-          card.querySelector('.job-card-container__metadata-item') ||
-          card.querySelector('.job-search-card__location, [class*="job-search-card__location"]');
-
-        // Link
-        let linkEl =
-          card.querySelector('a.job-card-list__title') ||
-          card.querySelector('a.job-card-container__link') ||
-          card.querySelector('a.base-card__full-link') ||
-          card.querySelector('a[href*="/jobs/view/"]') ||
-          card.querySelector('a[href]');
-
-        const title = titleEl ? titleEl.textContent.trim() : null;
-        if (!title || title.length < 4) return;
-
-        let url = linkEl ? (linkEl.getAttribute('href') || '') : '';
-        if (url.startsWith('/')) url = 'https://www.linkedin.com' + url;
-        // Strip LinkedIn tracking params — keep only the job URL
-        try { url = new URL(url).origin + new URL(url).pathname; } catch {}
-
-        items.push({
-          title,
-          company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-          location: locationEl ? locationEl.textContent.trim() : 'South Africa',
-          description: '',
-          applyUrl: url,
-          datePosted: 'Recently',
-          source: 'LinkedIn'
-        });
-      });
-      return items;
-    });
-
-    addLog(`[LinkedIn] Found ${scraped.length} raw cards for "${keyword}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[LinkedIn] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 4: Scrape Google Jobs (via Google Search)
- */
-async function scrapeGoogleJobs(page, keyword, location) {
-  const jobs = [];
-  // Explicitly include "South Africa" in the query — Google's job widget geo-infers
-  // from the server location (typically US) if not specified.
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(keyword + ' jobs ' + location + ' South Africa')}&ibp=htl;jobs&gl=za&hl=en-ZA`;
-
-  try {
-    addLog(`[Google Jobs] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    const pageTitle = await page.title();
-    addLog(`[Google Jobs] Page loaded: "${pageTitle}"`, 'agent1');
-    await page.waitForTimeout(4000);
-
-    const scraped = await page.evaluate(() => {
-      const items = [];
-      // Google Jobs cards
-      const cards = document.querySelectorAll('.iFjolb, [jscontroller] li, .PwjeAc');
-
-      cards.forEach(card => {
-        const titleEl = card.querySelector('.BjJfJf, [class*="BjJfJf"], .sH3zFd, div[role="heading"]');
-        const companyEl = card.querySelector('.vNEEBe, [class*="vNEEBe"], .nJlDiv');
-        const locationEl = card.querySelector('.Qk80Jf, [class*="Qk80Jf"], .pwO9Le');
-
-        if (titleEl && titleEl.textContent && titleEl.textContent.trim().length > 3) {
-          // Google Jobs cards don't expose a direct employer apply URL on the
-          // search results page. Leave applyUrl empty so Agent 3 rejects it
-          // cleanly instead of navigating to a Google search page.
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : 'South Africa',
-            description: '',
-            applyUrl: '',
-            datePosted: 'Recently',
-            source: 'Google Jobs'
-          });
-        }
-      });
-      return items;
-    });
-
-    addLog(`[Google Jobs] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[Google Jobs] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 5: Scrape JobMail SA
- */
-async function scrapeJobMail(page, keyword, location) {
-  const jobs = [];
-  const searchUrl = `https://www.jobmail.co.za/search?keyword=${encodeURIComponent(keyword)}&location=${encodeURIComponent(location)}`;
-
-  try {
-    addLog(`[JobMail] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[JobMail] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((loc) => {
-      const items = [];
-      const cards = document.querySelectorAll(
-        '.job-listing, .job-result, .listing-item, [class*="job-card"], [class*="JobCard"], article[class]'
-      );
-      cards.forEach(card => {
-        const titleEl = card.querySelector('h2 a, h3 a, a[class*="title"], [class*="job-title"] a');
-        const companyEl = card.querySelector('[class*="company"], [class*="employer"]');
-        const locationEl = card.querySelector('[class*="location"]');
-        const descEl = card.querySelector('[class*="description"], [class*="snippet"], p');
-        if (titleEl && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url.startsWith('/')) url = 'https://www.jobmail.co.za' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : (loc + ', South Africa'),
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: 'Recently',
-            source: 'JobMail'
-          });
-        }
-      });
-      return items;
-    }, location);
-
-    addLog(`[JobMail] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[JobMail] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 6: PNet SA
- */
-async function scrapePNet(page, keyword, location) {
-  const jobs = [];
-  const searchUrl = `https://www.pnet.co.za/jobs/?k=${encodeURIComponent(keyword)}&l=${encodeURIComponent(location)}`;
-
-  try {
-    addLog(`[PNet] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[PNet] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((loc) => {
-      const items = [];
-      const cards = document.querySelectorAll(
-        '.item, .job-item, [class*="job-result"], [class*="result-item"], ' +
-        '[class*="listing-item"], [class*="search-result"], article[class]'
-      );
-      cards.forEach(card => {
-        const titleEl = card.querySelector('h2 a, h3 a, a[class*="title"], [class*="title"] a');
-        const companyEl = card.querySelector('[class*="company"], [class*="employer"]');
-        const locationEl = card.querySelector('[class*="location"], [class*="region"], [class*="area"]');
-        const descEl = card.querySelector('[class*="description"], p');
-        const dateEl = card.querySelector('[class*="date"], [class*="posted"], time');
-        if (titleEl && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url.startsWith('/')) url = 'https://www.pnet.co.za' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : (loc + ', South Africa'),
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: dateEl ? dateEl.textContent.trim() : 'Recently',
-            source: 'PNet'
-          });
-        }
-      });
-      return items;
-    }, location);
-
-    addLog(`[PNet] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[PNet] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 7: CareerJunction SA
- */
-async function scrapeCareerJunction(page, keyword, location) {
-  const jobs = [];
-  const searchUrl = `https://www.careerjunction.co.za/jobs/results/?k=${encodeURIComponent(keyword)}&radius=50&l=${encodeURIComponent(location)}`;
-
-  try {
-    addLog(`[CareerJunction] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[CareerJunction] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((loc) => {
-      const items = [];
-      const cards = document.querySelectorAll(
-        '.job-result, .listing, [class*="job-card"], [class*="result-card"], ' +
-        '[class*="search-result"], [class*="position"], article[class]'
-      );
-      cards.forEach(card => {
-        const titleEl = card.querySelector('h2 a, h3 a, .title a, a[class*="title"], [class*="position-title"] a');
-        const companyEl = card.querySelector('[class*="company"], [class*="employer"], [class*="recruiter"]');
-        const locationEl = card.querySelector('[class*="location"], [class*="area"]');
-        const descEl = card.querySelector('[class*="description"], [class*="snippet"], p');
-        const dateEl = card.querySelector('[class*="date"], [class*="posted"], time');
-        if (titleEl && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url.startsWith('/')) url = 'https://www.careerjunction.co.za' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : (loc + ', South Africa'),
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: dateEl ? dateEl.textContent.trim() : 'Recently',
-            source: 'CareerJunction'
-          });
-        }
-      });
-      return items;
-    }, location);
-
-    addLog(`[CareerJunction] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[CareerJunction] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 8: Jobs.co.za
- */
-async function scrapeJobsDotCoZa(page, keyword, location) {
-  const jobs = [];
-  const searchUrl = `https://www.jobs.co.za/search.html?q=${encodeURIComponent(keyword)}&l=${encodeURIComponent(location)}`;
-
-  try {
-    addLog(`[Jobs.co.za] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[Jobs.co.za] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((loc) => {
-      const items = [];
-      const cards = document.querySelectorAll('.job, .job-result, .listing, [class*="job-card"], article[class]');
-      cards.forEach(card => {
-        const titleEl = card.querySelector('h2 a, h3 a, a.position, .job-title a, a[class*="title"]');
-        const companyEl = card.querySelector('[class*="company"], [class*="employer"], .company');
-        const locationEl = card.querySelector('[class*="location"], .location');
-        const descEl = card.querySelector('[class*="description"], [class*="snippet"], .description, p');
-        const dateEl = card.querySelector('[class*="date"], .date, time');
-        if (titleEl && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url.startsWith('/')) url = 'https://www.jobs.co.za' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : (loc + ', South Africa'),
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: dateEl ? dateEl.textContent.trim() : 'Recently',
-            source: 'Jobs.co.za'
-          });
-        }
-      });
-      return items;
-    }, location);
-
-    addLog(`[Jobs.co.za] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[Jobs.co.za] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 9: Gumtree Jobs SA
- */
-async function scrapeGumtreeJobs(page, keyword, location) {
-  const jobs = [];
-  const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const searchUrl = `https://www.gumtree.co.za/s-jobs/v1c8p1/${encodeURIComponent(slug)}/k0`;
-
-  try {
-    addLog(`[Gumtree SA] Searching: "${keyword}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    const pageTitle = await page.title();
-    addLog(`[Gumtree SA] Page loaded: "${pageTitle}"`, 'agent1');
-    await page.waitForTimeout(3000);
-
-    const scraped = await page.evaluate(() => {
-      const items = [];
-      const cards = document.querySelectorAll('.view-list-item, .tileV2, article[class*="listing"], [class*="listing-item"]');
-      cards.forEach(card => {
-        const titleEl = card.querySelector('.title a, h2 a, h3 a, a[class*="title"]');
-        const locationEl = card.querySelector('[class*="location"], .location, [class*="area"]');
-        const descEl = card.querySelector('[class*="description"], p');
-        if (titleEl && titleEl.textContent && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url && url.startsWith('/')) url = 'https://www.gumtree.co.za' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: 'See listing',
-            location: locationEl ? locationEl.textContent.trim() : 'South Africa',
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: 'Recently',
-            source: 'Gumtree SA'
-          });
-        }
-      });
-      return items;
-    });
-
-    addLog(`[Gumtree SA] Found ${scraped.length} raw cards for "${keyword}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[Gumtree SA] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 10: South African Government Vacancies (nationalgovernment.co.za)
- * Government jobs may require email, post, or hand delivery — applyUrl links to the vacancy page.
- * Only takes keyword (not location) since government jobs are nationwide.
- */
-async function scrapeGovJobs(page, keyword) {
-  const jobs = [];
-  const searchUrl = 'https://www.nationalgovernment.co.za/units/view/1/Government-Vacancies';
-
-  try {
-    addLog(`[Govt SA] Loading National Government vacancies for "${keyword}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    const pageTitle = await page.title();
-    addLog(`[Govt SA] Page loaded: "${pageTitle}"`, 'agent1');
-    await page.waitForTimeout(3000);
-
-    const keywordLower = keyword.toLowerCase();
-    const scraped = await page.evaluate((kw) => {
-      const items = [];
-      const words = kw.split(' ').filter(w => w.length > 3);
-
-      // Scan links whose text matches the keyword
-      document.querySelectorAll('a[href]').forEach(link => {
-        const text = (link.textContent || '').trim();
-        if (text.length < 5 || text.length > 200) return;
-        const textLower = text.toLowerCase();
-        if (!textLower.includes(kw) && !words.some(w => textLower.includes(w))) return;
-        let url = link.getAttribute('href') || '';
-        if (url.startsWith('/')) url = 'https://www.nationalgovernment.co.za' + url;
-        if (!url.startsWith('http')) return;
-        items.push({
-          title: text,
-          company: 'South African Government',
-          location: 'South Africa',
-          description: 'Government vacancy — check the linked page for full requirements and application instructions. Applications may require email, post, or hand-delivery as specified in the circular.',
-          applyUrl: url,
-          datePosted: 'Recently',
-          source: 'Govt SA'
-        });
-      });
-
-      // Also scan tables (common format for government vacancy listings)
-      document.querySelectorAll('table tr').forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 2) return;
-        const titleCell = cells[0];
-        const linkEl = titleCell.querySelector('a') || row.querySelector('a');
-        const text = titleCell.textContent.trim();
-        if (text.length < 5) return;
-        const textLower = text.toLowerCase();
-        if (!textLower.includes(kw) && !words.some(w => textLower.includes(w))) return;
-        let url = linkEl ? (linkEl.getAttribute('href') || '') : '';
-        if (url.startsWith('/')) url = 'https://www.nationalgovernment.co.za' + url;
-        if (!url.startsWith('http')) return;
-        items.push({
-          title: text.substring(0, 100),
-          company: cells[1] ? cells[1].textContent.trim().substring(0, 80) || 'South African Government' : 'South African Government',
-          location: 'South Africa',
-          description: 'Government vacancy — check the linked page for full requirements and application instructions. Applications may require email, post, or hand-delivery as specified in the circular.',
-          applyUrl: url,
-          datePosted: cells[2] ? cells[2].textContent.trim() : 'Recently',
-          source: 'Govt SA'
-        });
-      });
-
-      return items.slice(0, 25);
-    }, keywordLower);
-
-    addLog(`[Govt SA] Found ${scraped.length} relevant entries for "${keyword}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[Govt SA] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
- * Source 11: Adzuna SA
- */
-async function scrapeAdzunaSA(page, keyword, location) {
-  const jobs = [];
-  const searchUrl = `https://www.adzuna.co.za/search?q=${encodeURIComponent(keyword)}&w=${encodeURIComponent(location)}`;
-
-  try {
-    addLog(`[Adzuna SA] Searching: "${keyword}" in "${location}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[Adzuna SA] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((loc) => {
-      const items = [];
-      const cards = document.querySelectorAll('article, .job, [class*="result"], [class*="listing"], [class*="advert"]');
-      cards.forEach(card => {
-        const titleEl = card.querySelector('h2 a, h3 a, a[class*="title"], [itemprop="title"] a, .job-title a');
-        const companyEl = card.querySelector('[class*="company"], [class*="employer"], [itemprop="hiringOrganization"]');
-        const locationEl = card.querySelector('[class*="location"], [itemprop="addressLocality"]');
-        const descEl = card.querySelector('[class*="description"], [class*="snippet"], p');
-        const dateEl = card.querySelector('time, [class*="date"], [class*="posted"]');
-        if (titleEl && titleEl.textContent.trim().length > 3) {
-          let url = titleEl.getAttribute('href') || '';
-          if (url.startsWith('/')) url = 'https://www.adzuna.co.za' + url;
-          items.push({
-            title: titleEl.textContent.trim(),
-            company: companyEl ? companyEl.textContent.trim() : 'Confidential',
-            location: locationEl ? locationEl.textContent.trim() : (loc + ', South Africa'),
-            description: descEl ? descEl.textContent.trim().substring(0, 500) : '',
-            applyUrl: url,
-            datePosted: dateEl ? (dateEl.getAttribute('datetime') || dateEl.textContent.trim()) : 'Recently',
-            source: 'Adzuna SA'
-          });
-        }
-      });
-      return items;
-    }, location);
-
-    addLog(`[Adzuna SA] Found ${scraped.length} raw cards for "${keyword}" in "${location}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[Adzuna SA] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-/**
  * Universal fallback: extract schema.org/JobPosting structured data (JSON-LD)
  * embedded in the current page. Most modern SA job boards (PNet, Careers24,
  * Indeed, Adzuna, CareerJunction) embed this per listing, so it keeps the hunter
@@ -835,106 +319,59 @@ async function scrapeJsonLd(page, sourceName, fallbackLocation, originForRelativ
 }
 
 /**
- * Source 12 & 13: Executive Placements / Job Placements (same platform engine).
- * Server-rendered JobList.asp — country defaults to South Africa, so results are
- * SA by default. Shared scraper, called once per board with its own origin.
- */
-async function scrapePlacements(page, keyword, origin, sourceName) {
-  const jobs = [];
-  const searchUrl = `${origin}/JobList.asp?Keywords=${encodeURIComponent(keyword)}`;
-
-  try {
-    addLog(`[${sourceName}] Searching: "${keyword}"`, 'agent1');
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {});
-    const pageTitle = await page.title();
-    addLog(`[${sourceName}] Page loaded: "${pageTitle}"`, 'agent1');
-
-    const scraped = await page.evaluate((org) => {
-      const items = [];
-      const seen = new Set();
-      // Each job card carries a "Details" anchor pointing at /Jobs/.../-<id>-Job-Search-...asp
-      document.querySelectorAll('a[href*="-Job-Search-"]').forEach((a) => {
-        let url = a.getAttribute('href') || '';
-        if (!/\/Jobs\//i.test(url)) return;
-        const idMatch = url.match(/-(\d+)-Job-Search-/i);
-        const jobId = idMatch ? idMatch[1] : url;
-        if (seen.has(jobId)) return;
-        if (url.startsWith('/')) url = org + url;
-
-        // Walk up to the smallest container that holds a bold title.
-        let card = a;
-        for (let i = 0; i < 6 && card.parentElement; i++) {
-          card = card.parentElement;
-          if (card.querySelector('strong, b, h2, h3')) break;
-        }
-        const titleEl = card.querySelector('strong, b, h2, h3');
-        const title = titleEl ? titleEl.textContent.trim() : '';
-        if (!title || title.length < 4) return;
-
-        // Location heuristic: line right after the title in the card text.
-        let location = 'South Africa';
-        let description = '';
-        const lines = (card.innerText || '').split('\n').map((s) => s.trim()).filter(Boolean);
-        const ti = lines.findIndex((l) => l === title);
-        if (ti !== -1 && lines[ti + 1]) {
-          location = lines[ti + 1].replace(/\s+(today|yesterday|\d+\s+days?\s+ago)$/i, '').trim() || 'South Africa';
-        }
-        const descLine = lines.find((l) => l.length > 60);
-        if (descLine) description = descLine.substring(0, 500);
-
-        seen.add(jobId);
-        items.push({
-          title,
-          company: 'See listing',
-          location,
-          description,
-          applyUrl: url,
-          datePosted: 'Recently',
-          source: org.includes('executiveplacements') ? 'Executive Placements' : 'Job Placements'
-        });
-      });
-      return items;
-    }, origin);
-
-    addLog(`[${sourceName}] Found ${scraped.length} raw cards for "${keyword}"`, 'agent1');
-    jobs.push(...scraped);
-  } catch (err) {
-    addLog(`[${sourceName}] Error: ${err.message}`, 'error');
-  }
-
-  return jobs;
-}
-
-async function scrapeExecutivePlacements(page, keyword) {
-  return scrapePlacements(page, keyword, 'https://www.executiveplacements.com', 'Executive Placements');
-}
-
-async function scrapeJobPlacements(page, keyword) {
-  return scrapePlacements(page, keyword, 'https://www.jobplacements.com', 'Job Placements');
-}
-
-/**
  * Main entry point: Runs Agent 1 Job Hunter across all sources.
  */
-export async function runJobHunterAgent() {
+export function runJobHunterAgent(...args) {
+  return withTask('hunt', () => runJobHunterAgentInner(...args));
+}
+
+async function runJobHunterAgentInner() {
+  // The route normally acquires 'hunt' before calling us. Direct callers (tests,
+  // routines) acquire it themselves — but never steal it from another kind.
+  const owner = browserOwner();
+  if (owner && owner !== 'hunt') {
+    const error = `A browser job is already running (${owner}).`;
+    addLog(error, 'error');
+    return emptyResult({ error });
+  }
+  let releaseLock = null;
+  if (owner !== 'hunt') {
+    releaseLock = tryAcquireBrowser('hunt');
+    if (!releaseLock) {
+      const busyOwner = browserOwner() || 'another job';
+      const error = `A browser job is already running (${busyOwner}).`;
+      addLog(error, 'error');
+      return emptyResult({ error });
+    }
+  }
+  try {
+    return await runHunt();
+  } finally {
+    if (releaseLock) releaseLock();
+  }
+}
+
+async function runHunt() {
   const profile = getProfile();
   const keywords = (profile.keywords || '').split(',').map(k => k.trim()).filter(Boolean);
   const locations = (profile.locations || '').split(',').map(l => l.trim()).filter(Boolean);
 
   if (keywords.length === 0 || locations.length === 0) {
     addLog('Cannot start hunter: keywords and locations must both be set in Profile & Settings.', 'error');
-    return { totalFound: 0, totalSaved: 0, error: 'Missing keywords or locations.' };
+    return emptyResult({ error: 'Missing keywords or locations.' });
   }
 
   addLog('=== Agent 1: Job Hunter Starting ===', 'agent1');
   addLog(`Keywords: ${keywords.join(', ')}`, 'agent1');
   addLog(`Locations: ${locations.join(', ')}`, 'agent1');
 
-  let context;
+  const delays = testDelays || DEFAULT_DELAYS;
+  let context = testContext;
+  let ownsContext = false;
   let totalFound = 0;
   let totalSaved = 0;
-  let perSource = {}; // source name → jobs saved
+  const perSource = {}; // source name → jobs saved
+  const perSourceStats = {}; // source name → run summary for the UI
 
   const maxKw = clampInt(profile.maxKeywords, 3, 1, 10);
   const maxLoc = clampInt(profile.maxLocations, 2, 1, 8);
@@ -950,8 +387,7 @@ export async function runJobHunterAgent() {
 
   // Optional AI link repair: when a job is kept WITHOUT a usable link, ask Claude
   // (grounded) for the real posting URL. Gated + capped because each is billed.
-  const repairReady = profile.useLinkRepair === true &&
-    Boolean(profile.anthropicApiKey) && !String(profile.anthropicApiKey).includes('your_');
+  const repairReady = profile.useLinkRepair === true && hasAnthropicKey(profile);
   const repairState = { left: repairReady ? LINK_REPAIR_CAP : 0 };
 
   // Run-level link health, surfaced in the dashboard Run Summary.
@@ -992,8 +428,8 @@ export async function runJobHunterAgent() {
   }
 
   // ── Phase 0: AI web-search engine (primary) ────────────────────────────────
-  // Uses Claude's grounded web_search. This is the reliable engine — the CSS
-  // scrapers below are a best-effort fallback that bot-walls frequently break.
+  // Uses Claude's grounded web_search. This is the reliable engine — the
+  // registry scrapers below are a best-effort fallback that bot-walls break.
   if (profile.useAiSearch !== false) {
     const aiKeywords = keywords.slice(0, maxKw);
     const aiLocations = locations.slice(0, maxLoc);
@@ -1039,151 +475,284 @@ export async function runJobHunterAgent() {
   }
 
   try {
-    addLog('Launching browser context...', 'agent1');
-    const launchOpts = {
-      headless: true,
-      args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox'],
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-      viewport: { width: 1366, height: 768 },
-      locale: 'en-ZA',
-      timezoneId: 'Africa/Johannesburg'
-    };
-    try {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...launchOpts, channel: 'chrome' });
-      addLog('Using real Chrome with persistent session profile.', 'agent1');
-    } catch {
-      addLog('Chrome not found — falling back to bundled Chromium with persistent profile.', 'agent1');
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, launchOpts);
+    if (context) {
+      addLog('Using the injected browser context (test run).', 'agent1');
+    } else {
+      addLog('Launching browser context...', 'agent1');
+      const launchOpts = {
+        headless: true,
+        args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox'],
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        viewport: { width: 1366, height: 768 },
+        locale: 'en-ZA',
+        timezoneId: 'Africa/Johannesburg'
+      };
+      try {
+        context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...launchOpts, channel: 'chrome' });
+        addLog('Using real Chrome with persistent session profile.', 'agent1');
+      } catch {
+        addLog('Chrome not found — falling back to bundled Chromium with persistent profile.', 'agent1');
+        context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, launchOpts);
+      }
+      ownsContext = true;
     }
 
     // Limit the keyword × location matrix to avoid excessive requests. These
     // caps are user-configurable from Profile & Settings (maxKeywords /
     // maxLocations); they fall back to sensible defaults when unset.
-    const maxKeywords = clampInt(profile.maxKeywords, 3, 1, 10);
-    const maxLocations = clampInt(profile.maxLocations, 2, 1, 8);
-    const searchKeywords = keywords.slice(0, maxKeywords);
-    const searchLocations = locations.slice(0, maxLocations);
+    const searchKeywords = keywords.slice(0, maxKw);
+    const searchLocations = locations.slice(0, maxLoc);
     addLog(`Run matrix: ${searchKeywords.length} keyword(s) × ${searchLocations.length} location(s) per per-location source.`, 'agent1');
 
-    // Max raw cards processed per page load — guards against a runaway page.
-    const MAX_CARDS_PER_PAGE = 80;
+    const sources = testSources || SOURCES;
+    addLog(`Sources: ${sources.map(s => s.name).join(', ')}`, 'agent1');
 
-    // Order matters: `addJob` keeps the FIRST version of a duplicate job, so the
-    // major, reputable boards run first and win the slot over obscure boards.
-    // (Careers24 removed — its scraper was unreliably bot-walled.)
-    const scraperSources = [
-      // ── Major boards first ──────────────────────────────────────────────────
-      // LinkedIn: SA-locked via geoId — no per-location loop needed
-      { name: 'LinkedIn',             fn: scrapeLinkedInJobs, oncePerKeyword: true },
-      { name: 'Indeed SA',            fn: scrapeIndeedSA },
-      { name: 'PNet',                 fn: scrapePNet },
-      { name: 'CareerJunction',       fn: scrapeCareerJunction },
-      // ── Secondary / niche boards (fallback) ─────────────────────────────────
-      // Google Jobs renders on google.com — no JobPosting JSON-LD to harvest.
-      { name: 'Google Jobs',          fn: scrapeGoogleJobs, skipJsonLd: true },
-      { name: 'Adzuna SA',            fn: scrapeAdzunaSA },
-      { name: 'Executive Placements', fn: scrapeExecutivePlacements, oncePerKeyword: true },
-      { name: 'Job Placements',       fn: scrapeJobPlacements, oncePerKeyword: true },
-      { name: 'Govt SA',              fn: scrapeGovJobs, noLocation: true, skipJsonLd: true },
-      { name: 'JobMail',              fn: scrapeJobMail },
-      { name: 'Jobs.co.za',           fn: scrapeJobsDotCoZa },
-      { name: 'Gumtree SA',           fn: scrapeGumtreeJobs }
-    ];
+    const maxPages = pageCapForDepth(profile.searchDepth);
+    let extractLeft = EXTRACT_CAP;
+    const extractorReady = profile.useAiExtractFallback !== false && hasAnthropicKey(profile);
 
-    addLog(`Sources: ${scraperSources.map(s => s.name).join(', ')}`, 'agent1');
-
-    for (const source of scraperSources) {
+    for (const source of sources) {
       if (getHunterState().stopRequested) { addLog('🛑 Stop requested — halting before next source.', 'agent1'); break; }
-      addLog(`--- Scanning ${source.name} ---`, 'agent1');
-      const page = await context.newPage();
-      perSource[source.name] = perSource[source.name] || 0;
 
-      for (const keyword of searchKeywords) {
-        if (getHunterState().stopRequested) break;
-        // noLocation: SA-wide scrape (no city param). oncePerKeyword: SA-locked globally.
-        const locationList = (source.noLocation || source.oncePerKeyword) ? [null] : searchLocations;
-
-        for (const location of locationList) {
-          if (getHunterState().stopRequested) break;
-          try {
-            const rawJobs = (source.noLocation || source.oncePerKeyword)
-              ? await source.fn(page, keyword)
-              : await source.fn(page, keyword, location);
-
-            // Universal JSON-LD fallback against the page that fn just loaded.
-            let allRaw = rawJobs;
-            if (!source.skipJsonLd) {
-              const ld = await scrapeJsonLd(page, source.name, location || 'South Africa', source.origin);
-              if (ld.length) {
-                addLog(`[${source.name}] +${ld.length} listing(s) via JSON-LD structured data`, 'agent1');
-                allRaw = rawJobs.concat(ld);
-              }
-            }
-            if (allRaw.length > MAX_CARDS_PER_PAGE) allRaw = allRaw.slice(0, MAX_CARDS_PER_PAGE);
-            totalFound += allRaw.length;
-
-            let belowThreshold = 0;
-            let notSA = 0;
-            let belowSamples = [];
-            const candidates = [];
-            for (const job of allRaw) {
-              if (!job.title || job.title.length < 4) continue;
-
-              // Reject non-SA locations. LinkedIn/Google are already SA-geo-locked
-              // by their query (geoId / gl=za), and SA-domain boards are SA by
-              // definition — so we only reject when a foreign place is EXPLICITLY
-              // named (lenient mode). Unknown/unlisted suburbs pass, which fixes
-              // the over-filtering that dropped valid SA jobs in smaller towns.
-              if ((STRICT_GLOBAL_SOURCES.has(job.source) || SOFT_SA_CHECK_SOURCES.has(job.source)) &&
-                  !isSouthAfricanLocation(job.location, false)) {
-                notSA++;
-                continue;
-              }
-
-              const matchScore = calculateMatchScore(job.title, job.description, profile.keywords);
-
-              if (matchScore < SCORE_THRESHOLD) {
-                belowThreshold++;
-                if (belowSamples.length < 3) belowSamples.push(`"${job.title}" (${matchScore})`);
-                continue;
-              }
-
-              candidates.push({
-                id: uuidv4(),
-                title: job.title,
-                company: job.company,
-                location: job.location,
-                description: job.description || `${job.title} at ${job.company} - ${job.location}`,
-                applyUrl: job.applyUrl,
-                datePosted: parseDate(job.datePosted),
-                matchScore,
-                status: 'found',
-                source: job.source,
-                tailoredCvText: '',
-                tailoredCoverLetterText: '',
-                dateAdded: new Date().toISOString().split('T')[0]
-              });
-            }
-
-            // Validate this source's candidate links before saving (drops only
-            // confirmed-dead links; search/category links kept as linkless leads).
-            const { kept, dropped } = await validateJobs(candidates, { checkLiveness: linkCheck, requestContext: probeRequest, label: source.name });
-            await finalizeAndSave(kept, dropped.length, source.name);
-            if (notSA > 0) addLog(`[${source.name}] Rejected ${notSA} non-SA location job(s)`, 'agent1');
-            if (belowThreshold > 0) {
-              addLog(`[${source.name}] ${belowThreshold} card(s) below score ${SCORE_THRESHOLD}. Samples: ${belowSamples.join(', ')}`, 'agent1');
-            }
-          } catch (err) {
-            const loc = location ? ` in "${location}"` : '';
-            addLog(`Error in ${source.name} for "${keyword}"${loc}: ${err.message}`, 'error');
-          }
-
-          await new Promise(r => setTimeout(r, 2000));
-        }
+      let healthEntry;
+      try {
+        healthEntry = getHealthEntry(source.id);
+      } catch (err) {
+        // Health I/O must never abort the scrape phase.
+        addLog(`[${source.name}] Health read failed: ${err.message}`, 'system');
+        healthEntry = {};
+      }
+      const skip = shouldSkip(healthEntry);
+      if (skip.skip) {
+        addLog(`⏭ ${source.name} skipped: ${skip.reason}`, 'agent1');
+        perSourceStats[source.name] = {
+          pages: 0,
+          raw: 0,
+          saved: 0,
+          stopReason: 'skipped',
+          via: 'none',
+          status: computeStatus(healthEntry).status,
+          skipped: skip.reason
+        };
+        continue;
       }
 
-      await page.close();
-      await new Promise(r => setTimeout(r, 1500));
+      addLog(`--- Scanning ${source.name} ---`, 'agent1');
+      perSource[source.name] = perSource[source.name] || 0;
+
+      const startedAt = Date.now();
+      const queries = queriesFor(source, searchKeywords, searchLocations);
+      const baseline = baselineRaw(healthEntry.runs);
+      const statusBefore = computeStatus(healthEntry).status;
+      // Tier-3 extractor: only when the AI path is ready and this source either
+      // used to return cards or already looks broken/degraded.
+      const allowExtract = extractorReady
+        && (baseline.median >= 3 || statusBefore === 'broken' || statusBefore === 'degraded');
+
+      let pagesTotal = 0;
+      let blocked = false;
+      let blockKind = null;
+      let lastHttpStatus = null;
+      let lastError = null;
+      let threw = null;
+      let extractSupplied = false;
+      const stopReasons = [];
+      const healthItems = [];
+      const healthSeen = new Set();
+      const origins = { dom: 0, jsonld: 0, extract: 0 };
+
+      let page = null;
+      try {
+        page = await context.newPage();
+        let queryIndex = 0;
+
+        for (const query of queries) {
+          if (getHunterState().stopRequested) break;
+          const extractOnFirstPage = queryIndex === 0;
+
+          const crawl = await crawlPages({
+            fetchPage: async (pageNo) => {
+              const { items: domItems, meta } = await fetchSourcePage(page, source, query, pageNo);
+              let combined = tagOrigin(domItems, 'dom');
+
+              // Universal JSON-LD fallback against the page fetchSourcePage loaded.
+              if (!source.skipJsonLd) {
+                const ld = await scrapeJsonLd(page, source.name, query.location || 'South Africa', source.origin);
+                if (ld.length) {
+                  addLog(`[${source.name}] +${ld.length} listing(s) via JSON-LD structured data`, 'agent1');
+                  combined = combined.concat(tagOrigin(ld, 'jsonld'));
+                }
+              }
+              if (combined.length > MAX_CARDS_PER_PAGE) combined = combined.slice(0, MAX_CARDS_PER_PAGE);
+
+              // Silent zero on the first page of the first query: give the
+              // extractor one chance (shared budget) and use its cards instead.
+              if (extractOnFirstPage && pageNo === 1 && combined.length === 0
+                  && !meta.blocked && !meta.error && allowExtract && extractLeft > 0) {
+                extractLeft -= 1;
+                const extracted = await extractJobsFromPage(profile, page, source, query);
+                if (extracted.items.length) {
+                  addLog(`[${source.name}] AI extractor recovered ${extracted.items.length} card(s)`, 'agent1');
+                  combined = tagOrigin(extracted.items, 'extract');
+                  extractSupplied = true;
+                }
+              }
+
+              return { items: combined, meta };
+            },
+            maxPages,
+            shouldStop: () => Boolean(getHunterState().stopRequested),
+            delayMs: delays.betweenQueriesMs
+          });
+          queryIndex += 1;
+
+          pagesTotal += crawl.pages.length;
+          stopReasons.push(crawl.stopReason);
+          for (const pageEntry of crawl.pages) {
+            const meta = pageEntry.meta;
+            if (!meta) continue;
+            if (meta.httpStatus != null) lastHttpStatus = meta.httpStatus;
+            if (meta.blocked) {
+              blocked = true;
+              blockKind = meta.blockKind || blockKind;
+            }
+            if (meta.error) lastError = meta.error;
+          }
+
+          // Raw cards for the health record: post JSON-LD/cap, de-duplicated
+          // across pages (crawlPages) and across this source's queries.
+          for (const item of crawl.items) {
+            const key = defaultKeyOf(item);
+            if (healthSeen.has(key)) continue;
+            healthSeen.add(key);
+            healthItems.push(item);
+            const origin = item && item.__origin;
+            if (origin === 'extract') origins.extract += 1;
+            else if (origin === 'jsonld') origins.jsonld += 1;
+            else origins.dom += 1;
+          }
+          totalFound += crawl.items.length;
+
+          let belowThreshold = 0;
+          let notSA = 0;
+          const belowSamples = [];
+          const candidates = [];
+          for (const job of crawl.items) {
+            if (!job.title || job.title.length < 4) continue;
+
+            // Both 'strict' and 'soft' use today's lenient check: reject only
+            // when a foreign place is EXPLICITLY named. 'none' skips it.
+            if (source.saCheck && source.saCheck !== 'none' && !isSouthAfricanLocation(job.location, false)) {
+              notSA++;
+              continue;
+            }
+
+            const matchScore = calculateMatchScore(job.title, job.description, profile.keywords);
+            if (matchScore < SCORE_THRESHOLD) {
+              belowThreshold++;
+              if (belowSamples.length < 3) belowSamples.push(`"${job.title}" (${matchScore})`);
+              continue;
+            }
+
+            candidates.push({
+              id: uuidv4(),
+              title: job.title,
+              company: job.company,
+              location: job.location,
+              description: job.description || `${job.title} at ${job.company} - ${job.location}`,
+              applyUrl: job.applyUrl,
+              datePosted: parseDate(job.datePosted),
+              matchScore,
+              status: 'found',
+              source: job.source,
+              tailoredCvText: '',
+              tailoredCoverLetterText: '',
+              dateAdded: new Date().toISOString().split('T')[0]
+            });
+          }
+
+          // Validate this source's candidate links before saving (drops only
+          // confirmed-dead links; search/category links kept as linkless leads).
+          const { kept, dropped } = await validateJobs(candidates, { checkLiveness: linkCheck, requestContext: probeRequest, label: source.name });
+          await finalizeAndSave(kept, dropped.length, source.name);
+          if (notSA > 0) addLog(`[${source.name}] Rejected ${notSA} non-SA location job(s)`, 'agent1');
+          if (belowThreshold > 0) {
+            addLog(`[${source.name}] ${belowThreshold} card(s) below score ${SCORE_THRESHOLD}. Samples: ${belowSamples.join(', ')}`, 'agent1');
+          }
+
+          await sleep(delays.betweenQueriesMs);
+        }
+      } catch (err) {
+        threw = err;
+        addLog(`[${source.name}] Error: ${err.message}`, 'error');
+      } finally {
+        if (page) { try { await page.close(); } catch {} }
+      }
+
+      // One health record per source per run, aggregated over its queries.
+      let stopReason;
+      if (threw) stopReason = 'error';
+      else if (stopReasons.length) {
+        const unique = [...new Set(stopReasons)];
+        stopReason = unique.length === 1 ? unique[0] : 'mixed';
+      } else {
+        stopReason = getHunterState().stopRequested ? 'stopped' : 'exhausted';
+      }
+
+      // Stop pressed before the first page: the source was never tested, so
+      // record no run (three such stops must not open the circuit) and skip
+      // the between-sources sleep and the health write.
+      if (!threw && pagesTotal === 0 && stopReason === 'stopped') {
+        perSourceStats[source.name] = {
+          pages: 0,
+          raw: 0,
+          saved: perSource[source.name] || 0,
+          stopReason: 'stopped',
+          via: 'none',
+          status: statusBefore
+        };
+        continue;
+      }
+
+      const via = extractSupplied
+        ? 'ai-extract'
+        : origins.jsonld > 0
+          ? (origins.dom > 0 ? 'mixed' : 'jsonld')
+          : 'dom';
+      const runError = threw
+        ? (threw.message || String(threw))
+        : (stopReason === 'error' ? lastError : null);
+      const run = summariseRun({
+        kind: 'hunt',
+        items: healthItems,
+        pages: pagesTotal,
+        httpStatus: lastHttpStatus,
+        blocked,
+        blockKind,
+        error: runError,
+        ms: Date.now() - startedAt,
+        via,
+        stopReason,
+        expectsUrl: !source.linkless
+      });
+      let updated;
+      try {
+        updated = recordRun(source.id, run);
+      } catch (err) {
+        // A failed health write must not abort the remaining sources.
+        addLog(`[${source.name}] Health write failed: ${err.message}`, 'system');
+        updated = healthEntry;
+      }
+      perSourceStats[source.name] = {
+        pages: pagesTotal,
+        raw: healthItems.length,
+        saved: perSource[source.name] || 0,
+        stopReason,
+        via,
+        status: computeStatus(updated).status
+      };
+
+      await sleep(delays.betweenSourcesMs);
     }
 
     const breakdown = Object.entries(perSource)
@@ -1202,13 +771,20 @@ export async function runJobHunterAgent() {
     console.error(error);
   } finally {
     if (probeRequest) { try { await probeRequest.dispose(); } catch {} }
-    if (context) {
+    if (context && ownsContext) {
       try { await context.close(); } catch {}
       addLog('Browser context closed.', 'agent1');
     }
   }
 
-  return { totalFound, totalSaved, perSource, linkStats, stopped: Boolean(getHunterState().stopRequested) };
+  return {
+    totalFound,
+    totalSaved,
+    perSource,
+    linkStats,
+    perSourceStats,
+    stopped: Boolean(getHunterState().stopRequested)
+  };
 }
 
 /**

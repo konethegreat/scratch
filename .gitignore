@@ -37,6 +37,7 @@ sa-job-agent-suite/db.backup.json
 sa-job-agent-suite/browser-profile/
 sa-job-agent-suite/generated-docs/
 sa-job-agent-suite/supporting-docs/
+sa-job-agent-suite/evals/results/
 
 # editor
 .vscode/

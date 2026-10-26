@@ -177,6 +177,7 @@ The local companion must receive the tailored package and job from the user's we
 
 - **Loopback binding (§7 P0).** The API server bound to `0.0.0.0` (every interface) despite SECURITY.md claiming localhost — anyone on the same Wi-Fi could reach the unauthenticated API. Now binds `127.0.0.1` (override via `HOST` env if ever needed).
 - **Untrusted research brief (§5 P0).** The T4 company-research brief (assembled from arbitrary employer pages) is now wrapped in `[BEGIN/END UNTRUSTED RESEARCH]` markers in the tailoring prompt, matching how job descriptions are handled.
+- **Local API guard (§7).** `server/src/localGuard.js` refuses a non-localhost `Host` (DNS rebinding) or `Origin` and requires an `X-SAJAS-Client: 1` header on every non-GET request, so a web page can no longer fire state-changing requests at `127.0.0.1:5000` or reach it through a rebinding hostname; it does NOT authenticate local processes (any local process sending the header can call the API), and a page served from ANY localhost port can still drive the API.
 
 ---
 

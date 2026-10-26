@@ -33,3 +33,27 @@ test('the entry points the installer relies on exist', () => {
     assert.ok(fs.existsSync(fileURLToPath(new URL(rel, import.meta.url))), `${rel} is missing`);
   }
 });
+
+const corePkg = readJson('../../packages/core/package.json');
+
+test('core is a workspace package that root and server both depend on', () => {
+  assert.ok(appPkg.workspaces.includes('packages/*'), 'root workspaces must include packages/*');
+  assert.equal(appPkg.dependencies['@sajas/core'], '*');
+  assert.equal(serverPkg.dependencies['@sajas/core'], '*');
+});
+
+test('every core runtime dependency is also declared at the app root with the same range', () => {
+  for (const [name, range] of Object.entries(corePkg.dependencies || {})) {
+    assert.equal(
+      appPkg.dependencies?.[name], range,
+      `${name}@${range} is a core dependency: declare it in the root package.json "dependencies" too`
+    );
+  }
+});
+
+test('the installer ships core source', () => {
+  const build = appPkg.build;
+  assert.ok(build.files.includes('packages/core/src/**/*'), 'build.files must include packages/core/src/**/*');
+  assert.ok(build.files.includes('packages/core/package.json'), 'build.files must include packages/core/package.json');
+  assert.ok(build.asarUnpack.includes('packages/**/*'), 'build.asarUnpack must include packages/**/*');
+});

@@ -1,0 +1,76 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our CareerJunction extractor depends
+  on (.job-result / .listing / article cards, h2/h3 title links, company, location,
+  snippet, date). It proves our extraction logic against a page of that shape, NOT that
+  the live CareerJunction site still looks like this. Companies, roles and URLs are
+  invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in Johannesburg | Synthetic Board</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/jobs/">Jobs</a>
+    <a href="/about">About us</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo/cv-review">Get a free CV review today</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="results-list">
+    <!-- 1: article card, relative href, every field present -->
+    <article class="job-result">
+      <h2><a href="/jobs/senior-software-engineer/12345">Senior Software Engineer</a></h2>
+      <div class="company-name">Acme Software (Pty) Ltd</div>
+      <div class="job-location">Johannesburg, Gauteng</div>
+      <p>Build and maintain services for a growing fintech platform. Synthetic description.</p>
+      <time>2 days ago</time>
+    </article>
+
+    <!-- 2: .listing card, absolute href, no company -> Confidential -->
+    <div class="listing">
+      <h3 class="title"><a href="https://www.careerjunction.co.za/jobs/data-engineer/12346">Data Engineer</a></h3>
+      <div class="area-label">Rosebank</div>
+      <div class="snippet">Pipelines and warehousing.</div>
+      <span class="posted-date">Posted today</span>
+    </div>
+
+    <!-- 3: position card, recruiter company, location and description present -->
+    <div class="position-card">
+      <h2><a href="/jobs/qa-analyst/12347">QA Analyst</a></h2>
+      <span class="recruiter-name">Initech Recruitment</span>
+      <span class="location">Cape Town</span>
+      <p>Manual and automated testing for web products.</p>
+    </div>
+
+    <!-- 4: search-result card, no location -> "<search location>, South Africa", no snippet -->
+    <div class="search-result-item">
+      <a class="job-title" href="/jobs/devops-engineer/12348">DevOps Engineer</a>
+      <span class="company">Globex Cloud</span>
+      <span class="date">1 week ago</span>
+    </div>
+
+    <!-- Noise: matches a card selector but the title is too short -->
+    <div class="job-result">
+      <h2><a href="/promo/advertise">Ad</a></h2>
+    </div>
+
+    <!-- Noise: matches a card selector but has no title link at all -->
+    <div class="job-result">
+      <p>Sponsored listing. Advertise your vacancy here.</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

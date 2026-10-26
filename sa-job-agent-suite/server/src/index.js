@@ -4,10 +4,14 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import { LEGACY_KEY_FIELDS, LEGACY_PROFILE_FIELDS } from './db/migrations.js';
+import { clampJobLimit, decodeJobCursor } from './jobs/paging.js';
 import {
   getProfile,
   saveProfile,
   clearKey,
+  purgeLegacyKeys,
+  InvalidKeyError,
   getJobs,
   addJob,
   updateJob,
@@ -57,6 +61,11 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 import { runJobHunterAgent, setupBrowserSession, checkLoginStatuses } from './agents/agent1-hunter.js';
+import { tryAcquireBrowser, browserOwner } from './hunter/browserLock.js';
+import { SOURCES, getSource } from './hunter/registry.js';
+import { computeStatus, baselineRaw, emptyEntry } from './hunter/health.js';
+import { getAllHealth, getHealthEntry, setEnabled, resetCircuit } from './hunter/healthStore.js';
+import { canaryStartRefusal, runCanarySession } from './hunter/canary.js';
 import { revalidateJobLinks } from './agents/linkValidator.js';
 import { runDocumentTailorAgent } from './agents/agent2-tailor.js';
 import { runApplyAssistantAgent, closeDemoBrowsers } from './agents/agent3-applier.js';
@@ -65,6 +74,9 @@ import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
 import { demoOrigin, installDemo } from './demo.js';
+import { localGuard } from './localGuard.js';
+import { createSingleFlight } from './singleFlight.js';
+import { MODELS } from '@sajas/core';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -86,6 +98,12 @@ const corsOptions = {
   }
 };
 app.use(cors(corsOptions));
+// Refuse foreign Host/Origin (DNS rebinding, cross-site forms) and require the
+// X-SAJAS-Client header on non-GET routes. Runs after cors (which answers the
+// preflight) and before the body parser and every route.
+// (An OPTIONS preflight without an Origin is answered by cors before this Host
+// check; it carries no data and changes nothing.)
+app.use(localGuard({ port: PORT }));
 // Raised from 10mb so a base64-encoded supporting-document PDF (ID, matric,
 // degree, academic record) fits comfortably in a single upload request.
 app.use(express.json({ limit: '30mb' }));
@@ -93,18 +111,22 @@ installDemo(app);
 
 // -------------------- Profile Routes --------------------
 
+// The only shape a profile ever leaves the server in: no key material (just a
+// hasAnthropicKey flag) and none of the retired multi-provider fields.
+function publicProfile(profile) {
+  const { anthropicApiKey, ...rest } = profile;
+  for (const f of [...LEGACY_KEY_FIELDS, ...LEGACY_PROFILE_FIELDS]) delete rest[f];
+  return { ...rest, hasAnthropicKey: Boolean(anthropicApiKey) };
+}
+
 app.get('/api/profile', (req, res) => {
   try {
     const profile = getProfile();
-    const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...rest } = profile;
     res.json({
-      ...rest,
+      ...publicProfile(profile),
       // Which preset the CURRENT values actually match ('custom' if hand-tuned)
       // — the UI highlights this, not the stored performanceMode.
-      performanceModeActual: detectActivePreset(profile),
-      hasGeminiKey:    Boolean(geminiApiKey),
-      hasAnthropicKey: Boolean(anthropicApiKey),
-      hasOpenRouterKey: Boolean(openRouterApiKey)
+      performanceModeActual: detectActivePreset(profile)
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -117,11 +139,8 @@ app.post('/api/profile', (req, res) => {
     const currentProfile = getProfile();
 
     const updated = saveProfile({
-      aiProvider:      incoming.aiProvider      ?? currentProfile.aiProvider,
       selectedModel:   incoming.selectedModel   ?? currentProfile.selectedModel,
-      geminiApiKey:    incoming.geminiApiKey,
       anthropicApiKey: incoming.anthropicApiKey,
-      openRouterApiKey: incoming.openRouterApiKey,
       fullName:        incoming.fullName        ?? currentProfile.fullName,
       email:           incoming.email           ?? currentProfile.email,
       phone:           incoming.phone           ?? currentProfile.phone,
@@ -156,17 +175,11 @@ app.post('/api/profile', (req, res) => {
 
     addLog('Profile settings updated.', 'system');
 
-    const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...rest } = updated;
-    res.json({
-      success: true,
-      profile: {
-        ...rest,
-        hasGeminiKey:    Boolean(geminiApiKey),
-        hasAnthropicKey: Boolean(anthropicApiKey),
-        hasOpenRouterKey: Boolean(openRouterApiKey)
-      }
-    });
+    res.json({ success: true, profile: publicProfile(updated) });
   } catch (error) {
+    // A malformed / Admin key is the caller's mistake, not a server fault. The
+    // message is user-facing and never contains the key itself.
+    if (error instanceof InvalidKeyError) return res.status(400).json({ error: error.message });
     res.status(500).json({ error: error.message });
   }
 });
@@ -182,16 +195,9 @@ app.post('/api/profile/preset', (req, res) => {
     }
     const updated = applyPerformancePreset(mode);
     addLog(`Performance mode applied: ${PERFORMANCE_PRESETS[mode].label}.`, 'system');
-    const { geminiApiKey, anthropicApiKey, openRouterApiKey, ...rest } = updated;
     res.json({
       success: true,
-      profile: {
-        ...rest,
-        performanceModeActual: detectActivePreset(updated),
-        hasGeminiKey: Boolean(geminiApiKey),
-        hasAnthropicKey: Boolean(anthropicApiKey),
-        hasOpenRouterKey: Boolean(openRouterApiKey)
-      }
+      profile: { ...publicProfile(updated), performanceModeActual: detectActivePreset(updated) }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -243,13 +249,20 @@ app.post('/api/backup/restore', (req, res) => {
 
 app.delete('/api/profile/key/:provider', (req, res) => {
   try {
-    const ok = clearKey(req.params.provider);
-    if (!ok) return res.status(400).json({ error: 'Unknown provider' });
-    addLog(`${req.params.provider} API key cleared.`, 'system');
+    // Anthropic is the only provider; anything else has no key to clear.
+    if (!clearKey(req.params.provider)) return res.status(404).json({ error: 'Unknown provider' });
+    addLog('Anthropic API key cleared.', 'system');
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// The model registry, for the Settings model pickers.
+app.get('/api/models', (req, res) => {
+  res.json(Object.values(MODELS).map(({ id, label, tier, inputPerMTok, outputPerMTok, optIn }) => ({
+    id, label, tier, inputPerMTok, outputPerMTok, optIn: Boolean(optIn)
+  })));
 });
 
 // -------------------- Application Answers (bank + pending) --------------------
@@ -472,11 +485,48 @@ app.delete('/api/memory', (req, res) => {
 
 // -------------------- Jobs Routes --------------------
 
+// Without `limit` this stays the original full score-desc array. With `limit`
+// it returns { items, nextCursor, total }: filters run before paging, and the
+// cursor is only read in that mode. GET never writes anything.
 app.get('/api/jobs', (req, res) => {
   try {
     const jobs = getJobs();
-    jobs.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
-    res.json(jobs);
+    if (req.query.limit === undefined) {
+      jobs.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+      return res.json(jobs);
+    }
+
+    const limit = clampJobLimit(req.query.limit);
+    const status = typeof req.query.status === 'string' ? req.query.status : '';
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+
+    const filtered = jobs.filter((job) => {
+      if (status && status !== 'all' && job.status !== status) return false;
+      if (query) {
+        const title = String(job.title || '').toLowerCase();
+        const company = String(job.company || '').toLowerCase();
+        if (!title.includes(query) && !company.includes(query)) return false;
+      }
+      return true;
+    });
+
+    const sortByDate = req.query.sort === 'date';
+    const ordered = filtered
+      .map((job, index) => ({ job, index }))
+      .sort((a, b) => {
+        const primary = sortByDate
+          ? (Date.parse(b.job.dateAdded || '') || 0) - (Date.parse(a.job.dateAdded || '') || 0)
+          : (b.job.matchScore || 0) - (a.job.matchScore || 0);
+        return primary || a.index - b.index; // stable: ties keep the original array order
+      })
+      .map((entry) => entry.job);
+
+    const total = ordered.length;
+    const offset = req.query.cursor === undefined ? 0 : decodeJobCursor(req.query.cursor);
+    const items = ordered.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const nextCursor = nextOffset < total ? Buffer.from(String(nextOffset)).toString('base64') : null;
+    res.json({ items, nextCursor, total });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -598,18 +648,35 @@ app.get('/api/status', (req, res) => {
 // -------------------- Agent Trigger Endpoints --------------------
 
 app.post('/api/jobs/hunter', (req, res) => {
+  // One owner of the persistent browser profile. The lock is taken before the
+  // response so a second hunt/apply/login check is refused immediately.
+  const release = tryAcquireBrowser('hunt');
+  if (!release) {
+    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+  }
+
   const state = getHunterState();
   if (state.isRunning) {
+    release();
     return res.status(409).json({
       error: 'Job hunter is already running. Please wait for the current scrape to finish.'
     });
   }
 
-  res.json({ success: true, message: 'Agent 1: Job Hunter started in background.' });
+  try {
+    res.json({ success: true, message: 'Agent 1: Job Hunter started in background.' });
 
-  // stopRequested is reset on every fresh start so a prior cancel doesn't leak in.
-  setHunterState({ isRunning: true, startedAt: new Date().toISOString(), finishedAt: null, stopRequested: false });
-  runJobHunterAgent()
+    // stopRequested is reset on every fresh start so a prior cancel doesn't leak in.
+    setHunterState({ isRunning: true, startedAt: new Date().toISOString(), finishedAt: null, stopRequested: false });
+  } catch (err) {
+    release();
+    throw err;
+  }
+
+  // Promise.resolve().then(...) so a synchronous throw inside the agent still
+  // reaches .finally and releases the browser lock.
+  Promise.resolve()
+    .then(() => runJobHunterAgent())
     .then((result) => {
       setHunterState({ isRunning: false, finishedAt: new Date().toISOString(), lastResult: result, stopRequested: false });
     })
@@ -617,7 +684,8 @@ app.post('/api/jobs/hunter', (req, res) => {
       addLog(`Background Job Hunter failed: ${err.message}`, 'error');
       console.error('Job Hunter error:', err);
       setHunterState({ isRunning: false, finishedAt: new Date().toISOString(), stopRequested: false });
-    });
+    })
+    .finally(() => release());
 });
 
 // Cooperative cancellation: sets a flag the running hunter checks between sources.
@@ -693,14 +761,25 @@ app.post('/api/jobs/:id/apply', (req, res) => {
     });
   }
 
-  setApplyState({ isRunning: true, jobId, startedAt: new Date().toISOString() });
-  res.json({ success: true, message: 'Agent 3: Apply Copilot launched on host machine.' });
+  const release = tryAcquireBrowser('apply');
+  if (!release) {
+    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+  }
+
+  try {
+    setApplyState({ isRunning: true, jobId, startedAt: new Date().toISOString() });
+    res.json({ success: true, message: 'Agent 3: Apply Copilot launched on host machine.' });
+  } catch (err) {
+    release();
+    throw err;
+  }
 
   runApplyAssistantAgent(jobId).catch((err) => {
     addLog(`Apply Copilot failed: ${err.message}`, 'error');
     console.error('Apply Copilot error:', err);
   }).finally(() => {
     setApplyState({ isRunning: false, jobId: null, startedAt: null });
+    release();
   });
 });
 
@@ -742,12 +821,23 @@ app.post('/api/browser/setup', (req, res) => {
   });
 });
 
-app.get('/api/browser/login-status', async (req, res) => {
+// A POST (not a GET) because it launches a headless Chrome on the real browser
+// profile: a GET could be fired from any web page (img tag, no-cors fetch). The
+// single-flight guard keeps a second request from starting a second Chrome.
+const loginStatusFlight = createSingleFlight();
+app.post('/api/browser/login-status', async (req, res) => {
+  const release = tryAcquireBrowser('login-check');
+  if (!release) {
+    return res.status(409).json({ success: false, error: `A browser job is already running (${browserOwner()}).` });
+  }
   try {
-    const statuses = await checkLoginStatuses();
-    res.json({ success: true, statuses });
+    const result = await loginStatusFlight(() => checkLoginStatuses());
+    if (result.busy) return res.status(409).json({ success: false, error: 'A login check is already running.' });
+    res.json({ success: true, statuses: result.value });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  } finally {
+    release();
   }
 });
 
@@ -813,6 +903,153 @@ app.post('/api/routines/:id/run', (req, res) => {
   });
 });
 
+// -------------------- Source health (read-only board + canaries) --------------------
+// The board is built from the persisted health entries only: GET and PATCH never
+// launch a browser, and browserBusy/testing are reported so the UI can disable
+// its buttons while another job owns the profile.
+
+let canaryRunning = false;
+
+const fraction = (count, raw) => (raw > 0 ? Math.round((count / raw) * 100) / 100 : 0);
+
+// One BoardRow per source (ruling T8-d): status/reason from computeStatus, the
+// newest HUNT run's yield fields, the baseline median, and the last canary.
+function boardRow(source, entry) {
+  const e = entry || emptyEntry();
+  const runs = Array.isArray(e.runs) ? e.runs : [];
+  const { status, reason, circuitOpen } = computeStatus(e);
+  const newestRun = runs.length ? runs[runs.length - 1] : null;
+  let hunt = null;
+  for (let i = runs.length - 1; i >= 0; i--) {
+    if (runs[i] && runs[i].kind === 'hunt') { hunt = runs[i]; break; }
+  }
+  // Ruling T8-h: "last success" is the newest successful HUNT run only, so a
+  // passing canary can never make a source look like it recently yielded jobs.
+  let lastSuccess = null;
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i];
+    if (run && run.kind === 'hunt' && run.raw > 0 && !run.error && !run.blocked) { lastSuccess = run; break; }
+  }
+  const raw = hunt && Number.isFinite(hunt.raw) ? hunt.raw : 0;
+  const canary = e.canary && typeof e.canary === 'object'
+    ? {
+      at: e.canary.at || null,
+      pass: e.canary.pass === true,
+      reasons: Array.isArray(e.canary.reasons) ? e.canary.reasons : []
+    }
+    : null;
+  return {
+    id: source.id,
+    name: source.name,
+    tier: source.tier,
+    scope: source.scope,
+    status,
+    reason,
+    circuitOpen,
+    enabled: e.enabled !== false,
+    lastRunAt: newestRun ? newestRun.at || null : null,
+    lastSuccessAt: lastSuccess ? lastSuccess.at || null : null,
+    lastRaw: hunt && Number.isFinite(hunt.raw) ? hunt.raw : null,
+    typicalRaw: baselineRaw(runs).median,
+    completeness: {
+      title: fraction(hunt?.withTitle || 0, raw),
+      url: fraction(hunt?.withUrl || 0, raw),
+      company: fraction(hunt?.withCompany || 0, raw),
+      location: fraction(hunt?.withLocation || 0, raw)
+    },
+    pages: hunt && Number.isFinite(hunt.pages) ? hunt.pages : 0,
+    stopReason: hunt?.stopReason || '',
+    via: hunt?.via || '',
+    pagination: { param: source.pagination?.param ?? null, verified: !!source.pagination?.verified },
+    canary
+  };
+}
+
+app.get('/api/hunter/sources', (req, res) => {
+  try {
+    const health = getAllHealth();
+    res.json({
+      sources: SOURCES.map((source) => boardRow(source, health[source.id])),
+      browserBusy: browserOwner(),
+      testing: canaryRunning
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Body { ids?: string[] } — omit/empty to test every source. Validation happens
+// BEFORE the lock is taken or a 202 sent, so a bad request never starts a browser.
+// Ruling T8-h: when every requested source is disabled, answer without a launch.
+app.post('/api/hunter/sources/test', (req, res) => {
+  const requested = req.body?.ids;
+  let ids;
+  if (requested === undefined || requested === null) {
+    ids = SOURCES.map((source) => source.id);
+  } else if (!Array.isArray(requested)) {
+    return res.status(400).json({ error: 'ids must be an array of source ids.' });
+  } else if (!requested.length) {
+    ids = SOURCES.map((source) => source.id);
+  } else {
+    const bad = requested.findIndex((id) => typeof id !== 'string' || !getSource(id));
+    if (bad !== -1) return res.status(404).json({ error: `Unknown source: ${String(requested[bad])}.` });
+    ids = [...new Set(requested)];
+  }
+
+  const enabled = ids.filter((id) => {
+    try {
+      return getHealthEntry(id).enabled !== false;
+    } catch {
+      return true;
+    }
+  });
+  if (!enabled.length) {
+    return res.status(202).json({ started: false, ids: [], message: 'No enabled sources to test.' });
+  }
+
+  const refusal = canaryStartRefusal({ testing: canaryRunning, browserBusy: browserOwner() });
+  if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+
+  const release = tryAcquireBrowser('canary');
+  if (!release) {
+    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+  }
+
+  try {
+    canaryRunning = true;
+    res.status(202).json({ started: true, ids: enabled });
+  } catch (err) {
+    canaryRunning = false;
+    release();
+    throw err;
+  }
+
+  Promise.resolve()
+    .then(() => runCanarySession({ ids: enabled }))
+    .catch((err) => addLog(`Source test failed: ${err.message}`, 'error'))
+    .finally(() => {
+      canaryRunning = false;
+      release();
+    });
+});
+
+// Body { enabled?: boolean, resetCircuit?: boolean }. Read-only with respect to
+// the browser: it only writes the health entry and returns the fresh BoardRow.
+app.patch('/api/hunter/sources/:id', (req, res) => {
+  try {
+    const source = getSource(req.params.id);
+    if (!source) return res.status(404).json({ error: 'Unknown source.' });
+    const body = req.body || {};
+    let entry;
+    if (typeof body.enabled === 'boolean') entry = setEnabled(source.id, body.enabled);
+    if (body.resetCircuit === true) entry = resetCircuit(source.id);
+    if (!entry) entry = getHealthEntry(source.id);
+    res.json({ success: true, source: boardRow(source, entry) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // -------------------- Health Check --------------------
 
 app.get('/api/health', (req, res) => {
@@ -830,6 +1067,11 @@ app.get('/api/health', (req, res) => {
 // machine-local, matching the single-user desktop trust model in SECURITY.md.
 const HOST = process.env.HOST || '127.0.0.1';
 if (demoOrigin() && HOST !== '127.0.0.1') throw new Error('The demo API must bind to 127.0.0.1.');
+// Drop retired provider keys left in keys.json by an older install (before
+// listening, so nothing can read them in the meantime).
+if (!demoOrigin() && purgeLegacyKeys().purged) {
+  addLog('Removed legacy provider keys from the key store.', 'system');
+}
 const server = app.listen(PORT, HOST, () => {
   setHunterState({ isRunning: false, stopRequested: false });
   setApplyState({ isRunning: false, jobId: null, startedAt: null });

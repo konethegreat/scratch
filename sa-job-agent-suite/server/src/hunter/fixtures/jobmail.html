@@ -1,0 +1,63 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our JobMail extractor depends
+  on (.job-listing / .job-result / .listing-item / job-card classes and article[class],
+  h2/h3 title links, company, location, snippet). It proves our extraction logic
+  against a page of that shape, NOT that the live JobMail site still looks like
+  this. Companies, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in Johannesburg | Synthetic JobMail</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/search">Search jobs</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo">Create a job alert</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="jm-feed">
+    <!-- 1: .job-listing card, h2 title, relative href -->
+    <div class="job-listing">
+      <h2><a href="/jobs/senior-software-engineer/3001">Senior Software Engineer</a></h2>
+      <div class="company-name">Acme Software (Pty) Ltd</div>
+      <div class="job-location">Johannesburg, Gauteng</div>
+      <p>Build and maintain services for a growing fintech platform. Synthetic description.</p>
+    </div>
+
+    <!-- 2: article card, h3 title, absolute href, no company -> Confidential -->
+    <article class="jm-article">
+      <h3><a href="https://www.jobmail.co.za/jobs/data-engineer/3002">Data Engineer</a></h3>
+      <div class="job-location">Rosebank, Gauteng</div>
+      <span class="snippet">Pipelines and warehousing.</span>
+    </article>
+
+    <!-- 3: .job-card card, title through a[class*="title"], no location -->
+    <div class="job-card">
+      <a class="job-title-link" href="/jobs/qa-analyst/3003">QA Analyst</a>
+      <div class="employer-name">Globex Testing</div>
+      <p>Manual and automated testing for web products.</p>
+    </div>
+
+    <!-- 4: .listing-item card, title through [class*="job-title"] a -->
+    <div class="listing-item">
+      <span class="job-title"><a href="/jobs/devops-engineer/3004">DevOps Engineer</a></span>
+      <div class="company">Initech Cloud</div>
+      <div class="job-location">Midrand</div>
+      <p>CI/CD, containers and observability.</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!--
+  SYNTHETIC FIXTURE. The same visible content as jobmail.html under renamed classes and
+  tags, simulating a site redesign ("selector drift"): no article[class] and no classes
+  containing job-listing/job-result/listing-item/job-card/JobCard. It proves that our
+  extraction returns nothing (rather than garbage) when the selectors stop matching,
+  which is the case source-health monitoring must flag. NOT a copy of the live JobMail
+  site.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in Johannesburg | Synthetic JobMail</title>
+</head>
+<body>
+  <nav class="hdr-links">
+    <a href="/">Home</a>
+    <a href="/search">Search jobs</a>
+  </nav>
+
+  <div class="promo-strip">
+    <a href="/promo">Create a job alert</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="jm-feed">
+    <section class="jm-row">
+      <h4><a href="/jobs/senior-software-engineer/3001">Senior Software Engineer</a></h4>
+      <div class="jm-org">Acme Software (Pty) Ltd</div>
+      <div class="jm-where">Johannesburg, Gauteng</div>
+      <span class="jm-blurb">Build and maintain services for a growing fintech platform. Synthetic description.</span>
+    </section>
+
+    <section class="jm-row">
+      <h4><a href="https://www.jobmail.co.za/jobs/data-engineer/3002">Data Engineer</a></h4>
+      <div class="jm-where">Rosebank, Gauteng</div>
+      <span class="jm-blurb">Pipelines and warehousing.</span>
+    </section>
+
+    <section class="jm-row">
+      <h4><a href="/jobs/qa-analyst/3003">QA Analyst</a></h4>
+      <div class="jm-org">Globex Testing</div>
+      <span class="jm-blurb">Manual and automated testing for web products.</span>
+    </section>
+
+    <section class="jm-row">
+      <h4><a href="/jobs/devops-engineer/3004">DevOps Engineer</a></h4>
+      <div class="jm-org">Initech Cloud</div>
+      <div class="jm-where">Midrand</div>
+      <span class="jm-blurb">CI/CD, containers and observability.</span>
+    </section>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our Jobs.co.za extractor depends
+  on (.job / .job-result / .listing / job-card classes and article[class], h2/h3 title
+  links, company, location, description, date). It proves our extraction logic against
+  a page of that shape, NOT that the live Jobs.co.za site still looks like this.
+  Companies, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in Johannesburg | Synthetic Jobs.co.za</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/search.html">Search jobs</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo">Post a vacancy</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="jc-feed">
+    <!-- 1: .job card, h2 title, every field present -->
+    <div class="job">
+      <h2><a href="/jobs/senior-software-engineer/4001">Senior Software Engineer</a></h2>
+      <div class="company-name">Acme Software (Pty) Ltd</div>
+      <div class="job-location">Johannesburg, Gauteng</div>
+      <p>Build and maintain services for a growing fintech platform. Synthetic description.</p>
+      <time>2 days ago</time>
+    </div>
+
+    <!-- 2: .job-result card, h3 title, absolute href, no company -> Confidential -->
+    <div class="job-result">
+      <h3><a href="https://www.jobs.co.za/jobs/data-engineer/4002">Data Engineer</a></h3>
+      <div class="location">Rosebank, Gauteng</div>
+      <span class="snippet">Pipelines and warehousing.</span>
+      <span class="date">Posted today</span>
+    </div>
+
+    <!-- 3: .listing card, title through a.position -->
+    <div class="listing">
+      <a class="position" href="/jobs/qa-analyst/4003">QA Analyst</a>
+      <div class="company">Globex Testing</div>
+      <div class="location">Cape Town</div>
+      <p>Manual and automated testing for web products.</p>
+    </div>
+
+    <!-- 4: article card, title through .job-title a, no location -->
+    <article class="jc-article">
+      <div class="job-title"><a href="/jobs/devops-engineer/4004">DevOps Engineer</a></div>
+      <div class="employer-name">Initech Cloud</div>
+      <p>CI/CD, containers and observability.</p>
+    </article>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

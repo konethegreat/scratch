@@ -2,12 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import { chromium } from 'playwright';
 import { getProfile, updateJob, addLog, readDb, getAnswerBank, addPendingQuestion, normalizeQuestion, buildMemoryDigest, recordApplication, getSupportingDocuments, getSupportingDocPath, isRealPdfFile, SUPPORTING_DOC_TYPES, BROWSER_PROFILE_PATH, GENERATED_DOCS_PATH } from '../db/helper.js';
-import { callLlm, extractJson } from './llm.js';
-import { planPage, lookWithVision, clickButtonByText, providerSupportsVision } from './pageBrain.js';
+import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
+import { planPage, lookWithVision, clickButtonByText } from './pageBrain.js';
 import { findAdvanceControl, clickControl } from './controls.js';
 import { computerUseFillForm, computerUseSupported } from './computerUse.js';
 import { reflectOnApplication } from './memoryReflect.js';
 import { demoOrigin } from '../demo.js';
+import { withTask } from '../telemetry.js';
+
+// Max characters of the base CV excerpted into the smart-fill LLM prompt.
+const CV_EXCERPT_CHARS = 12000;
 
 const demoContexts = new Set();
 export async function closeDemoBrowsers() {
@@ -369,8 +373,7 @@ async function attachSupportingDocs(page) {
  *   3) Capture — any REQUIRED field still empty is queued in pendingQuestions so
  *      the user can answer it once and have it remembered forever.
  *
- * Provider-agnostic: routes through callLlm(), so it honours whichever key the
- * user selected (Gemini / Anthropic / OpenRouter) — Agent 3 is not locked to one.
+ * Routes through callLlm(), which picks the model for the 'smart-fill' task.
  */
 async function smartFillForm(page, profile, job, transcript = null) {
   // 1) Tag fields and extract a snapshot.
@@ -541,7 +544,7 @@ CANDIDATE DATA:
 ${JSON.stringify(candidate)}
 
 CANDIDATE BASE CV (truthful source material):
-${(profile.baseCv || '').slice(0, 4000)}
+${(profile.baseCv || '').slice(0, CV_EXCERPT_CHARS)}
 
 CANDIDATE STRUCTURED ANSWERS (declared in Settings — use verbatim where they match):
 ${JSON.stringify(appProfile)}
@@ -562,7 +565,7 @@ ${JSON.stringify(remaining)}
 
 Return ONLY a JSON object of this form: {"fills":[{"fid":"f0","value":"Jane Doe"},{"fid":"f3","value":"30 days"}]}. Include only fields you can fill confidently; omit the rest.`;
 
-    addLog(`Smart-fill: asking ${profile.aiProvider || 'gemini'} to map ${remaining.length} remaining field(s)…`, 'agent3');
+    addLog(`Smart-fill: asking Claude to map ${remaining.length} remaining field(s)…`, 'agent3');
     let mapping;
     try {
       const raw = await callLlm(profile, prompt, { maxTokens: 2000, schema: SMARTFILL_SCHEMA, bucket: 'smart-fill' });
@@ -899,7 +902,11 @@ async function injectHud(page, hudData) {
 
 // Test options let the regression exercise the actual copilot on local fixtures.
 // The HTTP route supplies none: ordinary sessions remain visible and supervised.
-export async function runApplyAssistantAgent(jobId, { headless = false, pollIntervalMs = 3000, onPageReady } = {}) {
+export function runApplyAssistantAgent(...args) {
+  return withTask('apply', () => runApplyAssistantAgentInner(...args));
+}
+
+async function runApplyAssistantAgentInner(jobId, { headless = false, pollIntervalMs = 3000, onPageReady } = {}) {
   const profile = getProfile();
   const fixtureOrigin = demoOrigin();
 
@@ -999,7 +1006,7 @@ export async function runApplyAssistantAgent(jobId, { headless = false, pollInte
     const noFormNoted = new Set();       // URLs we have already flagged as "no form here"
     const plannedUrls = new Set();        // URLs the planner has already analysed
     let plannerCalls = 0;                 // per-session planner call counter
-    const PLANNER_CAP = 25;               // max planner LLM calls per apply session
+    const PLANNER_CAP = 60;               // max planner LLM calls per apply session
 
     // Advance once per page + label, under the click policy in submitGuard.js.
     // Inside the application (a form page, or any page after a form was filled)
@@ -1241,7 +1248,7 @@ export async function runApplyAssistantAgent(jobId, { headless = false, pollInte
             plannedUrls.add(url);
             plannerCalls++;
             let plan = await planPage(p, profile, job);
-            if ((!plan || plan.confidence === 'low') && profile.useVision && providerSupportsVision(profile)) {
+            if ((!plan || plan.confidence === 'low') && profile.useVision && hasAnthropicKey(profile)) {
               const vplan = await lookWithVision(p, profile, job);
               if (vplan) plan = vplan;
             }

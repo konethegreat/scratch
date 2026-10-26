@@ -1,0 +1,41 @@
+[
+  {
+    "name": "application form",
+    "job": { "title": "Software Developer", "company": "Protea Logistics Demo" },
+    "snapshot": {
+      "title": "Apply for Software Developer - Protea Logistics Demo",
+      "url": "https://careers.example.invalid/apply/12345",
+      "headings": ["Your details", "Experience"],
+      "fieldCount": 6,
+      "fields": ["text: First name", "text: Last name", "email: Email address", "tel: Mobile number", "file: Upload your CV", "textarea: Why do you want to work here?"],
+      "buttons": ["Back", "Save draft", "Continue"]
+    },
+    "expected": { "pageType": "form", "action": "fill" }
+  },
+  {
+    "name": "job listing page",
+    "job": { "title": "Software Developer", "company": "Protea Logistics Demo" },
+    "snapshot": {
+      "title": "Software Developer | Protea Logistics Demo",
+      "url": "https://careers.example.invalid/jobs/12345",
+      "headings": ["Software Developer", "About the role", "Requirements"],
+      "fieldCount": 0,
+      "fields": [],
+      "buttons": ["Home", "All jobs", "Share", "Apply now", "Save job"]
+    },
+    "expected": { "pageType": "listing", "action": "click" }
+  },
+  {
+    "name": "confirmation page",
+    "job": { "title": "Software Developer", "company": "Protea Logistics Demo" },
+    "snapshot": {
+      "title": "Application received",
+      "url": "https://careers.example.invalid/apply/12345/thanks",
+      "headings": ["Thank you for applying", "What happens next"],
+      "fieldCount": 0,
+      "fields": [],
+      "buttons": ["Back to jobs", "Create job alert"]
+    },
+    "expected": { "pageType": "confirmation", "action": "done" }
+  }
+]

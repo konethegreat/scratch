@@ -38,6 +38,7 @@ import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
+import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
@@ -231,14 +232,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
 
   const [profile, setProfile] = useState({
-    aiProvider: 'gemini',
     selectedModel: '',
-    geminiApiKey: '',
     anthropicApiKey: '',
-    openRouterApiKey: '',
-    hasGeminiKey: false,
     hasAnthropicKey: false,
-    hasOpenRouterKey: false,
     fullName: '',
     email: '',
     phone: '',
@@ -253,7 +249,7 @@ export default function App() {
     useVision: false,
     useComputerUse: false,
     computerUseModel: '',
-    computerUseMaxSteps: 12,
+    computerUseMaxSteps: 20,
     tailorConcurrency: 3,
     useResearchFanout: false,
     useStructuredOutputs: true,
@@ -289,16 +285,20 @@ export default function App() {
   const [loginStatuses, setLoginStatuses] = useState(null); // null = never checked
   const [isCheckingLogins, setIsCheckingLogins] = useState(false);
 
-  // Search/filter on the job list
+  // Search/filter on the job list. The table is windowed client-side (50 rows
+  // at a time) because GET /api/jobs still sends the full array here.
   const [jobQuery, setJobQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [visibleJobCount, setVisibleJobCount] = useState(50);
 
   // Modal state
   const [confirm, setConfirm] = useState({ open: false });
   const [addJobOpen, setAddJobOpen] = useState(false);
 
   // API-key reveal state — when toggled, the user is "replacing" the saved key
-  const [revealKey, setRevealKey] = useState({ gemini: false, anthropic: false, openrouter: false });
+  const [revealKey, setRevealKey] = useState(false);
+  // The model registry (GET /api/models) feeds the model dropdowns.
+  const [models, setModels] = useState([]);
 
   // Supporting documents (ID, matric, degree, academic record) + a counter the
   // Refresh button bumps to force the self-polling child tabs to refetch now.
@@ -322,9 +322,7 @@ export default function App() {
       setProfile((p) => ({
         ...p,
         ...data,
-        geminiApiKey: revealKey.gemini ? p.geminiApiKey : '',
-        anthropicApiKey: revealKey.anthropic ? p.anthropicApiKey : '',
-        openRouterApiKey: revealKey.openrouter ? p.openRouterApiKey : ''
+        anthropicApiKey: revealKey ? p.anthropicApiKey : ''
       }));
     } catch (err) {
       console.error('Error fetching profile:', err);
@@ -386,6 +384,10 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
+    fetch(`${API_BASE}/models`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => setModels(Array.isArray(list) ? list : []))
+      .catch(() => setModels([]));
     fetchProfile();
     fetchJobs();
     fetchLogs();
@@ -402,6 +404,14 @@ export default function App() {
     }, 3000);
     return () => clearInterval(interval);
   }, [fetchLogs, fetchJobs, fetchStatus]);
+
+  // The source board keeps its own 3 s testing poll; when a hunt finishes, bump
+  // refreshTick so the health rows reflect the run that just ended.
+  const hunterWasRunningRef = useRef(false);
+  useEffect(() => {
+    if (hunterWasRunningRef.current && !hunterRunning) setRefreshTick((t) => t + 1);
+    hunterWasRunningRef.current = hunterRunning;
+  }, [hunterRunning]);
 
   // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
@@ -431,21 +441,20 @@ export default function App() {
       // Blank it out only when a key is already saved and the user left it masked
       const payload = {
         ...profile,
-        geminiApiKey:     (!profile.hasGeminiKey    || revealKey.gemini)     ? profile.geminiApiKey     : '',
-        anthropicApiKey:  (!profile.hasAnthropicKey  || revealKey.anthropic)  ? profile.anthropicApiKey  : '',
-        openRouterApiKey: (!profile.hasOpenRouterKey || revealKey.openrouter) ? profile.openRouterApiKey : ''
+        anthropicApiKey: (!profile.hasAnthropicKey || revealKey) ? profile.anthropicApiKey : ''
       };
       const res = await fetch(`${API_BASE}/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (data.success) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
         toasts.success('Profile and search parameters updated.');
-        setRevealKey({ gemini: false, anthropic: false, openrouter: false });
+        setRevealKey(false);
         await fetchProfile();
       } else {
+        // A rejected key comes back as 400 { error }: show the server's own words.
         toasts.error(data.error || 'Could not save profile.');
       }
     } catch (err) {
@@ -679,7 +688,7 @@ export default function App() {
   const fetchLoginStatuses = async () => {
     setIsCheckingLogins(true);
     try {
-      const res = await fetch(`${API_BASE}/browser/login-status`);
+      const res = await fetch(`${API_BASE}/browser/login-status`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setLoginStatuses(data.statuses);
@@ -693,10 +702,17 @@ export default function App() {
     }
   };
 
-  const clearApiKey = async (provider) => {
+  const clearApiKey = async () => {
     try {
-      await fetch(`${API_BASE}/profile/key/${provider}`, { method: 'DELETE' });
-      toasts.info(`${provider} API key cleared.`);
+      const res = await fetch(`${API_BASE}/profile/key/anthropic`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toasts.error(data.error || 'Could not clear the key.');
+        return;
+      }
+      toasts.info('Anthropic API key cleared.');
+      setRevealKey(false);
+      setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
       fetchProfile();
     } catch (err) {
       toasts.error(err.message || 'Could not clear key.');
@@ -841,7 +857,7 @@ export default function App() {
 
   /* -------------------- Performance presets, budget & backup -------------------- */
   // One click flips every cost-relevant toggle server-side (Token Saver /
-  // Balanced / Maximum). Provider choice, keys, CV and answers are untouched.
+  // Balanced / Maximum). Your API key, CV and answers are untouched.
   const [applyingPreset, setApplyingPreset] = useState(null);
   const applyPreset = async (mode) => {
     setApplyingPreset(mode);
@@ -925,16 +941,9 @@ export default function App() {
   const setupChecks = [
     {
       key: 'tailorKey',
-      ok: Boolean(profile.hasGeminiKey || profile.hasAnthropicKey || profile.hasOpenRouterKey),
-      label: 'AI provider key (for CV tailoring)',
-      hint: 'Add a Gemini, Anthropic or OpenRouter key in Settings.'
-    },
-    {
-      key: 'aiSearchKey',
-      ok: !aiSearchOn || Boolean(profile.hasAnthropicKey),
-      label: 'Anthropic key (for AI job search)',
-      hint: 'AI search is on but needs an Anthropic key — add one, or turn AI search off in Settings.',
-      warn: true // not fatal: scrapers still run
+      ok: Boolean(profile.hasAnthropicKey),
+      label: 'Anthropic API key (for CV tailoring and AI job search)',
+      hint: 'Add your Anthropic API key in Settings.'
     },
     { key: 'cv',        ok: (profile.baseCv || '').trim().length >= 50, label: 'Base CV pasted',  hint: 'Paste your full CV in Settings so Agent 2 can tailor it.' },
     { key: 'keywords',  ok: keywordCount > 0,  label: 'Search keywords set',  hint: 'Add comma-separated job titles/keywords in Settings.' },
@@ -960,14 +969,14 @@ export default function App() {
 
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
-    hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then 12 SA scrapers — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
+    hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then the 12-source scraper registry (health-aware and paginated) — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message — you review and send.' },
     routines:  { title: 'Routines',            subtitle: 'Schedule unattended hunts that find — and optionally tailor — jobs while you sleep. They never apply for you.' },
     memory:    { title: 'Candidate Memory',    subtitle: 'Your evolving dossier — learned insights, employer notes and what wins. Read by all three agents.' },
     logs:      { title: 'Activity Console',    subtitle: 'Real-time, colour-coded logs from each running agent.' },
-    profile:   { title: 'Profile & Settings',  subtitle: 'AI provider, search criteria, personal info and base CV.' }
+    profile:   { title: 'Profile & Settings',  subtitle: 'Anthropic key, search criteria, personal info and base CV.' }
   };
 
   const showRunHunterButton = !SYNTHETIC_DEMO && ['dashboard', 'hunter'].includes(activeTab);
@@ -1184,10 +1193,11 @@ export default function App() {
         {/* ============================== HUNTER ============================== */}
         {activeTab === 'hunter' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
+            <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
             <div className="flex-between" style={{ marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ fontSize: 18 }}>Scraping pipeline</h3>
-                <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>Sources: LinkedIn · Indeed SA · PNet · CareerJunction · Google Jobs · Adzuna SA · Executive Placements · Job Placements · National Govt · JobMail · Jobs.co.za · Gumtree SA</p>
+                <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>Sources (12-source registry): LinkedIn · Indeed SA · PNet · CareerJunction · Google Jobs · Adzuna SA · Executive Placements · Job Placements · National Govt · JobMail · Jobs.co.za · Gumtree SA</p>
               </div>
               <div className="flex-gap">
                 {jobs.length > 0 && (
@@ -1255,11 +1265,11 @@ export default function App() {
                   <input
                     placeholder="Search jobs…"
                     value={jobQuery}
-                    onChange={(e) => setJobQuery(e.target.value)}
+                    onChange={(e) => { setJobQuery(e.target.value); setVisibleJobCount(50); }}
                     style={{ paddingLeft: 28, width: 220, fontSize: 12 }}
                   />
                 </div>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 150, fontSize: 12 }}>
+                <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setVisibleJobCount(50); }} style={{ width: 150, fontSize: 12 }}>
                   <option value="all">All statuses</option>
                   <option value="found">Discovered</option>
                   <option value="tailored">Tailored</option>
@@ -1281,7 +1291,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredJobs.map((job) => (
+                  {filteredJobs.slice(0, visibleJobCount).map((job) => (
                     <tr key={job.id}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{job.title}</div>
@@ -1321,6 +1331,18 @@ export default function App() {
                       </td>
                     </tr>
                   ))}
+                  {filteredJobs.length > visibleJobCount && (
+                    <tr>
+                      <td colSpan="6" style={{ padding: '14px 0', textAlign: 'center' }}>
+                        <button className="btn-secondary btn-sm" onClick={() => setVisibleJobCount((count) => count + 50)}>
+                          Show 50 more
+                        </button>
+                        <span className="tiny" style={{ marginLeft: 10 }}>
+                          showing {visibleJobCount} of {filteredJobs.length}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
                   {filteredJobs.length === 0 && (
                     <tr><td colSpan="6" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
                       {jobs.length === 0 ? 'No records harvested yet. Set parameters and start your crawler!' : 'No jobs match your current filter.'}
@@ -1610,7 +1632,7 @@ export default function App() {
 
               {/* Usage & budget */}
               <section>
-                <SectionHeader title="AI usage & daily budget" subtitle="Estimated spend across every AI feature (your provider invoice is the source of truth). Set a daily cap to hard-stop AI calls when it's reached — it resets at midnight." />
+                <SectionHeader title="AI usage & daily budget" subtitle="Estimated spend across every AI feature (your Anthropic invoice is the source of truth). Set a daily cap to hard-stop AI calls when it's reached — it resets at midnight." />
                 <UsagePanel
                   apiBase={API_BASE}
                   refreshSignal={refreshTick}
@@ -1620,67 +1642,37 @@ export default function App() {
                 />
               </section>
 
-              {/* AI provider */}
+              {/* Anthropic key + model */}
               <section>
-                <SectionHeader title="AI provider" subtitle="Pick the model that will write your tailored documents." />
+                <SectionHeader title="Anthropic API key" subtitle="SA-JAS runs on Claude. Your key stays on this computer." />
                 <div className="grid-2">
                   <div>
-                    <label>AI provider</label>
-                    <select value={profile.aiProvider} onChange={(e) => setProfile({ ...profile, aiProvider: e.target.value })}>
-                      <option value="gemini">Google Gemini</option>
-                      <option value="anthropic">Anthropic Claude</option>
-                      <option value="openrouter">OpenRouter (DeepSeek, Qwen, Meta)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Specific model (optional)</label>
-                    <input
-                      placeholder={
-                        profile.aiProvider === 'gemini' ? 'gemini-1.5-flash'
-                        : profile.aiProvider === 'anthropic' ? 'claude-3-5-sonnet-latest'
-                        : 'deepseek/deepseek-chat'
-                      }
+                    <label>Model</label>
+                    <select
                       value={profile.selectedModel || ''}
                       onChange={(e) => setProfile({ ...profile, selectedModel: e.target.value })}
-                    />
-                    <span className="hint">Leave blank to use the recommended default.</span>
+                    >
+                      <option value="">Automatic (recommended)</option>
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>
+                      ))}
+                    </select>
+                    <span className="hint">Automatic picks a model for each task. Prices are per million tokens (input / output).</span>
                   </div>
                 </div>
 
                 <div style={{ marginTop: 16 }}>
-                  {profile.aiProvider === 'gemini' && (
-                    <ApiKeyField
-                      label="Gemini API key" provider="gemini"
-                      hasKey={profile.hasGeminiKey} revealed={revealKey.gemini}
-                      value={profile.geminiApiKey}
-                      onChange={(v) => setProfile({ ...profile, geminiApiKey: v })}
-                      onReveal={() => setRevealKey((r) => ({ ...r, gemini: !r.gemini }))}
-                      onClear={() => clearApiKey('gemini')}
-                      docsUrl="https://aistudio.google.com/"
-                    />
-                  )}
-                  {profile.aiProvider === 'anthropic' && (
-                    <ApiKeyField
-                      label="Anthropic API key" provider="anthropic"
-                      hasKey={profile.hasAnthropicKey} revealed={revealKey.anthropic}
-                      value={profile.anthropicApiKey}
-                      onChange={(v) => setProfile({ ...profile, anthropicApiKey: v })}
-                      onReveal={() => setRevealKey((r) => ({ ...r, anthropic: !r.anthropic }))}
-                      onClear={() => clearApiKey('anthropic')}
-                      docsUrl="https://console.anthropic.com/"
-                    />
-                  )}
-                  {profile.aiProvider === 'openrouter' && (
-                    <ApiKeyField
-                      label="OpenRouter API key" provider="openrouter"
-                      hasKey={profile.hasOpenRouterKey} revealed={revealKey.openrouter}
-                      value={profile.openRouterApiKey}
-                      onChange={(v) => setProfile({ ...profile, openRouterApiKey: v })}
-                      onReveal={() => setRevealKey((r) => ({ ...r, openrouter: !r.openrouter }))}
-                      onClear={() => clearApiKey('openrouter')}
-                      docsUrl="https://openrouter.ai/"
-                    />
-                  )}
+                  <ApiKeyField
+                    label="Anthropic API key"
+                    hasKey={profile.hasAnthropicKey} revealed={revealKey}
+                    value={profile.anthropicApiKey}
+                    onChange={(v) => setProfile({ ...profile, anthropicApiKey: v })}
+                    onReveal={() => setRevealKey((r) => !r)}
+                    onClear={clearApiKey}
+                    docsUrl="https://console.anthropic.com/"
+                    docsLabel="Open the Anthropic Console"
+                    helper="Use a regular API key from a Workspace with a spend limit."
+                  />
                 </div>
               </section>
 
@@ -1699,7 +1691,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Apply Copilot — smart page understanding (planner)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Lets Agent 3 use your selected AI key to comprehend each page (form vs listing vs login) and decide whether to fill it or click through to the real application. One cheap text call per page, capped per session. Recommended on.
+                    Lets Agent 3 use your Anthropic key to comprehend each page (form vs listing vs login) and decide whether to fill it or click through to the real application. One cheap text call per page, capped per session. Recommended on.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -1711,7 +1703,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>AI vision fallback (experimental — uses more credit)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    When the planner is unsure, send a screenshot to a multimodal model so it can actually see tricky or custom pages. Costs more per call; Gemini or Anthropic only (DeepSeek cannot see). Off by default.
+                    When the planner is unsure, send a screenshot to Claude so it can actually see tricky or custom pages. Costs more per call. Off by default.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -1720,30 +1712,34 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useComputerUse: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Computer-use form filler (advanced — Anthropic only, highest cost)</span>
+                    <span style={{ fontWeight: 600 }}>Computer-use form filler (advanced — highest cost)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Lets Claude <strong>see and operate</strong> the live form after smart-fill, completing tricky or custom fields that label-matching can&apos;t. <strong>Anthropic key required</strong>; it is the most token-hungry feature, so it&apos;s off by default. It <strong>never clicks Submit</strong> — that&apos;s hard-blocked in code — and stops on any CAPTCHA. Best on a window around 1280px wide for click accuracy.
+                    Lets Claude <strong>see and operate</strong> the live form after smart-fill, completing tricky or custom fields that label-matching can&apos;t. It is the most token-hungry feature, so it&apos;s off by default. It <strong>never clicks Submit</strong> — that&apos;s hard-blocked in code — and stops on any CAPTCHA. Best on a window around 1280px wide for click accuracy.
                   </span>
                   {profile.useComputerUse === true && (
                     <div className="grid-2" style={{ marginTop: 10 }}>
                       <div>
-                        <label>Computer-use model (optional)</label>
-                        <input
+                        <label>Computer-use model</label>
+                        <select
                           value={profile.computerUseModel || ''}
                           onChange={(e) => setProfile({ ...profile, computerUseModel: e.target.value })}
-                          placeholder="claude-sonnet-4-6"
-                        />
-                        <span className="hint">Blank = a sensible default. Needs a computer-use-capable Claude 4.x model.</span>
+                        >
+                          <option value="">Automatic (recommended)</option>
+                          {models.map((m) => (
+                            <option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>
+                          ))}
+                        </select>
+                        <span className="hint">Automatic picks a computer-use-capable model.</span>
                       </div>
                       <div>
                         <label>Max steps per form</label>
                         <input
-                          type="number" min="1" max="25"
-                          value={profile.computerUseMaxSteps ?? 12}
+                          type="number" min="1" max="40"
+                          value={profile.computerUseMaxSteps ?? 20}
                           onChange={(e) => setProfile({ ...profile, computerUseMaxSteps: e.target.value })}
                         />
-                        <span className="hint">Caps cost: each step is one screenshot + model call (1–25).</span>
+                        <span className="hint">Caps cost: each step is one screenshot + model call (1–40).</span>
                       </div>
                     </div>
                   )}
@@ -1772,7 +1768,7 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useResearchFanout: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Company research fan-out (richer cover letters — Anthropic only)</span>
+                    <span style={{ fontWeight: 600 }}>Company research fan-out (richer cover letters)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
                     Before tailoring, a sub-agent uses <strong>live web search</strong> to research each employer and role (sector, recent news, salary context) so the cover letter is specific to the company — not generic. <strong>Anthropic key required</strong>; web search is billed (~$10/1,000) and it&apos;s the most token-hungry tailoring add-on, so it&apos;s off by default. Briefs are gathered in parallel across a batch.
@@ -1790,7 +1786,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Structured outputs — reliable form-filling & planning</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Forces the AI to return guaranteed-valid JSON when mapping forms and planning pages, removing a whole class of parsing errors. <strong>Anthropic models only</strong> (Haiku 4.5 / Sonnet 4.6 / Opus); no extra cost. Recommended on — switch off if you use Gemini/OpenRouter or hit a schema error.
+                    Forces the AI to return guaranteed-valid JSON when mapping forms and planning pages, removing a whole class of parsing errors. No extra cost. Recommended on — switch off only if you hit a schema error.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -1802,7 +1798,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Prompt caching — cheaper repeat tailoring</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Caches your base CV across tailoring calls so repeat runs reuse it at ~10% of the input cost. <strong>Anthropic only</strong>; needs a CV long enough to meet the cache minimum (longer on Haiku). It only ever saves money. Recommended on.
+                    Caches your base CV across tailoring calls so repeat runs reuse it at ~10% of the input cost. Needs a CV long enough to meet the cache minimum (longer on the smaller models). It only ever saves money. Recommended on.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -1814,7 +1810,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Candidate memory — learn from each application</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    After each confirmed application, the AI distils a few durable insights about you (strengths, preferences, what you said) into your <strong>Candidate Memory</strong> dossier, which all three agents then read. Works with any provider key; costs one small call per application. Turn off to keep memory manual-only — the dossier still records your application history either way.
+                    After each confirmed application, the AI distils a few durable insights about you (strengths, preferences, what you said) into your <strong>Candidate Memory</strong> dossier, which all three agents then read. Uses your Anthropic key; costs one small call per application. Turn off to keep memory manual-only — the dossier still records your application history either way.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -1826,7 +1822,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Dreaming — let memory learn what wins</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    A periodic reflective pass that reviews your application <strong>outcomes</strong> (interview/offer vs rejected) and curates the dossier — strengthening the insights and phrasings that keep winning, dropping noise. Run it on a schedule via a <strong>Reflect &amp; learn</strong> routine, or on demand with <strong>Reflect now</strong> in the Candidate Memory tab. Works with any provider key; one small call per pass. Your manually-added insights are never removed.
+                    A periodic reflective pass that reviews your application <strong>outcomes</strong> (interview/offer vs rejected) and curates the dossier — strengthening the insights and phrasings that keep winning, dropping noise. Run it on a schedule via a <strong>Reflect &amp; learn</strong> routine, or on demand with <strong>Reflect now</strong> in the Candidate Memory tab. Uses your Anthropic key; one small call per pass. Your manually-added insights are never removed.
                   </span>
                 </div>
               </section>
@@ -1980,7 +1976,7 @@ export default function App() {
                     {!profile.hasAnthropicKey && <span className="badge badge-warning" style={{ marginLeft: 6 }}>needs Anthropic key</span>}
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    When a found job has no usable apply link, ask Claude (grounded web search) to find the real posting URL, then re-verify it before saving. <strong>Billed per search and capped per run</strong>, so it's off by default — turn on if you want fewer linkless leads. Anthropic only.
+                    When a found job has no usable apply link, ask Claude (grounded web search) to find the real posting URL, then re-verify it before saving. <strong>Billed per search and capped per run</strong>, so it's off by default — turn on if you want fewer linkless leads.
                   </span>
                 </div>
               </section>
@@ -2323,7 +2319,7 @@ function SectionHeader({ title, subtitle }) {
   );
 }
 
-function ApiKeyField({ label, hasKey, revealed, value, onChange, onReveal, onClear, docsUrl }) {
+function ApiKeyField({ label, hasKey, revealed, value, onChange, onReveal, onClear, docsUrl, docsLabel = 'Get a key', helper }) {
   return (
     <div>
       <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2331,7 +2327,7 @@ function ApiKeyField({ label, hasKey, revealed, value, onChange, onReveal, onCle
           <KeyRound size={12} /> {label}
           {hasKey && !revealed && <span className="badge badge-success" style={{ marginLeft: 6 }}>Saved</span>}
         </span>
-        {docsUrl && <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="tiny" style={{ color: 'var(--color-info)' }}>Get a key &#8599;</a>}
+        {docsUrl && <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="tiny" style={{ color: 'var(--color-info)' }}>{docsLabel} &#8599;</a>}
       </label>
 
       {hasKey && !revealed ? (
@@ -2356,8 +2352,15 @@ function ApiKeyField({ label, hasKey, revealed, value, onChange, onReveal, onCle
           )}
         </div>
       )}
+      {helper && <span className="hint" style={{ display: 'block', marginTop: 6 }}>{helper}</span>}
     </div>
   );
+}
+
+// "Claude Sonnet 5.5 — $2 / $10 per MTok" for the model dropdowns.
+const fmtPrice = (n) => (!Number.isFinite(n) ? '?' : Number.isInteger(n) ? String(n) : n.toFixed(2));
+function modelOptionLabel(m) {
+  return `${m.label} — $${fmtPrice(m.inputPerMTok)} / $${fmtPrice(m.outputPerMTok)} per MTok${m.optIn ? ' (opt-in)' : ''}`;
 }
 
 /* ---------------------------------------------------------------- */
@@ -2445,8 +2448,14 @@ function PresetCards({ active, busy, onApply }) {
 const BUCKET_LABELS = {
   'ai-search': 'AI job search', 'link-repair': 'Link repair', tailor: 'Tailoring',
   'smart-fill': 'Smart-fill', planner: 'Page planner', vision: 'Vision',
-  'computer-use': 'Computer-use', research: 'Company research', referral: 'Referrals',
-  memory: 'Memory & dreaming', core: 'Other'
+  'computer-use': 'Computer-use', research: 'Company research', referral: 'Referral drafts',
+  'referral-search': 'Referral contact search', memory: 'Memory & dreaming', core: 'Other'
+};
+
+// Labels for task types (one run of an agent), as recorded by withTask().
+const TASK_LABELS = {
+  hunt: 'Job hunt', tailor: 'Tailoring', apply: 'Apply copilot',
+  'memory-reflect': 'Memory reflection', 'memory-dream': 'Dreaming'
 };
 
 function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClearUsage }) {
@@ -2472,6 +2481,8 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
   const exceeded = Boolean(usage?.budget?.exceeded);
   const pct = serverCap > 0 ? Math.min(100, (spent / serverCap) * 100) : 0;
   const buckets = Object.entries(today.byBucket || {})
+    .sort((a, b) => (b[1].estCostUSD || 0) - (a[1].estCostUSD || 0));
+  const tasks = Object.entries(today.byTask || {})
     .sort((a, b) => (b[1].estCostUSD || 0) - (a[1].estCostUSD || 0));
 
   const fmtUsd = (v) => `$${(v || 0) >= 1 ? (v || 0).toFixed(2) : (v || 0).toFixed(3)}`;
@@ -2538,6 +2549,38 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
         <p className="tiny" style={{ marginBottom: 12 }}>No AI calls recorded today yet — run the hunter or tailor a job and the breakdown appears here.</p>
       )}
 
+      {/* Cost per task */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Cost per task (today)</div>
+        {tasks.length === 0 ? (
+          <p className="tiny">No task runs recorded today yet.</p>
+        ) : (
+          <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--text-secondary)' }}>
+                <th style={{ padding: '4px 8px 4px 0' }}>Task</th>
+                <th style={{ padding: '4px 8px' }}>Runs</th>
+                <th style={{ padding: '4px 8px' }}>Avg cost</th>
+                <th style={{ padding: '4px 0 4px 8px' }}>Cache hit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map(([k, t]) => (
+                <tr key={k}>
+                  <td style={{ padding: '4px 8px 4px 0' }}>{TASK_LABELS[k] || k}</td>
+                  <td style={{ padding: '4px 8px' }}>{t.runs || 0}{t.failures ? ` (${t.failures} failed)` : ''}</td>
+                  <td style={{ padding: '4px 8px' }}>{fmtUsd(t.avgCostUSD)}</td>
+                  <td style={{ padding: '4px 0 4px 8px' }}>{Math.round((t.cacheHitRatio || 0) * 100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <span className="hint" style={{ display: 'block', marginTop: 6 }}>
+          Runs include ones that were skipped or did nothing, so the average can read low.
+        </span>
+      </div>
+
       {/* Budget cap input */}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ maxWidth: 220 }}>
@@ -2554,7 +2597,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
         </button>
       </div>
       <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-        0 = no cap. When today's estimated spend reaches the cap, <strong>every AI call refuses</strong> (hunter AI search, tailoring, smart-fill, research, dreaming…) until midnight. Costs are estimates from public pricing — check your provider console for exact billing. Click <strong>Save configuration</strong> to apply a new cap.
+        0 = no cap. When today's estimated spend reaches the cap, <strong>every AI call refuses</strong> (hunter AI search, tailoring, smart-fill, research, dreaming…) until midnight. Costs are estimates from public pricing — check the Anthropic Console for exact billing. Click <strong>Save configuration</strong> to apply a new cap.
       </span>
     </div>
   );

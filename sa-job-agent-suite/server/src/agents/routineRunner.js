@@ -32,6 +32,7 @@ import {
 import { runJobHunterAgent } from './agent1-hunter.js';
 import { tailorJobsConcurrently } from './subAgents.js';
 import { dreamOverMemory } from './memoryReflect.js';
+import { hasAnthropicKey } from './llm.js';
 
 const TICK_MS = 60 * 1000;            // evaluate schedules once a minute
 const CATCHUP_WINDOW_MS = 90 * 60 * 1000; // for catchUp:false, how late we may still fire
@@ -82,14 +83,8 @@ export function isDue(routine, now = new Date()) {
 
 // ── Execution ─────────────────────────────────────────────────────────────────
 
-function tailorProviderReady(profile) {
-  const provider = profile.aiProvider || 'gemini';
-  const key = {
-    gemini: profile.geminiApiKey,
-    anthropic: profile.anthropicApiKey,
-    openrouter: profile.openRouterApiKey
-  }[provider];
-  return Boolean(key && !String(key).includes('your_'));
+function tailoringReady(profile) {
+  return hasAnthropicKey(profile);
 }
 
 /**
@@ -145,8 +140,8 @@ export async function runRoutine(routine, { trigger = 'schedule' } = {}) {
     // ── Optional auto-tailor of the top NEW matches ────────────────────────────
     if (routine.type === 'hunt_and_tailor' && (routine.autoTailorCount || 0) > 0) {
       const profile = getProfile();
-      if (!tailorProviderReady(profile)) {
-        result.note = 'Auto-tailor skipped: no AI provider key set.';
+      if (!tailoringReady(profile)) {
+        result.note = 'Auto-tailor skipped: no Anthropic API key set.';
         addLog(`Routine "${routine.name}": ${result.note}`, 'system');
       } else {
         const newFound = getJobs()

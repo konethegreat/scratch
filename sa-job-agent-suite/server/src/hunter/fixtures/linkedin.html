@@ -1,0 +1,75 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our LinkedIn extractor depends on
+  (guest-view .base-card / .job-search-card cards, h3.base-search-card__title,
+  h4.base-search-card__subtitle, .job-search-card__location, a.base-card__full-link).
+  It proves our extraction logic against a page of that shape, NOT that the live
+  LinkedIn site still looks like this. Companies, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in South Africa | Synthetic Board</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/jobs/">Jobs</a>
+    <a href="/about">About us</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo/cv-review">Get a free CV review today</a>
+  </div>
+
+  <h1>software engineer jobs in South Africa</h1>
+
+  <ul class="jobs-list">
+    <!-- 1: guest card, relative href with tracking params (stripped), every field present -->
+    <li class="base-card">
+      <a class="base-card__full-link" href="/jobs/view/senior-software-engineer-at-acme-4001?trk=public_jobs_topcard-title&amp;refId=synthetic">View job</a>
+      <h3 class="base-search-card__title">Senior Software Engineer</h3>
+      <h4 class="base-search-card__subtitle">Acme Software (Pty) Ltd</h4>
+      <span class="job-search-card__location">Johannesburg, Gauteng, South Africa</span>
+    </li>
+
+    <!-- 2: absolute href, company found through the generic h4 fallback -->
+    <li class="base-card">
+      <a class="base-card__full-link" href="https://www.linkedin.com/jobs/view/data-engineer-at-globex-4002?trackingId=synthetic">View job</a>
+      <h3 class="base-search-card__title">Data Engineer</h3>
+      <h4>Globex Data</h4>
+      <span class="job-search-card__location">Rosebank, Gauteng, South Africa</span>
+    </li>
+
+    <!-- 3: no company element -> Confidential; title/link found through generic fallbacks -->
+    <div class="base-card">
+      <a href="/jobs/view/qa-analyst-at-initech-4003">View job</a>
+      <h3>QA Analyst</h3>
+      <span class="job-search-card__location">Cape Town, Western Cape, South Africa</span>
+    </div>
+
+    <!-- 4: no location element -> "South Africa" (SA-locked fallback) -->
+    <li class="job-search-card">
+      <a class="base-card__full-link" href="/jobs/view/devops-engineer-at-initech-4004">View job</a>
+      <h3 class="base-search-card__title">DevOps Engineer</h3>
+      <h4 class="base-search-card__subtitle">Initech Cloud</h4>
+    </li>
+
+    <!-- Noise: matches a card selector but the title is too short -->
+    <li class="base-card">
+      <h3 class="base-search-card__title">Ad</h3>
+      <a class="base-card__full-link" href="/promo/advertise">Promoted</a>
+    </li>
+
+    <!-- Noise: matches a card selector but has no title element at all -->
+    <div class="base-card">
+      <p>Sponsored: upgrade your job search with Premium. Synthetic promo copy.</p>
+    </div>
+  </ul>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

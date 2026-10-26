@@ -1,6 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { addLog, addUsage, budgetStatus, budgetMessage } from '../db/helper.js';
-import { fromAnthropicUsage } from '../db/costs.js';
+import { webSearchTool } from '@sajas/core';
+import { addLog, budgetStatus, budgetMessage } from '../db/helper.js';
+import { callLlmFull, hasAnthropicKey } from './llm.js';
 
 // ── Research fan-out sub-agent (T4) ─────────────────────────────────────────────
 // Per target job, a lead step (the tailor) can spawn this sub-agent to pull a
@@ -14,13 +14,11 @@ import { fromAnthropicUsage } from '../db/costs.js';
 // on research. Bounded max_uses keeps the cost predictable; it's a top-tier,
 // opt-in feature (profile.useResearchFanout, default OFF).
 
-const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 3 };
+const RESEARCH_MAX_SEARCHES = 3;
 
 /** True only when research fan-out is enabled AND an Anthropic key is present. */
 export function researchFanoutReady(profile = {}) {
-  if (profile.useResearchFanout !== true) return false;
-  const key = profile.anthropicApiKey;
-  return Boolean(key && !String(key).includes('your_'));
+  return profile.useResearchFanout === true && hasAnthropicKey(profile);
 }
 
 /**
@@ -34,9 +32,6 @@ export async function researchCompany(profile, job) {
     addLog(`[Research] Skipped — ${budgetMessage(budget)}`, 'system');
     return '';
   }
-
-  const model = (profile.aiSearchModel || '').trim() || 'claude-sonnet-4-6';
-  const anthropic = new Anthropic({ apiKey: profile.anthropicApiKey });
 
   const prompt = `You are a research assistant helping a South African job applicant tailor a cover letter.
 Use web search to research the employer and role below, then write a TIGHT brief (max ~150 words) the writer can draw on.
@@ -55,34 +50,14 @@ Rules:
 - Only state facts you found via search. If you can't verify the company, say so briefly and keep it generic.
 - Output plain prose/bullets, no preamble, no JSON. Be concise.`;
 
-  let messages = [{ role: 'user', content: prompt }];
-  const tools = [{
-    ...WEB_SEARCH_TOOL,
-    user_location: { type: 'approximate', country: 'ZA', timezone: 'Africa/Johannesburg' }
-  }];
-
   try {
     addLog(`[Research] Researching ${job.company || 'employer'} for "${job.title}"…`, 'agent2');
-    let final = null;
-    for (let turn = 0; turn < 4; turn++) {
-      const resp = await anthropic.messages.create({ model, max_tokens: 1024, messages, tools });
-      addUsage({ ...fromAnthropicUsage(model, resp.usage || {}), bucket: 'research' });
-      if (resp.stop_reason === 'pause_turn') {
-        messages.push({ role: 'assistant', content: resp.content });
-        continue;
-      }
-      final = resp;
-      break;
-    }
-    if (!final) {
-      addLog('[Research] Search kept pausing — skipping research for this job.', 'system');
-      return '';
-    }
-    const text = (final.content || [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
+    const result = await callLlmFull(profile, {
+      task: 'research',
+      prompt,
+      tools: [webSearchTool({ maxUses: RESEARCH_MAX_SEARCHES })]
+    });
+    const text = (result.text || '').trim();
     if (text) addLog(`[Research] Brief ready for ${job.company || 'employer'}.`, 'agent2');
     return text;
   } catch (err) {

@@ -1,0 +1,76 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our PNet extractor depends on
+  (card containers, h2/h3 title link, company, location, p, time). It proves our
+  extraction logic against a page of that shape, NOT that the live PNet site still
+  looks like this. Companies, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Developer jobs in Johannesburg | Synthetic Board</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/jobs/">Jobs</a>
+    <a href="/about">About us</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo/cv-review">Get a free CV review today</a>
+  </div>
+
+  <h1>Developer jobs in Johannesburg</h1>
+
+  <ul class="results-list">
+    <!-- 1: relative href, every field present -->
+    <article class="job-item">
+      <h2><a href="/jobs/senior-developer--100001.html">Senior Developer</a></h2>
+      <div class="company-name">Acme Software (Pty) Ltd</div>
+      <div class="job-location">Sandton, Gauteng</div>
+      <p>Build and maintain services for a growing fintech platform. Synthetic description.</p>
+      <time>2 days ago</time>
+    </article>
+
+    <!-- 2: absolute href, no company element -> Confidential -->
+    <div class="job-item">
+      <h3><a href="https://www.pnet.co.za/jobs/data-engineer--100002.html">Data Engineer</a></h3>
+      <div class="job-location">Rosebank, Gauteng</div>
+      <p>Pipelines and warehousing.</p>
+      <span class="date-posted">Posted today</span>
+    </div>
+
+    <!-- 3: relative href, no location element -> "<search location>, South Africa" -->
+    <li class="search-result-row">
+      <h2><a href="/jobs/qa-analyst--100003.html">QA Analyst</a></h2>
+      <div class="employer-name">Globex Testing</div>
+      <p>Manual and automated testing for web products.</p>
+    </li>
+
+    <!-- 4: title link found through a[class*="title"] -->
+    <div class="listing-item">
+      <a class="job-title-link" href="/jobs/devops-engineer--100004.html">DevOps Engineer</a>
+      <div class="company-name">Initech Cloud</div>
+      <div class="region-label">Midrand</div>
+      <p>CI/CD, containers and observability.</p>
+      <time>1 week ago</time>
+    </div>
+
+    <!-- Noise: matches a card selector but the title is too short -->
+    <div class="job-item">
+      <h2><a href="/ad/banner">Ad</a></h2>
+    </div>
+
+    <!-- Noise: matches a card selector but has no title link at all -->
+    <div class="job-item">
+      <p>Sponsored placement. Advertise your vacancy here.</p>
+    </div>
+  </ul>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

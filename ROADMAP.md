@@ -1,3 +1,6 @@
+> **SUPERSEDED.** This roadmap is replaced by [`docs/superpowers/specs/2026-10-24-sa-jas-v2-master-plan.md`](docs/superpowers/specs/2026-10-24-sa-jas-v2-master-plan.md).
+> The B1 (licence-key store) and B2 (hosted managed-key tier) phases are **dropped**, along with the licensing, payments and managed-key material that depends on them (the master plan lists B3 as superseded too): the hosted version is free and bring-your-own-key, so users supply their own Anthropic key. The text below is kept for history only.
+
 # SA-JAS Roadmap — From Local Tool to One-of-a-Kind Product
 
 **Owner:** Kone · **Last updated:** 7 June 2026

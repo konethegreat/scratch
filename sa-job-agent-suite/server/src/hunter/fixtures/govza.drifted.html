@@ -1,0 +1,48 @@
+<!--
+  SYNTHETIC FIXTURE. The same visible vacancy text as govza.html, but every link is
+  rendered by JavaScript with href="#": no absolute URL can be extracted, simulating
+  selector drift. It proves that our extraction returns nothing (rather than
+  garbage) when the page stops exposing real links, which is the case source-health
+  monitoring must flag. NOT a copy of the live nationalgovernment.co.za site.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Government Vacancies | Synthetic Government Portal</title>
+</head>
+<body>
+  <nav class="hdr-links">
+    <a href="#">Home</a>
+    <a href="#">About the government portal</a>
+  </nav>
+
+  <div class="promo-strip">
+    <a href="#">Latest circulars</a>
+  </div>
+
+  <h1>Government Vacancies</h1>
+
+  <ul class="vacancies">
+    <li><a href="#">Senior Software Engineer - Department of Health</a></li>
+    <li><a href="#">Software Developer (Chief Directorate: ICT)</a></li>
+    <li><a href="#">Engineer: Infrastructure - Department of Public Works</a></li>
+    <li><a href="#">Principal Software Engineer - Department of Communications</a></li>
+  </ul>
+
+  <table class="vacancy-table">
+    <thead>
+      <tr><th>Vacancy</th><th>Department</th><th>Closing date</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Administrative Clerk</td><td>Department of Home Affairs</td><td>2026-11-01</td></tr>
+      <tr><td>Registry Assistant</td><td>Department of Justice</td><td>2026-11-05</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <a href="#">Privacy policy</a>
+    <a href="#">Terms of use</a>
+  </footer>
+</body>
+</html>

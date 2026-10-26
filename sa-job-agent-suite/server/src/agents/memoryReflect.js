@@ -2,11 +2,12 @@ import {
   addInsight, upsertEmployerNote, addLog, INSIGHT_CATEGORIES,
   getCandidateMemory, reinforceInsight, deleteInsight, recordDreamResult
 } from '../db/helper.js';
-import { callLlm, extractJson } from './llm.js';
+import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
+import { withTask } from '../telemetry.js';
 
 /**
- * Reflection schema (constrained decoding on Anthropic; ignored by other
- * providers). The model distils a just-completed application into durable
+ * Reflection schema (constrained decoding via structured outputs).
+ * The model distils a just-completed application into durable
  * dossier material: a few candidate insights and one optional employer note.
  */
 const REFLECT_SCHEMA = {
@@ -33,24 +34,21 @@ const REFLECT_SCHEMA = {
 /**
  * After a confirmed application, distil durable facts about the candidate into
  * the evolving dossier. Gated by profile.useMemoryReflection (default ON) and
- * skipped silently when no provider key is configured. Provider-agnostic via
- * callLlm — uses whichever key the user selected.
+ * skipped silently when no Anthropic key is configured. Calls go through
+ * callLlm under the 'memory' task.
  *
  * @param {object} profile   merged profile (from getProfile())
  * @param {object} ctx       { job, transcript } — transcript = [{question, answer}]
  * @returns {Promise<{insights:number, employerNote:boolean}>}
  */
-export async function reflectOnApplication(profile, { job, transcript = [] } = {}) {
+export function reflectOnApplication(...args) {
+  return withTask('memory-reflect', () => reflectOnApplicationInner(...args));
+}
+
+async function reflectOnApplicationInner(profile, { job, transcript = [] } = {}) {
   if (!profile || profile.useMemoryReflection === false) return { insights: 0, employerNote: false };
 
-  const provider = profile.aiProvider || 'gemini';
-  const keyByProvider = {
-    gemini: profile.geminiApiKey,
-    anthropic: profile.anthropicApiKey,
-    openrouter: profile.openRouterApiKey
-  };
-  const key = keyByProvider[provider];
-  if (!key || String(key).includes('your_')) {
+  if (!hasAnthropicKey(profile)) {
     // No usable key — reflection is best-effort, so skip without erroring.
     return { insights: 0, employerNote: false };
   }
@@ -155,19 +153,21 @@ const DECISIVE_OUTCOMES = ['interview', 'offer', 'rejected'];
  * reinforce insights that align with interviews/offers, prune redundant ones,
  * and add cross-application learnings. This is the nightly "Dreaming" pass.
  *
- * Provider-agnostic via callLlm. Gated by profile.useDreaming (default ON),
- * skipped silently when no provider key is set. Best-effort: never throws.
+ * Calls go through callLlm. Gated by profile.useDreaming (default ON),
+ * skipped silently when no Anthropic key is set. Best-effort: never throws.
  * User-entered ('manual') insights are NEVER pruned — only AI-sourced ones.
  *
  * @returns {Promise<{added:number, reinforced:number, pruned:number, skipped?:string}>}
  */
-export async function dreamOverMemory(profile) {
+export function dreamOverMemory(...args) {
+  return withTask('memory-dream', () => dreamOverMemoryInner(...args));
+}
+
+async function dreamOverMemoryInner(profile) {
   const noop = { added: 0, reinforced: 0, pruned: 0 };
   if (!profile || profile.useDreaming === false) return { ...noop, skipped: 'disabled' };
 
-  const provider = profile.aiProvider || 'gemini';
-  const key = { gemini: profile.geminiApiKey, anthropic: profile.anthropicApiKey, openrouter: profile.openRouterApiKey }[provider];
-  if (!key || String(key).includes('your_')) return { ...noop, skipped: 'no-key' };
+  if (!hasAnthropicKey(profile)) return { ...noop, skipped: 'no-key' };
 
   const mem = getCandidateMemory();
   const insights = Array.isArray(mem.insights) ? mem.insights : [];

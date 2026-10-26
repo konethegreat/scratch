@@ -172,7 +172,7 @@ test('canary: runCanaries records results, skips disabled sources and calls onRe
   const seen = [];
 
   const results = await runCanaries({
-    ids: ['canary-a', 'canary-b'],
+    ids: ['canary-a', 'canary-b', 'canary-off'],
     newPage,
     sleep: async (ms) => { sleeps.push(ms); },
     onResult: (id, result) => seen.push([id, result.pass]),

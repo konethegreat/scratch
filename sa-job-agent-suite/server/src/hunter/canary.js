@@ -45,7 +45,8 @@ export async function runCanary(page, source) {
   const spec = source?.canary || {};
   const keyword = filled(spec.keyword) ? spec.keyword : DEFAULT_KEYWORD;
   const location = spec.location ?? null;
-  const minItems = Number.isFinite(spec.minItems) && spec.minItems > 0 ? spec.minItems : DEFAULT_MIN_ITEMS;
+  const n = Number(spec.minItems);
+  const minItems = Number.isFinite(n) && n >= 1 ? Math.floor(n) : DEFAULT_MIN_ITEMS;
   const started = Date.now();
 
   const { items, meta } = await fetchSourcePage(page, source, { keyword, location }, 1);
@@ -86,6 +87,20 @@ function record(id, result) {
   }
 }
 
+/** The ids to test: the requested subset minus sources the user turned off. */
+function enabledSources(ids, sources = SOURCES) {
+  const list = Array.isArray(sources) ? sources.filter((source) => source && source.id) : [];
+  const wanted = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+  return (wanted ? list.filter((source) => wanted.has(source.id)) : list)
+    .filter((source) => {
+      try {
+        return getHealthEntry(source.id).enabled !== false;
+      } catch {
+        return true; // a health read failure must not silently disable a canary
+      }
+    });
+}
+
 /**
  * Tests the requested sources sequentially, 2 s apart. A disabled source is
  * skipped without a result, a record or an onResult call. The caller owns the
@@ -99,16 +114,7 @@ function record(id, result) {
  */
 export async function runCanaries({ ids, newPage, sleep = defaultSleep, onResult, sources = SOURCES } = {}) {
   if (typeof newPage !== 'function') throw new TypeError('runCanaries needs a newPage function');
-  const list = Array.isArray(sources) ? sources.filter((source) => source && source.id) : [];
-  const wanted = Array.isArray(ids) && ids.length ? new Set(ids) : null;
-  const selected = (wanted ? list.filter((source) => wanted.has(source.id)) : list)
-    .filter((source) => {
-      try {
-        return getHealthEntry(source.id).enabled !== false;
-      } catch {
-        return true; // a health read failure must not silently disable a canary
-      }
-    });
+  const selected = enabledSources(ids, sources);
 
   const results = {};
   for (let i = 0; i < selected.length; i++) {
@@ -139,6 +145,11 @@ export async function runCanaries({ ids, newPage, sleep = defaultSleep, onResult
  * context. It does NOT take the browser lock — the route owns 'canary'.
  */
 export async function runCanarySession({ ids, onResult } = {}) {
+  const selected = enabledSources(ids);
+  if (!selected.length) {
+    addLog('Canary check: no enabled sources to test.', 'system');
+    return {};
+  }
   let context = null;
   try {
     try {
@@ -146,10 +157,10 @@ export async function runCanarySession({ ids, onResult } = {}) {
     } catch {
       context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, LAUNCH_OPTS);
     }
-    const results = await runCanaries({ ids, newPage: () => context.newPage(), onResult });
+    const results = await runCanaries({ ids: selected.map((source) => source.id), newPage: () => context.newPage(), onResult });
     const list = Object.values(results);
     const passed = list.filter((result) => result.pass).length;
-    addLog(`Canary check finished: ${passed}/${list.length} source(s) passed.`, passed === list.length ? 'agent1' : 'error');
+    addLog(`Canary check finished: ${passed}/${list.length} source(s) passed.`, 'agent1');
     return results;
   } finally {
     if (context) await context.close().catch(() => {});

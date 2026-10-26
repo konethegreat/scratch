@@ -388,6 +388,24 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       assert.equal(board.browserBusy, null, 'validation happens before the lock is taken');
       assert.equal(board.testing, false);
     });
+    await t.test('POST /api/hunter/sources/test answers without launching when every requested source is disabled', async () => {
+      const off = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      assert.equal(off.status, 200);
+      const offBody = await off.json();
+      assert.equal(offBody.source.enabled, false);
+      assert.equal(offBody.source.status, 'disabled');
+      const startedAt = Date.now();
+      const response = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: ['pnet'] }) });
+      assert.equal(response.status, 202);
+      assert.deepEqual(await response.json(), { started: false, ids: [], message: 'No enabled sources to test.' });
+      assert.ok(Date.now() - startedAt < 5000, 'the empty-test guard returns promptly instead of launching a browser');
+      const board = await (await call('/api/hunter/sources')).json();
+      assert.equal(board.browserBusy, null, 'the empty-test guard takes no browser lock');
+      assert.equal(board.testing, false);
+      const on = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: true }) });
+      assert.equal(on.status, 200);
+      assert.equal((await on.json()).source.enabled, true);
+    });
   } finally {
     if (child.exitCode === null) {
       const ended = new Promise(resolve => child.once('exit', resolve));

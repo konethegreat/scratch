@@ -885,6 +885,13 @@ function boardRow(source, entry) {
   for (let i = runs.length - 1; i >= 0; i--) {
     if (runs[i] && runs[i].kind === 'hunt') { hunt = runs[i]; break; }
   }
+  // Ruling T8-h: "last success" is the newest successful HUNT run only, so a
+  // passing canary can never make a source look like it recently yielded jobs.
+  let lastSuccess = null;
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i];
+    if (run && run.kind === 'hunt' && run.raw > 0 && !run.error && !run.blocked) { lastSuccess = run; break; }
+  }
   const raw = hunt && Number.isFinite(hunt.raw) ? hunt.raw : 0;
   const canary = e.canary && typeof e.canary === 'object'
     ? {
@@ -903,7 +910,7 @@ function boardRow(source, entry) {
     circuitOpen,
     enabled: e.enabled !== false,
     lastRunAt: newestRun ? newestRun.at || null : null,
-    lastSuccessAt: e.lastSuccessAt || null,
+    lastSuccessAt: lastSuccess ? lastSuccess.at || null : null,
     lastRaw: hunt && Number.isFinite(hunt.raw) ? hunt.raw : null,
     typicalRaw: baselineRaw(runs).median,
     completeness: {
@@ -935,6 +942,7 @@ app.get('/api/hunter/sources', (req, res) => {
 
 // Body { ids?: string[] } — omit/empty to test every source. Validation happens
 // BEFORE the lock is taken or a 202 sent, so a bad request never starts a browser.
+// Ruling T8-h: when every requested source is disabled, answer without a launch.
 app.post('/api/hunter/sources/test', (req, res) => {
   const requested = req.body?.ids;
   let ids;
@@ -950,6 +958,17 @@ app.post('/api/hunter/sources/test', (req, res) => {
     ids = [...new Set(requested)];
   }
 
+  const enabled = ids.filter((id) => {
+    try {
+      return getHealthEntry(id).enabled !== false;
+    } catch {
+      return true;
+    }
+  });
+  if (!enabled.length) {
+    return res.status(202).json({ started: false, ids: [], message: 'No enabled sources to test.' });
+  }
+
   const refusal = canaryStartRefusal({ testing: canaryRunning, browserBusy: browserOwner() });
   if (refusal) return res.status(refusal.status).json({ error: refusal.error });
 
@@ -960,7 +979,7 @@ app.post('/api/hunter/sources/test', (req, res) => {
 
   try {
     canaryRunning = true;
-    res.status(202).json({ started: true, ids });
+    res.status(202).json({ started: true, ids: enabled });
   } catch (err) {
     canaryRunning = false;
     release();
@@ -968,7 +987,7 @@ app.post('/api/hunter/sources/test', (req, res) => {
   }
 
   Promise.resolve()
-    .then(() => runCanarySession({ ids }))
+    .then(() => runCanarySession({ ids: enabled }))
     .catch((err) => addLog(`Source test failed: ${err.message}`, 'error'))
     .finally(() => {
       canaryRunning = false;

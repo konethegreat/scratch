@@ -60,6 +60,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 import { runJobHunterAgent, setupBrowserSession, checkLoginStatuses } from './agents/agent1-hunter.js';
+import { tryAcquireBrowser, browserOwner } from './hunter/browserLock.js';
 import { revalidateJobLinks } from './agents/linkValidator.js';
 import { runDocumentTailorAgent } from './agents/agent2-tailor.js';
 import { runApplyAssistantAgent, closeDemoBrowsers } from './agents/agent3-applier.js';
@@ -605,18 +606,35 @@ app.get('/api/status', (req, res) => {
 // -------------------- Agent Trigger Endpoints --------------------
 
 app.post('/api/jobs/hunter', (req, res) => {
+  // One owner of the persistent browser profile. The lock is taken before the
+  // response so a second hunt/apply/login check is refused immediately.
+  const release = tryAcquireBrowser('hunt');
+  if (!release) {
+    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+  }
+
   const state = getHunterState();
   if (state.isRunning) {
+    release();
     return res.status(409).json({
       error: 'Job hunter is already running. Please wait for the current scrape to finish.'
     });
   }
 
-  res.json({ success: true, message: 'Agent 1: Job Hunter started in background.' });
+  try {
+    res.json({ success: true, message: 'Agent 1: Job Hunter started in background.' });
 
-  // stopRequested is reset on every fresh start so a prior cancel doesn't leak in.
-  setHunterState({ isRunning: true, startedAt: new Date().toISOString(), finishedAt: null, stopRequested: false });
-  runJobHunterAgent()
+    // stopRequested is reset on every fresh start so a prior cancel doesn't leak in.
+    setHunterState({ isRunning: true, startedAt: new Date().toISOString(), finishedAt: null, stopRequested: false });
+  } catch (err) {
+    release();
+    throw err;
+  }
+
+  // Promise.resolve().then(...) so a synchronous throw inside the agent still
+  // reaches .finally and releases the browser lock.
+  Promise.resolve()
+    .then(() => runJobHunterAgent())
     .then((result) => {
       setHunterState({ isRunning: false, finishedAt: new Date().toISOString(), lastResult: result, stopRequested: false });
     })
@@ -624,7 +642,8 @@ app.post('/api/jobs/hunter', (req, res) => {
       addLog(`Background Job Hunter failed: ${err.message}`, 'error');
       console.error('Job Hunter error:', err);
       setHunterState({ isRunning: false, finishedAt: new Date().toISOString(), stopRequested: false });
-    });
+    })
+    .finally(() => release());
 });
 
 // Cooperative cancellation: sets a flag the running hunter checks between sources.
@@ -700,14 +719,25 @@ app.post('/api/jobs/:id/apply', (req, res) => {
     });
   }
 
-  setApplyState({ isRunning: true, jobId, startedAt: new Date().toISOString() });
-  res.json({ success: true, message: 'Agent 3: Apply Copilot launched on host machine.' });
+  const release = tryAcquireBrowser('apply');
+  if (!release) {
+    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+  }
+
+  try {
+    setApplyState({ isRunning: true, jobId, startedAt: new Date().toISOString() });
+    res.json({ success: true, message: 'Agent 3: Apply Copilot launched on host machine.' });
+  } catch (err) {
+    release();
+    throw err;
+  }
 
   runApplyAssistantAgent(jobId).catch((err) => {
     addLog(`Apply Copilot failed: ${err.message}`, 'error');
     console.error('Apply Copilot error:', err);
   }).finally(() => {
     setApplyState({ isRunning: false, jobId: null, startedAt: null });
+    release();
   });
 });
 
@@ -754,12 +784,18 @@ app.post('/api/browser/setup', (req, res) => {
 // single-flight guard keeps a second request from starting a second Chrome.
 const loginStatusFlight = createSingleFlight();
 app.post('/api/browser/login-status', async (req, res) => {
+  const release = tryAcquireBrowser('login-check');
+  if (!release) {
+    return res.status(409).json({ success: false, error: `A browser job is already running (${browserOwner()}).` });
+  }
   try {
     const result = await loginStatusFlight(() => checkLoginStatuses());
     if (result.busy) return res.status(409).json({ success: false, error: 'A login check is already running.' });
     res.json({ success: true, statuses: result.value });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  } finally {
+    release();
   }
 });
 

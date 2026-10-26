@@ -514,7 +514,14 @@ async function runHunt() {
     for (const source of sources) {
       if (getHunterState().stopRequested) { addLog('🛑 Stop requested — halting before next source.', 'agent1'); break; }
 
-      const healthEntry = getHealthEntry(source.id);
+      let healthEntry;
+      try {
+        healthEntry = getHealthEntry(source.id);
+      } catch (err) {
+        // Health I/O must never abort the scrape phase.
+        addLog(`[${source.name}] Health read failed: ${err.message}`, 'system');
+        healthEntry = {};
+      }
       const skip = shouldSkip(healthEntry);
       if (skip.skip) {
         addLog(`⏭ ${source.name} skipped: ${skip.reason}`, 'agent1');
@@ -692,6 +699,21 @@ async function runHunt() {
         stopReason = getHunterState().stopRequested ? 'stopped' : 'exhausted';
       }
 
+      // Stop pressed before the first page: the source was never tested, so
+      // record no run (three such stops must not open the circuit) and skip
+      // the between-sources sleep and the health write.
+      if (!threw && pagesTotal === 0 && stopReason === 'stopped') {
+        perSourceStats[source.name] = {
+          pages: 0,
+          raw: 0,
+          saved: perSource[source.name] || 0,
+          stopReason: 'stopped',
+          via: 'none',
+          status: statusBefore
+        };
+        continue;
+      }
+
       const via = extractSupplied
         ? 'ai-extract'
         : origins.jsonld > 0
@@ -713,7 +735,14 @@ async function runHunt() {
         stopReason,
         expectsUrl: !source.linkless
       });
-      const updated = recordRun(source.id, run);
+      let updated;
+      try {
+        updated = recordRun(source.id, run);
+      } catch (err) {
+        // A failed health write must not abort the remaining sources.
+        addLog(`[${source.name}] Health write failed: ${err.message}`, 'system');
+        updated = healthEntry;
+      }
       perSourceStats[source.name] = {
         pages: pagesTotal,
         raw: healthItems.length,

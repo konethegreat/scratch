@@ -99,6 +99,19 @@ function extractCards() {
   });
 }
 
+// Serialised into the page by Playwright, so it must stay self-contained.
+function fourLinklessCards() {
+  return Array.from({ length: 4 }, (_, i) => ({
+    title: `Developer ${i + 1}`,
+    company: `Company ${i + 1}`,
+    location: 'Johannesburg',
+    description: '',
+    applyUrl: '',
+    datePosted: 'Recently',
+    source: 'Linkless Board'
+  }));
+}
+
 const fixtureSource = (over = {}) => {
   const id = over.id || 'fixture-board';
   const base = `https://fixture.test/${id}`;
@@ -432,6 +445,65 @@ test('stop requested mid-run halts before the next page and next source', async 
   assert.equal(result.stopped, true);
   assert.equal(result.perSourceStats['Stop A'].stopReason, 'stopped');
   assert.equal('Stop B' in result.perSourceStats, false, 'a source never started has no stats');
+});
+
+test('a stop pressed before the first page records no run and leaves the source untested', async (t) => {
+  const id = 'early-stop';
+  let stopped = false;
+  const source = fixtureSource({ id, name: 'Early Stop', scope: 'oncePerKeyword' });
+  // The id accessor fires at the health read (line 517), after the per-source
+  // stop check, so the run enters this source and then breaks at the query loop.
+  Object.defineProperty(source, 'id', {
+    configurable: true,
+    get() {
+      if (!stopped) {
+        stopped = true;
+        helper.setHunterState({ stopRequested: true });
+      }
+      return id;
+    }
+  });
+  const second = fixtureSource({ id: 'after-stop', name: 'After Stop', scope: 'oncePerKeyword' });
+  let requests = 0;
+  const result = await runHunter(t, {
+    sources: [source, second],
+    handler: (route) => {
+      requests += 1;
+      return route.fulfill({ status: 200, contentType: 'text/html', body: pageHtml([card(1)]) });
+    }
+  });
+  if (!result) return;
+
+  assert.equal(healthStore.getHealthEntry(id).runs.length, 0, 'an early stop records no run');
+  const stats = result.perSourceStats['Early Stop'];
+  assert.equal(stats.pages, 0);
+  assert.equal(stats.stopReason, 'stopped');
+  assert.notEqual(stats.status, 'broken', 'an untested source is not broken');
+  assert.equal(requests, 0, 'the next source makes no request');
+});
+
+test('a linkless source records expectsUrl:false and keeps no-link cards as healthy leads', async (t) => {
+  const id = 'linkless-board';
+  const source = fixtureSource({
+    id,
+    name: 'Linkless Board',
+    scope: 'oncePerKeyword',
+    linkless: true,
+    skipJsonLd: true,
+    extractInPage: fourLinklessCards
+  });
+  const result = await runHunter(t, {
+    sources: [source],
+    profile: { searchDepth: 'light' },
+    handler: (route) => route.fulfill({ status: 200, contentType: 'text/html', body: pageHtml([]) })
+  });
+  if (!result) return;
+
+  assert.equal(result.perSourceStats['Linkless Board'].status, 'healthy');
+  assert.equal(result.totalSaved, 4, 'cards without links are kept as leads');
+  const run = healthStore.getHealthEntry(id).runs.at(-1);
+  assert.equal(run.expectsUrl, false);
+  assert.equal(savedJobs().length, 4);
 });
 
 test('a throwing source does not stop the other sources', async (t) => {

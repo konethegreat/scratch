@@ -60,7 +60,8 @@ export function installDemo(app) {
   // An allowlist prevents new routes from accidentally enabling live work here.
   const reads = new Set(['/api/profile', '/api/jobs', '/api/logs', '/api/status',
     '/api/documents', '/api/memory', '/api/routines', '/api/usage', '/api/health',
-    '/api/application/bank', '/api/application/pending', '/api/backup', '/api/models']);
+    '/api/application/bank', '/api/application/pending', '/api/backup', '/api/models',
+    '/api/hunter/sources']);
   app.use('/api', (req, res, next) => {
     const fullPath = '/api' + req.path;
     if (req.method === 'GET' && reads.has(fullPath)) return next();

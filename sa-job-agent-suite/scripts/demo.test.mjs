@@ -51,6 +51,9 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       assert.deepEqual(await json('/api/routines'), []);
       assert.equal((await json('/api/models')).length, 4, 'the Settings model dropdown can load in demo mode');
       assert.equal((await json('/api/jobs'))[0].source, 'Synthetic local fixture');
+      const sources = await json('/api/hunter/sources');
+      assert.equal(sources.sources.length, 12, 'the source health board is readable in the demo');
+      assert.ok(sources.sources.every(source => source.status === 'unknown'));
       client = await startDemoClient(runtime.origin, { port: 0 });
       const html = await (await fetch(`http://127.0.0.1:${client.httpServer.address().port}`)).text();
       assert.match(html, /id="root"/);
@@ -61,6 +64,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
         ['POST', '/api/jobs/tailor-batch'], ['POST', '/api/jobs/revalidate'], ['POST', '/api/browser/setup'],
         ['POST', '/api/browser/login-status'], ['POST', '/api/profile'], ['POST', '/api/profile/preset'],
         ['POST', '/api/backup/restore'], ['POST', '/api/routines'], ['POST', '/api/memory/dream'],
+        ['POST', '/api/hunter/sources/test'], ['PATCH', '/api/hunter/sources/pnet'],
         ['POST', `/api/jobs/${DEMO_JOB_ID}/referral`], ['POST', '/api/jobs/other-job/apply']]) {
         // The client header is sent so the refusal is the demo allowlist's, not the local guard's.
         const response = await fetch(runtime.origin + route, { method, headers: { 'X-SAJAS-Client': '1' } });
@@ -320,6 +324,69 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       assert.equal(sonnet.optIn, false);
       assert.equal(models.filter(model => model.optIn).length, 1);
       assert.ok(models.every(model => typeof model.id === 'string' && Number.isFinite(model.inputPerMTok) && Number.isFinite(model.outputPerMTok)));
+    });
+    await t.test('GET /api/hunter/sources returns the twelve sources as unknown on a fresh install', async () => {
+      const response = await call('/api/hunter/sources');
+      assert.equal(response.status, 200);
+      const board = await response.json();
+      assert.deepEqual(board.sources.map(source => source.id), ['linkedin', 'indeed', 'pnet', 'careerjunction',
+        'googlejobs', 'adzuna', 'executive', 'jobplacements', 'govza', 'jobmail', 'jobscoza', 'gumtree']);
+      for (const row of board.sources) {
+        assert.equal(row.status, 'unknown', row.id);
+        assert.equal(row.enabled, true, row.id);
+        assert.equal(row.canary, null, row.id);
+        assert.equal(row.lastRunAt, null, row.id);
+        assert.equal(row.lastSuccessAt, null, row.id);
+        assert.equal(row.lastRaw, null, row.id);
+        assert.equal(row.typicalRaw, 0, row.id);
+        assert.deepEqual(row.completeness, { title: 0, url: 0, company: 0, location: 0 }, row.id);
+        assert.equal(row.pages, 0, row.id);
+        assert.equal(row.stopReason, '', row.id);
+        assert.equal(row.via, '', row.id);
+        assert.ok(['major', 'secondary'].includes(row.tier), row.id);
+        assert.equal(row.pagination.verified, false, row.id);
+        assert.ok(row.pagination.param === null || typeof row.pagination.param === 'string', row.id);
+      }
+      assert.equal(board.browserBusy, null);
+      assert.equal(board.testing, false);
+    });
+    await t.test('PATCH /api/hunter/sources/:id flips enabled and accepts resetCircuit', async () => {
+      const response = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.source.id, 'pnet');
+      assert.equal(body.source.enabled, false);
+      assert.equal(body.source.status, 'disabled');
+      assert.equal(body.source.reason, 'turned off');
+      const row = (await (await call('/api/hunter/sources')).json()).sources.find(source => source.id === 'pnet');
+      assert.equal(row.status, 'disabled');
+      const reset = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: true, resetCircuit: true }) });
+      assert.equal(reset.status, 200);
+      const after = await reset.json();
+      assert.equal(after.source.enabled, true);
+      assert.equal(after.source.circuitOpen, false);
+    });
+    await t.test('PATCH /api/hunter/sources/:id answers 404 for an unknown source', async () => {
+      const response = await call('/api/hunter/sources/not-a-source', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      assert.equal(response.status, 404);
+      assert.deepEqual(await response.json(), { error: 'Unknown source.' });
+    });
+    await t.test('POST /api/hunter/sources/test needs the client header and validates ids before any browser work', async () => {
+      const noHeader = await fetch(origin + '/api/hunter/sources/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+      });
+      assert.equal(noHeader.status, 403);
+      assert.deepEqual(await noHeader.json(), { error: 'Missing X-SAJAS-Client header' });
+      const notArray = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: 'pnet' }) });
+      assert.equal(notArray.status, 400);
+      assert.deepEqual(await notArray.json(), { error: 'ids must be an array of source ids.' });
+      const unknown = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: ['pnet', 'nope'] }) });
+      assert.equal(unknown.status, 404);
+      assert.deepEqual(await unknown.json(), { error: 'Unknown source: nope.' });
+      const board = await (await call('/api/hunter/sources')).json();
+      assert.equal(board.browserBusy, null, 'validation happens before the lock is taken');
+      assert.equal(board.testing, false);
     });
   } finally {
     if (child.exitCode === null) {

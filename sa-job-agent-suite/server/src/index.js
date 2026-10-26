@@ -61,6 +61,10 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 import { runJobHunterAgent, setupBrowserSession, checkLoginStatuses } from './agents/agent1-hunter.js';
 import { tryAcquireBrowser, browserOwner } from './hunter/browserLock.js';
+import { SOURCES, getSource } from './hunter/registry.js';
+import { computeStatus, baselineRaw, emptyEntry } from './hunter/health.js';
+import { getAllHealth, getHealthEntry, setEnabled, resetCircuit } from './hunter/healthStore.js';
+import { canaryStartRefusal, runCanarySession } from './hunter/canary.js';
 import { revalidateJobLinks } from './agents/linkValidator.js';
 import { runDocumentTailorAgent } from './agents/agent2-tailor.js';
 import { runApplyAssistantAgent, closeDemoBrowsers } from './agents/agent3-applier.js';
@@ -859,6 +863,134 @@ app.post('/api/routines/:id/run', (req, res) => {
   runRoutineNow(routine).catch((err) => {
     addLog(`Manual routine run failed: ${err.message}`, 'error');
   });
+});
+
+// -------------------- Source health (read-only board + canaries) --------------------
+// The board is built from the persisted health entries only: GET and PATCH never
+// launch a browser, and browserBusy/testing are reported so the UI can disable
+// its buttons while another job owns the profile.
+
+let canaryRunning = false;
+
+const fraction = (count, raw) => (raw > 0 ? Math.round((count / raw) * 100) / 100 : 0);
+
+// One BoardRow per source (ruling T8-d): status/reason from computeStatus, the
+// newest HUNT run's yield fields, the baseline median, and the last canary.
+function boardRow(source, entry) {
+  const e = entry || emptyEntry();
+  const runs = Array.isArray(e.runs) ? e.runs : [];
+  const { status, reason, circuitOpen } = computeStatus(e);
+  const newestRun = runs.length ? runs[runs.length - 1] : null;
+  let hunt = null;
+  for (let i = runs.length - 1; i >= 0; i--) {
+    if (runs[i] && runs[i].kind === 'hunt') { hunt = runs[i]; break; }
+  }
+  const raw = hunt && Number.isFinite(hunt.raw) ? hunt.raw : 0;
+  const canary = e.canary && typeof e.canary === 'object'
+    ? {
+      at: e.canary.at || null,
+      pass: e.canary.pass === true,
+      reasons: Array.isArray(e.canary.reasons) ? e.canary.reasons : []
+    }
+    : null;
+  return {
+    id: source.id,
+    name: source.name,
+    tier: source.tier,
+    scope: source.scope,
+    status,
+    reason,
+    circuitOpen,
+    enabled: e.enabled !== false,
+    lastRunAt: newestRun ? newestRun.at || null : null,
+    lastSuccessAt: e.lastSuccessAt || null,
+    lastRaw: hunt && Number.isFinite(hunt.raw) ? hunt.raw : null,
+    typicalRaw: baselineRaw(runs).median,
+    completeness: {
+      title: fraction(hunt?.withTitle || 0, raw),
+      url: fraction(hunt?.withUrl || 0, raw),
+      company: fraction(hunt?.withCompany || 0, raw),
+      location: fraction(hunt?.withLocation || 0, raw)
+    },
+    pages: hunt && Number.isFinite(hunt.pages) ? hunt.pages : 0,
+    stopReason: hunt?.stopReason || '',
+    via: hunt?.via || '',
+    pagination: { param: source.pagination?.param ?? null, verified: !!source.pagination?.verified },
+    canary
+  };
+}
+
+app.get('/api/hunter/sources', (req, res) => {
+  try {
+    const health = getAllHealth();
+    res.json({
+      sources: SOURCES.map((source) => boardRow(source, health[source.id])),
+      browserBusy: browserOwner(),
+      testing: canaryRunning
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Body { ids?: string[] } — omit/empty to test every source. Validation happens
+// BEFORE the lock is taken or a 202 sent, so a bad request never starts a browser.
+app.post('/api/hunter/sources/test', (req, res) => {
+  const requested = req.body?.ids;
+  let ids;
+  if (requested === undefined || requested === null) {
+    ids = SOURCES.map((source) => source.id);
+  } else if (!Array.isArray(requested)) {
+    return res.status(400).json({ error: 'ids must be an array of source ids.' });
+  } else if (!requested.length) {
+    ids = SOURCES.map((source) => source.id);
+  } else {
+    const bad = requested.findIndex((id) => typeof id !== 'string' || !getSource(id));
+    if (bad !== -1) return res.status(404).json({ error: `Unknown source: ${String(requested[bad])}.` });
+    ids = [...new Set(requested)];
+  }
+
+  const refusal = canaryStartRefusal({ testing: canaryRunning, browserBusy: browserOwner() });
+  if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+
+  const release = tryAcquireBrowser('canary');
+  if (!release) {
+    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+  }
+
+  try {
+    canaryRunning = true;
+    res.status(202).json({ started: true, ids });
+  } catch (err) {
+    canaryRunning = false;
+    release();
+    throw err;
+  }
+
+  Promise.resolve()
+    .then(() => runCanarySession({ ids }))
+    .catch((err) => addLog(`Source test failed: ${err.message}`, 'error'))
+    .finally(() => {
+      canaryRunning = false;
+      release();
+    });
+});
+
+// Body { enabled?: boolean, resetCircuit?: boolean }. Read-only with respect to
+// the browser: it only writes the health entry and returns the fresh BoardRow.
+app.patch('/api/hunter/sources/:id', (req, res) => {
+  try {
+    const source = getSource(req.params.id);
+    if (!source) return res.status(404).json({ error: 'Unknown source.' });
+    const body = req.body || {};
+    let entry;
+    if (typeof body.enabled === 'boolean') entry = setEnabled(source.id, body.enabled);
+    if (body.resetCircuit === true) entry = resetCircuit(source.id);
+    if (!entry) entry = getHealthEntry(source.id);
+    res.json({ success: true, source: boardRow(source, entry) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // -------------------- Health Check --------------------

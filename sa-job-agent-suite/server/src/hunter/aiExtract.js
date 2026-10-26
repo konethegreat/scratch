@@ -16,6 +16,12 @@ export const MAX_EXTRACT_JOBS = 25;
 const DEFAULT_MAX_CHARS = 30000;
 const DEFAULT_MAX_ANCHORS = 400;
 const MIN_PAGE_TEXT_CHARS = 200;
+// Per-field caps so the paid prompt cannot be inflated by a long title, a huge
+// URL or 400 very long anchor labels/hrefs.
+const MAX_TITLE_CHARS = 300;
+const MAX_URL_CHARS = 500;
+const MAX_ANCHOR_TEXT_CHARS = 200;
+const MAX_ANCHOR_HREF_CHARS = 500;
 
 const JOB_FIELDS = ['title', 'company', 'location', 'applyUrl', 'description', 'datePosted'];
 
@@ -44,7 +50,7 @@ const positiveInt = (value, fallback) => (
 // Runs inside the page. Self-contained (serialised by Playwright). The clone is
 // mounted off-screen so innerText still resolves rendered text, then removed:
 // the live DOM is never mutated beyond the temporary mount.
-function snapshotInPage({ maxAnchors }) {
+function snapshotInPage({ maxAnchors, maxAnchorTextChars, maxAnchorHrefChars }) {
   const anchors = [];
   const seen = new Set();
   for (const a of document.querySelectorAll('a[href]')) {
@@ -57,11 +63,11 @@ function snapshotInPage({ maxAnchors }) {
       continue;
     }
     if (!/^https?:/i.test(href)) continue;
-    const anchorText = (a.innerText || '').replace(/\s+/g, ' ').trim();
+    const anchorText = (a.innerText || '').replace(/\s+/g, ' ').trim().slice(0, maxAnchorTextChars);
     if (!anchorText) continue;
     if (seen.has(href)) continue;
     seen.add(href);
-    anchors.push({ text: anchorText, href });
+    anchors.push({ text: anchorText, href: href.trim().slice(0, maxAnchorHrefChars) });
     if (anchors.length >= maxAnchors) break;
   }
 
@@ -71,7 +77,11 @@ function snapshotInPage({ maxAnchors }) {
     host.setAttribute('data-sajas-snapshot', '');
     host.style.cssText = 'position:absolute;left:-99999px;top:0;width:1200px;';
     const clone = document.body.cloneNode(true);
-    for (const node of clone.querySelectorAll('script, style, noscript')) node.remove();
+    // Strip anything that would start a new load or trip page observers when
+    // the clone is mounted (scripts/styles plus media and embedding elements).
+    for (const node of clone.querySelectorAll('script, style, noscript, img, iframe, video, audio, link, object, embed')) {
+      node.remove();
+    }
     host.appendChild(clone);
     document.body.appendChild(host);
     try {
@@ -84,20 +94,25 @@ function snapshotInPage({ maxAnchors }) {
 }
 
 /**
- * Snapshot the live page for the extractor: URL, title, readable body text
- * (scripts/styles/noscript removed, whitespace collapsed, truncated to
- * `maxChars`) and the visible http(s) anchors (absolute, de-duplicated by href
- * in document order, text-only, capped at `maxAnchors`). The page stays usable.
+ * Snapshot the live page for the extractor: URL (clipped to 500 chars), title
+ * (300), readable body text (scripts/styles/noscript/media removed, whitespace
+ * collapsed, truncated to `maxChars`) and the visible http(s) anchors
+ * (absolute, de-duplicated by full href in document order, text clipped to 200,
+ * href clipped to 500, capped at `maxAnchors`). The page stays usable.
  */
 export async function snapshotForExtraction(page, opts = {}) {
   const maxChars = positiveInt(opts?.maxChars, DEFAULT_MAX_CHARS);
   const maxAnchors = positiveInt(opts?.maxAnchors, DEFAULT_MAX_ANCHORS);
-  const { text, anchors } = await page.evaluate(snapshotInPage, { maxAnchors });
+  const { text, anchors } = await page.evaluate(snapshotInPage, {
+    maxAnchors,
+    maxAnchorTextChars: MAX_ANCHOR_TEXT_CHARS,
+    maxAnchorHrefChars: MAX_ANCHOR_HREF_CHARS
+  });
   const url = page.url();
   const title = await page.title();
   return {
-    url: typeof url === 'string' ? url : '',
-    title: typeof title === 'string' ? title : '',
+    url: typeof url === 'string' ? url.trim().slice(0, MAX_URL_CHARS) : '',
+    title: typeof title === 'string' ? title.trim().slice(0, MAX_TITLE_CHARS) : '',
     text: String(text || '').replace(/\s+/g, ' ').trim().slice(0, maxChars),
     anchors: (Array.isArray(anchors) ? anchors : [])
       .filter((a) => a && typeof a.text === 'string' && typeof a.href === 'string')
@@ -131,7 +146,7 @@ export function buildExtractPrompt(snap, query) {
   const location = typeof q.location === 'string' ? q.location.trim() : '';
   const anchors = Array.isArray(s.anchors) ? s.anchors : [];
   const anchorLines = anchors.length
-    ? anchors.map((a, i) => `- [${i + 1}] ${neutralizeMarkers(a?.text || '')} -> ${a?.href || ''}`).join('\n')
+    ? anchors.map((a, i) => `- [${i + 1}] ${neutralizeMarkers(a?.text || '')} -> ${neutralizeMarkers(a?.href || '')}`).join('\n')
     : '- (none)';
   const prompt = [
     `Search query: keyword ${JSON.stringify(keyword)}; location ${JSON.stringify(location)}.`,

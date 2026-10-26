@@ -2,6 +2,14 @@ import linkedin from './sources/linkedin.js';
 import indeed from './sources/indeed.js';
 import pnet from './sources/pnet.js';
 import careerjunction from './sources/careerjunction.js';
+import googlejobs from './sources/googlejobs.js';
+import adzuna from './sources/adzuna.js';
+import executive from './sources/executive.js';
+import jobplacements from './sources/jobplacements.js';
+import govza from './sources/govza.js';
+import jobmail from './sources/jobmail.js';
+import jobscoza from './sources/jobscoza.js';
+import gumtree from './sources/gumtree.js';
 
 /**
  * The hunter's scraper sources, in run order. Order matters: `addJob` keeps the
@@ -22,11 +30,14 @@ import careerjunction from './sources/careerjunction.js';
  * @property {{ param: string|null, firstValue: number, step: number, verified: false }} pagination
  * @property {{ keyword: string, location: string|null, minItems: number }} canary
  * @property {(query: { keyword: string, location: string|null }, pageNo: number) => string} buildUrl
- * @property {(arg: { location: string|null, origin: string }) => object[]} extractInPage  self-contained, runs in the page
+ * @property {(arg: { keyword: string, location: string|null, origin: string }) => object[]} extractInPage  self-contained, runs in the page
  */
 
 /** @type {HunterSource[]} */
-export const SOURCES = [linkedin, indeed, pnet, careerjunction];
+export const SOURCES = [
+  linkedin, indeed, pnet, careerjunction,
+  googlejobs, adzuna, executive, jobplacements, govza, jobmail, jobscoza, gumtree,
+];
 
 export function getSource(id) {
   return SOURCES.find((s) => s.id === id);

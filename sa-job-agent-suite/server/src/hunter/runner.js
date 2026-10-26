@@ -66,7 +66,7 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
       meta.error = `HTTP ${status}`;
       addLog(`[${name}] Error: ${meta.error}${pageTag}`, 'error');
     } else {
-      const raw = await page.evaluate(source.extractInPage, { location, origin: source.origin });
+      const raw = await page.evaluate(source.extractInPage, { keyword: kw, location, origin: source.origin });
       items = Array.isArray(raw) ? raw : [];
       if (soft) {
         if (items.length >= 1) {

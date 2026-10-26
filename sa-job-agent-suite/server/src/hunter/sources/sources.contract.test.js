@@ -16,6 +16,14 @@ const EXPECTED_PAGE1_URL = {
   indeed: 'https://za.indeed.com/jobs?q=software%20engineer&l=Johannesburg',
   pnet: 'https://www.pnet.co.za/jobs/?k=software%20engineer&l=Johannesburg',
   careerjunction: 'https://www.careerjunction.co.za/jobs/results/?k=software%20engineer&radius=50&l=Johannesburg',
+  googlejobs: 'https://www.google.com/search?q=software%20engineer%20jobs%20Johannesburg%20South%20Africa&ibp=htl;jobs&gl=za&hl=en-ZA',
+  adzuna: 'https://www.adzuna.co.za/search?q=software%20engineer&w=Johannesburg',
+  executive: 'https://www.executiveplacements.com/JobList.asp?Keywords=software%20engineer',
+  jobplacements: 'https://www.jobplacements.com/JobList.asp?Keywords=software%20engineer',
+  govza: 'https://www.nationalgovernment.co.za/units/view/1/Government-Vacancies',
+  jobmail: 'https://www.jobmail.co.za/search?keyword=software%20engineer&location=Johannesburg',
+  jobscoza: 'https://www.jobs.co.za/search.html?q=software%20engineer&l=Johannesburg',
+  gumtree: 'https://www.gumtree.co.za/s-jobs/v1c8p1/software-engineer/k0',
 };
 
 // Number of valid cards the synthetic fixture holds (noise cards are not counted).
@@ -24,6 +32,14 @@ const EXPECTED_FIXTURE_ITEMS = {
   indeed: 4,
   pnet: 4,
   careerjunction: 4,
+  googlejobs: 4,
+  adzuna: 4,
+  executive: 4,
+  jobplacements: 4,
+  govza: 4,
+  jobmail: 4,
+  jobscoza: 4,
+  gumtree: 4,
 };
 
 let browser = null;
@@ -35,7 +51,7 @@ async function extractFrom(source, file) {
   try {
     const page = await context.newPage();
     await page.setContent(readFileSync(path.join(FIXTURES, file), 'utf8'));
-    return await page.evaluate(source.extractInPage, { location: QUERY.location, origin: source.origin });
+    return await page.evaluate(source.extractInPage, { keyword: QUERY.keyword, location: QUERY.location, origin: source.origin });
   } finally {
     await context.close();
   }
@@ -97,8 +113,13 @@ for (const source of SOURCES) {
     assert.equal(items.length, EXPECTED_FIXTURE_ITEMS[source.id], 'noise cards must not be extracted');
     for (const item of items) {
       assert.ok(item.title && item.title.length > 3);
-      assert.ok(item.applyUrl, 'applyUrl present');
-      assert.match(item.applyUrl, /^https?:\/\//, 'applyUrl is absolute');
+      assert.equal(typeof item.applyUrl, 'string', 'applyUrl is always a string');
+      if (source.linkless) {
+        // Linkless sources (Google Jobs) never expose a direct apply link.
+        assert.equal(item.applyUrl, '', 'linkless sources emit an empty applyUrl');
+      } else {
+        assert.match(item.applyUrl, /^https?:\/\//, 'applyUrl is absolute');
+      }
       assert.equal(item.source, source.name);
       for (const k of ['company', 'location', 'description', 'datePosted']) assert.equal(typeof item[k], 'string');
     }

@@ -1,0 +1,64 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our Google Jobs extractor depends
+  on (.iFjolb / .PwjeAc cards and li rows under [jscontroller], heading/title, company
+  and location classes). It proves our extraction logic against a page of that shape,
+  NOT that the live Google Jobs widget still looks like this. Companies, roles and
+  URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs | Synthetic Google Jobs</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/preferences">Search settings</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo">Hiring? Post a job</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="job-list">
+    <!-- 1: .iFjolb card, title through div[role="heading"] -->
+    <div class="iFjolb">
+      <div role="heading">Senior Software Engineer</div>
+      <div class="vNEEBe">Acme Software (Pty) Ltd</div>
+      <div class="Qk80Jf">Johannesburg, Gauteng</div>
+    </div>
+
+    <!-- 2: .PwjeAc card, .sH3zFd title, no company -> Confidential -->
+    <div class="PwjeAc">
+      <div class="sH3zFd">Data Engineer</div>
+      <div class="Qk80Jf">Rosebank, Gauteng</div>
+    </div>
+
+    <!-- 3: li row under [jscontroller], .BjJfJf title -->
+    <div jscontroller="jobCardController">
+      <ul class="results">
+        <li class="job-row">
+          <div class="BjJfJf">QA Analyst</div>
+          <div class="nJlDiv">Globex Testing</div>
+          <div class="pwO9Le">Cape Town</div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- 4: .iFjolb card, title through [class*="BjJfJf"] -->
+    <div class="iFjolb">
+      <div class="card-heading BjJfJf-extra">DevOps Engineer</div>
+      <div class="vNEEBe">Initech Cloud</div>
+      <div class="Qk80Jf">Midrand</div>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our Gumtree SA extractor depends
+  on (.view-list-item / .tileV2 / listing-item classes and article[class*="listing"],
+  .title/h2/h3 title links, location, description). It proves our extraction logic
+  against a page of that shape, NOT that the live Gumtree SA site still looks like
+  this. Sellers, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in Johannesburg | Synthetic Gumtree</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/s-jobs">All jobs</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo">Post an advert</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="gt-feed">
+    <!-- 1: .view-list-item card, title through .title a -->
+    <div class="view-list-item">
+      <div class="title"><a href="/s-ad/senior-software-engineer/1234567890">Senior Software Engineer</a></div>
+      <div class="location">Johannesburg, Gauteng</div>
+      <p>Build and maintain services for a growing fintech platform. Synthetic description.</p>
+    </div>
+
+    <!-- 2: .tileV2 card, h2 title, absolute href -->
+    <div class="tileV2">
+      <h2><a href="https://www.gumtree.co.za/s-ad/data-engineer/1234567891">Data Engineer</a></h2>
+      <div class="area">Rosebank</div>
+      <p>Pipelines and warehousing.</p>
+    </div>
+
+    <!-- 3: article card, h3 title, no location -> South Africa -->
+    <article class="gt-listing">
+      <h3><a href="/s-ad/qa-analyst/1234567892">QA Analyst</a></h3>
+      <p>Manual and automated testing for web products.</p>
+    </article>
+
+    <!-- 4: listing-item card, title through a[class*="title"] -->
+    <div class="listing-item">
+      <a class="gt-title" href="/s-ad/devops-engineer/1234567893">DevOps Engineer</a>
+      <div class="location">Midrand</div>
+      <p>CI/CD, containers and observability.</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

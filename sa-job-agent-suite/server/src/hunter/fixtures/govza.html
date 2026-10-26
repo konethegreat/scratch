@@ -1,0 +1,54 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the logic our Govt SA extractor depends on:
+  anchor text matching the search keyword (software / engineer) and hrefs that
+  absolutise to http(s). The four matching anchors sit OUTSIDE tables so the table
+  scan cannot duplicate them. It proves our extraction logic against a page of that
+  shape, NOT that the live nationalgovernment.co.za site still looks like this.
+  Departments, roles and URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Government Vacancies | Synthetic Government Portal</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/about">About the government portal</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/circulars">Latest circulars</a>
+  </div>
+
+  <h1>Government Vacancies</h1>
+
+  <ul class="vacancies">
+    <!-- 1: relative href, exact keyword phrase -->
+    <li><a href="/units/view/1234/Senior-Software-Engineer">Senior Software Engineer - Department of Health</a></li>
+    <!-- 2: relative href, "software" word match -->
+    <li><a href="/units/view/1235/Software-Developer">Software Developer (Chief Directorate: ICT)</a></li>
+    <!-- 3: absolute href, "engineer" word match -->
+    <li><a href="https://www.nationalgovernment.co.za/units/view/1236/Engineer-Infrastructure">Engineer: Infrastructure - Department of Public Works</a></li>
+    <!-- 4: relative href, both words -->
+    <li><a href="/units/view/1237/Principal-Software-Engineer">Principal Software Engineer - Department of Communications</a></li>
+  </ul>
+
+  <table class="vacancy-table">
+    <thead>
+      <tr><th>Vacancy</th><th>Department</th><th>Closing date</th></tr>
+    </thead>
+    <tbody>
+      <!-- Non-matching rows: the table scan must not invent items. -->
+      <tr><td>Administrative Clerk</td><td>Department of Home Affairs</td><td>2026-11-01</td></tr>
+      <tr><td>Registry Assistant</td><td>Department of Justice</td><td>2026-11-05</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <a href="/privacy">Privacy policy</a>
+    <a href="/terms">Terms of use</a>
+  </footer>
+</body>
+</html>

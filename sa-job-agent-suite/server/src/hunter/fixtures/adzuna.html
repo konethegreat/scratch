@@ -1,0 +1,65 @@
+<!--
+  SYNTHETIC FIXTURE. Hand-written from the selectors our Adzuna SA extractor depends
+  on (article / .job / result / listing / advert cards, h2/h3 title links, company,
+  location, snippet, time). It proves our extraction logic against a page of that
+  shape, NOT that the live Adzuna SA site still looks like this. Companies, roles and
+  URLs are invented.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>software engineer jobs in Johannesburg | Synthetic Adzuna</title>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">Home</a>
+    <a href="/search">Search</a>
+  </nav>
+
+  <div class="promo-banner">
+    <a href="/promo">Upload your CV</a>
+  </div>
+
+  <h1>software engineer jobs in Johannesburg</h1>
+
+  <div class="az-feed">
+    <!-- 1: article card, relative href, every field present -->
+    <article class="az-card">
+      <h2><a href="/land/ad/12345">Senior Software Engineer</a></h2>
+      <div class="company-name">Acme Software (Pty) Ltd</div>
+      <div class="job-location">Johannesburg, Gauteng</div>
+      <p>Build and maintain services for a growing fintech platform. Synthetic description.</p>
+      <time datetime="2026-10-20">2 days ago</time>
+    </article>
+
+    <!-- 2: .job card, absolute href, no company -> Confidential -->
+    <div class="job">
+      <h3><a href="https://www.adzuna.co.za/land/ad/12346">Data Engineer</a></h3>
+      <div class="location">Rosebank, Gauteng</div>
+      <span class="snippet">Pipelines and warehousing.</span>
+      <span class="posted-date">Posted today</span>
+    </div>
+
+    <!-- 3: result card, title through a[class*="title"], no location -->
+    <div class="result-card">
+      <a class="job-title" href="/land/ad/12347">QA Analyst</a>
+      <div class="employer-name">Globex Testing</div>
+      <p>Manual and automated testing for web products.</p>
+    </div>
+
+    <!-- 4: advert card, title through [itemprop="title"] -->
+    <div class="advert-card">
+      <span itemprop="title"><a href="/land/ad/12348">DevOps Engineer</a></span>
+      <div class="company">Initech Cloud</div>
+      <div class="location">Midrand</div>
+      <p>CI/CD, containers and observability.</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

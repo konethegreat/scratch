@@ -147,6 +147,30 @@ test('runner: the page number is passed through buildUrl', async (t) => {
   );
 });
 
+test('runner: the search keyword is passed into extractInPage', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const source = {
+    ...fakeSource,
+    extractInPage: ({ keyword }) => [{
+      title: keyword,
+      company: 'Acme',
+      location: 'South Africa',
+      description: '',
+      applyUrl: 'https://fixture.test/k',
+      datePosted: 'Recently',
+      source: 'Fake Board',
+    }],
+  };
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<p>results rendered client-side</p>') }),
+    async (page) => {
+      const { items } = await fetchSourcePage(page, source, { keyword: 'rust developer', location: null }, 1);
+      assert.equal(items.length, 1);
+      assert.equal(items[0].title, 'rust developer');
+    },
+  );
+});
+
 const CARDS = '<ul><li class="job" data-id="1">Dev One</li><li class="job" data-id="2">Dev Two</li></ul>';
 const throwingSource = {
   ...fakeSource,

@@ -40,7 +40,7 @@ export function relativeTime(iso, now = Date.now()) {
 }
 
 export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly = false }) {
-  const [board, setBoard] = useState({ sources: [], browserBusy: null, testing: false });
+  const [board, setBoard] = useState({ sources: [], testing: false });
   const [loaded, setLoaded] = useState(false);
   const [pending, setPending] = useState('');
   const [inlineError, setInlineError] = useState('');
@@ -68,7 +68,6 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
       }
       setBoard({
         sources: Array.isArray(body.sources) ? body.sources : [],
-        browserBusy: body.browserBusy || null,
         testing: body.testing === true
       });
       setInlineError('');
@@ -102,8 +101,7 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
       if (!response.ok) {
         const message = body.error || `Request failed (HTTP ${response.status}).`;
         setInlineError(message);
-        if (body.error) toasts?.error?.(body.error);
-        else toasts?.error?.(message);
+        toasts?.error?.(message);
         return null;
       }
       return body;
@@ -169,7 +167,7 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
             <Activity size={15} /> Source health
           </h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            What each of the 12 registry sources returned last run — and what needs attention.
+            What each registry source returned last run — and what needs attention.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -275,7 +273,11 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
             );
           })}
           {allUnknown && (
-            <p className="tiny">All sources are unknown — launch the crawler or test sources to collect health data.</p>
+            <p className="tiny">
+              {readOnly
+                ? 'All sources are unknown — run the crawler to collect health data.'
+                : 'All sources are unknown — launch the crawler or test sources to collect health data.'}
+            </p>
           )}
         </div>
       )}

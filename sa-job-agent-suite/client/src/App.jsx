@@ -413,11 +413,6 @@ export default function App() {
     hunterWasRunningRef.current = hunterRunning;
   }, [hunterRunning]);
 
-  // A new search or status filter always starts the table window from the top.
-  useEffect(() => {
-    setVisibleJobCount(50);
-  }, [jobQuery, statusFilter]);
-
   // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
   // ancestor (including the window), so each 3s log poll yanked the whole
@@ -1270,11 +1265,11 @@ export default function App() {
                   <input
                     placeholder="Search jobs…"
                     value={jobQuery}
-                    onChange={(e) => setJobQuery(e.target.value)}
+                    onChange={(e) => { setJobQuery(e.target.value); setVisibleJobCount(50); }}
                     style={{ paddingLeft: 28, width: 220, fontSize: 12 }}
                   />
                 </div>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 150, fontSize: 12 }}>
+                <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setVisibleJobCount(50); }} style={{ width: 150, fontSize: 12 }}>
                   <option value="all">All statuses</option>
                   <option value="found">Discovered</option>
                   <option value="tailored">Tailored</option>

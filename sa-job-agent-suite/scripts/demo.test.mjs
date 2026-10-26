@@ -207,11 +207,11 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
   });
   // Jobs are seeded through the real API; POST forces today's date and score 75,
   // so every fixture is PATCHed afterwards to give it a distinct date/status.
-  const seedJob = async ({ title, company, dateAdded, status }) => {
+  const seedJob = async ({ title, company, dateAdded, status, location }) => {
     const created = await call('/api/jobs', { method: 'POST', body: JSON.stringify({ title, company }) });
     assert.equal(created.status, 200, `${title}: ${await created.clone().text()}`);
     const { job } = await created.json();
-    const patched = await call(`/api/jobs/${job.id}`, { method: 'PATCH', body: JSON.stringify({ dateAdded, status }) });
+    const patched = await call(`/api/jobs/${job.id}`, { method: 'PATCH', body: JSON.stringify({ dateAdded, status, location }) });
     assert.equal(patched.status, 200, `${title} patch: ${await patched.clone().text()}`);
     return (await patched.json()).job;
   };
@@ -431,7 +431,7 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       { title: 'Data Analyst', company: 'Acme Labs', dateAdded: '2026-01-01', status: 'found' },
       { title: 'QA Engineer', company: 'Delta Systems', dateAdded: '2026-01-04', status: 'found' },
       { title: 'React Team Lead', company: 'Echo Works', dateAdded: '2026-01-06', status: 'applied' },
-      { title: 'Support Engineer', company: 'Foxtrot', dateAdded: '2026-01-02', status: 'found' }
+      { title: 'Support Engineer', company: 'Foxtrot', dateAdded: '2026-01-02', status: 'found', location: 'React Campus, Johannesburg' }
     ]) seeded.push(await seedJob(spec));
     const [alpha, beta, gamma, delta, epsilon, foxtrot] = seeded;
     const pageTitles = (page) => page.items.map(job => job.title);
@@ -470,9 +470,12 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       assert.equal(foundTail.nextCursor, null);
 
       const react = await jobPage('?limit=2&q=REACT');
-      assert.equal(react.total, 2, 'q is trimmed and lowercased against titles');
+      assert.equal(react.total, 2, 'q is lowercased against titles; locations are excluded');
       assert.deepEqual(pageTitles(react), ['React Developer', 'React Team Lead']);
       assert.equal(react.nextCursor, null);
+
+      const reactTrimmed = await jobPage(`?limit=2&q=${encodeURIComponent('  react  ')}`);
+      assert.equal(reactTrimmed.total, 2, 'q is trimmed');
 
       const acme = await jobPage('?limit=1&status=all&q=acme');
       assert.equal(acme.total, 2, 'q also matches the company; status=all does not filter');
@@ -495,6 +498,17 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
         assert.deepEqual(page.items.map(job => job.id), [alpha.id, beta.id], cursor);
         assert.equal(page.nextCursor, Buffer.from('2').toString('base64'), cursor);
       }
+    });
+
+    await t.test('limit is clamped and a cursor is ignored without limit', async () => {
+      const one = await jobPage('?limit=0');
+      assert.equal(one.total, 6);
+      assert.deepEqual(pageTitles(one), ['React Developer'], 'limit=0 clamps up to 1');
+      assert.equal(one.nextCursor, Buffer.from('1').toString('base64'));
+
+      const legacy = await jobPage(`?cursor=${encodeURIComponent(Buffer.from('2').toString('base64'))}`);
+      assert.ok(Array.isArray(legacy), 'cursor alone keeps the legacy array response');
+      assert.equal(legacy.length, 6);
     });
   } finally {
     if (child.exitCode === null) {

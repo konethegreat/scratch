@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { LEGACY_KEY_FIELDS, LEGACY_PROFILE_FIELDS } from './db/migrations.js';
+import { clampJobLimit, decodeJobCursor } from './jobs/paging.js';
 import {
   getProfile,
   saveProfile,
@@ -484,16 +485,6 @@ app.delete('/api/memory', (req, res) => {
 
 // -------------------- Jobs Routes --------------------
 
-// A paging cursor is the base64 of a zero-based offset. Anything that does not
-// decode to a non-negative safe integer falls back to the first page.
-function decodeJobCursor(value) {
-  if (typeof value !== 'string' || !value) return 0;
-  const text = Buffer.from(value, 'base64').toString('utf8').trim();
-  if (!/^\d+$/.test(text)) return 0;
-  const offset = Number(text);
-  return Number.isSafeInteger(offset) ? offset : 0;
-}
-
 // Without `limit` this stays the original full score-desc array. With `limit`
 // it returns { items, nextCursor, total }: filters run before paging, and the
 // cursor is only read in that mode. GET never writes anything.
@@ -505,8 +496,7 @@ app.get('/api/jobs', (req, res) => {
       return res.json(jobs);
     }
 
-    const parsedLimit = parseInt(String(req.query.limit), 10);
-    const limit = Number.isNaN(parsedLimit) ? 50 : Math.min(200, Math.max(1, parsedLimit));
+    const limit = clampJobLimit(req.query.limit);
     const status = typeof req.query.status === 'string' ? req.query.status : '';
     const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
 

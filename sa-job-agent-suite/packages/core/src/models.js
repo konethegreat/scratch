@@ -53,6 +53,7 @@ export const TASKS = Object.freeze({
   'vision':          { model: S, effort: 'low',    maxTokens: 2000 },
   'memory':          { model: S, effort: 'low',    maxTokens: 6000 },
   'computer-use':    { model: S, effort: 'medium', maxTokens: 4096 },
+  'extract':         { model: MODEL_IDS.haiku, effort: 'low', maxTokens: 6000 },
   'core':            { model: S, effort: 'medium', maxTokens: 8000 }
 });
 

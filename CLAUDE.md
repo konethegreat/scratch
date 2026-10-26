@@ -273,6 +273,7 @@ Cache writes (5-minute) are estimated at 1.25x the input price and a web search 
 | `vision` | screenshot fallback | Sonnet | low | 2000 |
 | `memory` | reflection + Dreaming | Sonnet | low | 6000 |
 | `computer-use` | computer-use finisher | Sonnet | medium | 4096 |
+| `extract` | Hunter page-extractor fallback | Haiku | low | 6000 |
 | `core` | anything unlabelled (also the fallback for an unknown task) | Sonnet | medium | 8000 |
 
 `resolveModel(profile, task)`: a profile override applies only if it is an exact registry ID — `aiSearchModel` for `ai-search`, `link-repair`, `research` and `referral-search`; `computerUseModel` for `computer-use`; `selectedModel` for everything else. Otherwise the task's registry model is used. Settings model pickers are fed by `GET /api/models`.

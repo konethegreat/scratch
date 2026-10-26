@@ -21,9 +21,13 @@ test('every TASKS entry names a registry model and a valid effort', () => {
     assert.ok(efforts.includes(t.effort), `${name} effort`);
     assert.ok(t.maxTokens > 0, `${name} maxTokens`);
   }
-  assert.equal(Object.keys(TASKS).length, 12);
+  assert.equal(Object.keys(TASKS).length, 13);
   // Agent 2 documents are long; adaptive thinking shares the budget (a cut-off CV is never saved).
   assert.equal(TASKS.tailor.maxTokens, 16000);
+});
+
+test('TASKS.extract is Haiku, low effort, floor 6000', () => {
+  assert.deepEqual(TASKS.extract, { model: MODEL_IDS.haiku, effort: 'low', maxTokens: 6000 });
 });
 
 test('taskConfig falls back to core for unknown tasks', () => {

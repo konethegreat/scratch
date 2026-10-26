@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Activity, AlertTriangle, Loader2, Play, RotateCcw } from 'lucide-react';
 
 /**
@@ -44,13 +44,26 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
   const [loaded, setLoaded] = useState(false);
   const [pending, setPending] = useState('');
   const [inlineError, setInlineError] = useState('');
+  // load() is kept independent of the (per-render) toasts object so its effect
+  // identity stays stable; the ref still reaches the latest toast helpers.
+  const toastsRef = useRef(toasts);
+  toastsRef.current = toasts;
+  const lastErrorRef = useRef('');
+
+  const reportLoadError = (message) => {
+    setInlineError(message);
+    if (lastErrorRef.current !== message) {
+      lastErrorRef.current = message;
+      toastsRef.current?.error?.(message);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
       const response = await fetch(`${apiBase}/hunter/sources`, { cache: 'no-store' });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setInlineError(body.error || `Could not load source health (HTTP ${response.status}).`);
+        reportLoadError(body.error || `Could not load source health (HTTP ${response.status}).`);
         return;
       }
       setBoard({
@@ -59,12 +72,13 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
         testing: body.testing === true
       });
       setInlineError('');
+      lastErrorRef.current = '';
     } catch (error) {
-      setInlineError(error.message || 'Could not load source health.');
+      reportLoadError(error.message || 'Could not load source health.');
     } finally {
       setLoaded(true);
     }
-  }, [apiBase]);
+  }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps -- reportLoadError only touches refs/setters
 
   // Mount and every explicit refresh (e.g. after a hunt finishes).
   useEffect(() => {

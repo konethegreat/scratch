@@ -205,6 +205,21 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
     req.on('error', reject);
     req.end();
   });
+  // Jobs are seeded through the real API; POST forces today's date and score 75,
+  // so every fixture is PATCHed afterwards to give it a distinct date/status.
+  const seedJob = async ({ title, company, dateAdded, status }) => {
+    const created = await call('/api/jobs', { method: 'POST', body: JSON.stringify({ title, company }) });
+    assert.equal(created.status, 200, `${title}: ${await created.clone().text()}`);
+    const { job } = await created.json();
+    const patched = await call(`/api/jobs/${job.id}`, { method: 'PATCH', body: JSON.stringify({ dateAdded, status }) });
+    assert.equal(patched.status, 200, `${title} patch: ${await patched.clone().text()}`);
+    return (await patched.json()).job;
+  };
+  const jobPage = async (query) => {
+    const response = await call(`/api/jobs${query}`);
+    assert.equal(response.status, 200, `${query}: ${await response.clone().text()}`);
+    return response.json();
+  };
   try {
     const deadline = Date.now() + 15000;
     for (;;) {
@@ -405,6 +420,81 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       const on = await call('/api/hunter/sources/pnet', { method: 'PATCH', body: JSON.stringify({ enabled: true }) });
       assert.equal(on.status, 200);
       assert.equal((await on.json()).source.enabled, true);
+    });
+
+    // Seed six jobs in a known order. Every POST starts at score 75 / today, so
+    // the PATCH gives each fixture a distinct dateAdded and status.
+    const seeded = [];
+    for (const spec of [
+      { title: 'React Developer', company: 'Acme Labs', dateAdded: '2026-01-03', status: 'found' },
+      { title: 'Node.js Engineer', company: 'Bravo Tech', dateAdded: '2026-01-05', status: 'applied' },
+      { title: 'Data Analyst', company: 'Acme Labs', dateAdded: '2026-01-01', status: 'found' },
+      { title: 'QA Engineer', company: 'Delta Systems', dateAdded: '2026-01-04', status: 'found' },
+      { title: 'React Team Lead', company: 'Echo Works', dateAdded: '2026-01-06', status: 'applied' },
+      { title: 'Support Engineer', company: 'Foxtrot', dateAdded: '2026-01-02', status: 'found' }
+    ]) seeded.push(await seedJob(spec));
+    const [alpha, beta, gamma, delta, epsilon, foxtrot] = seeded;
+    const pageTitles = (page) => page.items.map(job => job.title);
+
+    await t.test('GET /api/jobs without limit still returns the full score-ordered array', async () => {
+      const jobs = await jobPage('');
+      assert.ok(Array.isArray(jobs), 'no limit means the legacy array response');
+      assert.deepEqual(jobs.map(job => job.id), seeded.map(job => job.id), 'equal scores keep the original array order');
+      assert.deepEqual(jobs.map(job => job.matchScore), [75, 75, 75, 75, 75, 75]);
+    });
+
+    await t.test('with limit=2 returns items, total and a nextCursor that walks to the end', async () => {
+      const first = await jobPage('?limit=2&sort=date');
+      assert.equal(first.total, 6);
+      assert.deepEqual(pageTitles(first), ['React Team Lead', 'Node.js Engineer']);
+      assert.equal(first.nextCursor, Buffer.from('2').toString('base64'));
+
+      const second = await jobPage(`?limit=2&sort=date&cursor=${encodeURIComponent(first.nextCursor)}`);
+      assert.equal(second.total, 6);
+      assert.deepEqual(pageTitles(second), ['QA Engineer', 'React Developer']);
+      assert.equal(second.nextCursor, Buffer.from('4').toString('base64'));
+
+      const third = await jobPage(`?limit=2&sort=date&cursor=${encodeURIComponent(second.nextCursor)}`);
+      assert.equal(third.total, 6);
+      assert.deepEqual(pageTitles(third), ['Support Engineer', 'Data Analyst']);
+      assert.equal(third.nextCursor, null, 'the final page has no cursor');
+    });
+
+    await t.test('status and q filters apply before paging', async () => {
+      const found = await jobPage('?limit=2&status=found');
+      assert.equal(found.total, 4, 'only the four found jobs count');
+      assert.deepEqual(pageTitles(found), ['React Developer', 'Data Analyst']);
+      assert.equal(found.nextCursor, Buffer.from('2').toString('base64'));
+      const foundTail = await jobPage(`?limit=2&status=found&cursor=${encodeURIComponent(found.nextCursor)}`);
+      assert.deepEqual(pageTitles(foundTail), ['QA Engineer', 'Support Engineer']);
+      assert.equal(foundTail.nextCursor, null);
+
+      const react = await jobPage('?limit=2&q=REACT');
+      assert.equal(react.total, 2, 'q is trimmed and lowercased against titles');
+      assert.deepEqual(pageTitles(react), ['React Developer', 'React Team Lead']);
+      assert.equal(react.nextCursor, null);
+
+      const acme = await jobPage('?limit=1&status=all&q=acme');
+      assert.equal(acme.total, 2, 'q also matches the company; status=all does not filter');
+      assert.deepEqual(pageTitles(acme), ['React Developer']);
+      assert.equal(acme.nextCursor, Buffer.from('1').toString('base64'));
+    });
+
+    await t.test('sort=date orders by dateAdded descending', async () => {
+      const page = await jobPage('?limit=50&sort=date');
+      assert.deepEqual(page.items.map(job => job.id), [epsilon.id, beta.id, delta.id, alpha.id, foxtrot.id, gamma.id]);
+      assert.deepEqual(page.items.map(job => job.dateAdded),
+        ['2026-01-06', '2026-01-05', '2026-01-04', '2026-01-03', '2026-01-02', '2026-01-01']);
+      assert.equal(page.nextCursor, null);
+    });
+
+    await t.test('a malformed cursor falls back to offset 0', async () => {
+      for (const cursor of ['not-a-cursor', Buffer.from('-3').toString('base64'), Buffer.from('1.5').toString('base64')]) {
+        const page = await jobPage(`?limit=2&cursor=${encodeURIComponent(cursor)}`);
+        assert.equal(page.total, 6, cursor);
+        assert.deepEqual(page.items.map(job => job.id), [alpha.id, beta.id], cursor);
+        assert.equal(page.nextCursor, Buffer.from('2').toString('base64'), cursor);
+      }
     });
   } finally {
     if (child.exitCode === null) {

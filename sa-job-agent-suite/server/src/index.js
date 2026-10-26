@@ -484,11 +484,59 @@ app.delete('/api/memory', (req, res) => {
 
 // -------------------- Jobs Routes --------------------
 
+// A paging cursor is the base64 of a zero-based offset. Anything that does not
+// decode to a non-negative safe integer falls back to the first page.
+function decodeJobCursor(value) {
+  if (typeof value !== 'string' || !value) return 0;
+  const text = Buffer.from(value, 'base64').toString('utf8').trim();
+  if (!/^\d+$/.test(text)) return 0;
+  const offset = Number(text);
+  return Number.isSafeInteger(offset) ? offset : 0;
+}
+
+// Without `limit` this stays the original full score-desc array. With `limit`
+// it returns { items, nextCursor, total }: filters run before paging, and the
+// cursor is only read in that mode. GET never writes anything.
 app.get('/api/jobs', (req, res) => {
   try {
     const jobs = getJobs();
-    jobs.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
-    res.json(jobs);
+    if (req.query.limit === undefined) {
+      jobs.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+      return res.json(jobs);
+    }
+
+    const parsedLimit = parseInt(String(req.query.limit), 10);
+    const limit = Number.isNaN(parsedLimit) ? 50 : Math.min(200, Math.max(1, parsedLimit));
+    const status = typeof req.query.status === 'string' ? req.query.status : '';
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+
+    const filtered = jobs.filter((job) => {
+      if (status && status !== 'all' && job.status !== status) return false;
+      if (query) {
+        const title = String(job.title || '').toLowerCase();
+        const company = String(job.company || '').toLowerCase();
+        if (!title.includes(query) && !company.includes(query)) return false;
+      }
+      return true;
+    });
+
+    const sortByDate = req.query.sort === 'date';
+    const ordered = filtered
+      .map((job, index) => ({ job, index }))
+      .sort((a, b) => {
+        const primary = sortByDate
+          ? (Date.parse(b.job.dateAdded || '') || 0) - (Date.parse(a.job.dateAdded || '') || 0)
+          : (b.job.matchScore || 0) - (a.job.matchScore || 0);
+        return primary || a.index - b.index; // stable: ties keep the original array order
+      })
+      .map((entry) => entry.job);
+
+    const total = ordered.length;
+    const offset = req.query.cursor === undefined ? 0 : decodeJobCursor(req.query.cursor);
+    const items = ordered.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const nextCursor = nextOffset < total ? Buffer.from(String(nextOffset)).toString('base64') : null;
+    res.json({ items, nextCursor, total });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

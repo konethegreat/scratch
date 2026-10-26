@@ -38,6 +38,7 @@ import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
+import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
@@ -284,9 +285,11 @@ export default function App() {
   const [loginStatuses, setLoginStatuses] = useState(null); // null = never checked
   const [isCheckingLogins, setIsCheckingLogins] = useState(false);
 
-  // Search/filter on the job list
+  // Search/filter on the job list. The table is windowed client-side (50 rows
+  // at a time) because GET /api/jobs still sends the full array here.
   const [jobQuery, setJobQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [visibleJobCount, setVisibleJobCount] = useState(50);
 
   // Modal state
   const [confirm, setConfirm] = useState({ open: false });
@@ -401,6 +404,19 @@ export default function App() {
     }, 3000);
     return () => clearInterval(interval);
   }, [fetchLogs, fetchJobs, fetchStatus]);
+
+  // The source board keeps its own 3 s testing poll; when a hunt finishes, bump
+  // refreshTick so the health rows reflect the run that just ended.
+  const hunterWasRunningRef = useRef(false);
+  useEffect(() => {
+    if (hunterWasRunningRef.current && !hunterRunning) setRefreshTick((t) => t + 1);
+    hunterWasRunningRef.current = hunterRunning;
+  }, [hunterRunning]);
+
+  // A new search or status filter always starts the table window from the top.
+  useEffect(() => {
+    setVisibleJobCount(50);
+  }, [jobQuery, statusFilter]);
 
   // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
@@ -958,7 +974,7 @@ export default function App() {
 
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
-    hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then 12 SA scrapers — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
+    hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then the 12-source scraper registry (health-aware and paginated) — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message — you review and send.' },
@@ -1182,10 +1198,11 @@ export default function App() {
         {/* ============================== HUNTER ============================== */}
         {activeTab === 'hunter' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
+            <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
             <div className="flex-between" style={{ marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ fontSize: 18 }}>Scraping pipeline</h3>
-                <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>Sources: LinkedIn · Indeed SA · PNet · CareerJunction · Google Jobs · Adzuna SA · Executive Placements · Job Placements · National Govt · JobMail · Jobs.co.za · Gumtree SA</p>
+                <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>Sources (12-source registry): LinkedIn · Indeed SA · PNet · CareerJunction · Google Jobs · Adzuna SA · Executive Placements · Job Placements · National Govt · JobMail · Jobs.co.za · Gumtree SA</p>
               </div>
               <div className="flex-gap">
                 {jobs.length > 0 && (
@@ -1279,7 +1296,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredJobs.map((job) => (
+                  {filteredJobs.slice(0, visibleJobCount).map((job) => (
                     <tr key={job.id}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{job.title}</div>
@@ -1319,6 +1336,18 @@ export default function App() {
                       </td>
                     </tr>
                   ))}
+                  {filteredJobs.length > visibleJobCount && (
+                    <tr>
+                      <td colSpan="6" style={{ padding: '14px 0', textAlign: 'center' }}>
+                        <button className="btn-secondary btn-sm" onClick={() => setVisibleJobCount((count) => count + 50)}>
+                          Show 50 more
+                        </button>
+                        <span className="tiny" style={{ marginLeft: 10 }}>
+                          showing {visibleJobCount} of {filteredJobs.length}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
                   {filteredJobs.length === 0 && (
                     <tr><td colSpan="6" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
                       {jobs.length === 0 ? 'No records harvested yet. Set parameters and start your crawler!' : 'No jobs match your current filter.'}

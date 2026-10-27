@@ -1,6 +1,6 @@
 # Agentic RAG Over Candidate Documents: Design
 
-**Status:** approved, implementing
+**Status:** shipped 2026-10-28 (PR #13, `c9aa0a3`)
 **Date:** 2026-10-27
 **Arc:** 5 of the post-M3a-3 pipeline
 **Sources of truth:** [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md) section "Arc 5", and the user-supplied `ibm_style_advanced_rag_guide.md`.

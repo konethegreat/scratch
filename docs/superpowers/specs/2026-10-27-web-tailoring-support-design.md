@@ -1,6 +1,6 @@
 # Web tailoring and support design
 
-**Status:** approved, implementing
+**Status:** implemented 2026-10-27
 **Owner:** Kone
 **Created:** 2026-10-27
 **Arc:** 4 of the [post-M3a-3 pipeline](2026-10-27-post-m3a3-pipeline.md)

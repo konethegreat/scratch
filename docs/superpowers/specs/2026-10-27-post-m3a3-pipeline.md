@@ -122,7 +122,7 @@ Acceptance criteria:
 
 Out of scope: new product features, new data sources, and any change to the key lifecycle.
 
-## Arc 4: Web tailoring and support (in progress)
+## Arc 4: Web tailoring and support (shipped 2026-10-27)
 
 **Goal:** make the Document Tailor tab work in the hosted app, with honest spend tracking, and give every visitor a support path.
 
@@ -142,6 +142,8 @@ Acceptance criteria:
 - All gates pass offline, then the live flow is checked in a real browser before promotion.
 
 Out of scope: web research fan-out, memory digests, batch tailoring, server PDFs, and any request that carries user data to our origin.
+
+**Evidence:** `packages/core/src/tailorPrompts.test.js`, `client/src/web/usage.test.js`, `client/src/web/tailor.test.js`, `client/src/print.test.js` and `client/src/support.test.js` cover the units offline. `scripts/web-tailor.mjs` drives the real flow in Chromium against a mocked Anthropic endpoint: tailor, documents, Copy, Print, Usage, budget stop with a Get help link, Help and landing Support, reload persistence, and no key to our origin. The live check runs the same flow on the deployed URL.
 
 ## Arc 5: Agentic RAG over candidate documents
 

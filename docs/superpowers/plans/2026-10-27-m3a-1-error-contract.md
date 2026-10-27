@@ -37,6 +37,7 @@
 - **R10 — `/api/health` is not an error endpoint.** It stays `{ status: 'ok', timestamp }`.
 - **R11 — object `details` serialise (post-review amendment).** The first reference implementation stringified `ClaudeRefusalError.details` (an object from the SDK) to `"[object Object]"`, defeating R4. `text()` now JSON-serialises non-string values before scrubbing, and `toUserError` tolerates a `null` context. Two tests were added (object details, null context), so Task 1's suite is 16 tests, not 14.
 - **R12 — the terminal handler logs (post-review amendment).** The three-line `errorHandler` turned every unexpected throw into an untraceable 500 once Task 3 wired it. It now answers through `errorBody`, emits one flat scrubbed `[requestId] message` line for status ≥ 500, and mirrors `X-Request-Id` on both `sendError` and the handler path. Task 2's suite is 14 tests, not 9.
+- **R13 — one clipboard helper (post-review amendment).** `RecentErrors` and `App.jsx`'s `copyText` still used `navigator.clipboard` without R6's fallback, and `ErrorCard` duplicated a partial helper. The shipped code puts `copyToClipboard` in `client/src/clipboard.js` (async API, then `execCommand`, both failures caught, textarea removed in `finally`, boolean result), imports it in all three callers, and adds `clipboard.test.js` (3 tests). The client suite is 10 tests, not 7.
 
 ---
 
@@ -1260,8 +1261,8 @@ export function diagnosticsText(entry) {
 
 - [ ] **Step 5: Run the client tests to verify they pass**
 
-Run: `cd sa-job-agent-suite/client && node --test src/errors.test.js`
-Expected: PASS — 7 tests.
+Run: `cd sa-job-agent-suite/client && npm test`
+Expected: PASS — 10 tests (7 errors + 3 clipboard, added by R13).
 
 - [ ] **Step 6: Add `ErrorCard.jsx`**
 

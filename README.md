@@ -273,6 +273,25 @@ Web search adds about $0.01 per search. Prices are the registry's estimates (`pa
 
 ## Tips & troubleshooting
 
+### When something goes wrong
+
+Every error card and toast names a code, the cause and a fix. The most common:
+
+| Code | What happened | What to do |
+|---|---|---|
+| `KEY_INVALID` / `KEY_ADMIN` | No key, a malformed key, or an Anthropic admin key | Paste a standard API key (`sk-ant-api…`) in Profile & Settings |
+| `AUTH_REJECTED` | Anthropic rejected the key | Check or replace the key in Profile & Settings |
+| `RATE_LIMITED` | Too many requests for this key | Wait about a minute, then Retry |
+| `OVERLOADED` | Anthropic is busy or the request timed out | Retry in a moment |
+| `BUDGET_EXCEEDED` | The daily AI budget is spent | Raise the cap in Settings → AI & Cost, or wait until tomorrow |
+| `NETWORK_OFFLINE` / `CORS_BLOCKED` | The request never reached the service | Check the connection/proxy, then Retry |
+| `STORAGE_FULL` / `STORAGE_UNAVAILABLE` | The browser blocked or filled local storage | Allow site data, free space, then reload |
+| `CONFLICT` | Another hunt/tailor/apply run owns the browser | Wait for it to finish, then Retry |
+
+Click **Copy diagnostics** on any error card (or in Activity Logs → Recent
+errors) to copy the code, request id and scrubbed detail. The log is memory-only
+and disappears on reload.
+
 **Hunter saved 0 jobs** — check the Run Summary on the Dashboard. Usually: AI search off, no Anthropic key, or keywords matched nothing. Enable AI search and add an Anthropic key.
 
 **Autopilot typed into a search box / didn't enter the application** — fixed: it now skips search boxes, detects real forms, and clicks Apply/Continue on listing pages to reach the form. If a site is unusual, enable the vision fallback or click Apply yourself; it takes over from there.

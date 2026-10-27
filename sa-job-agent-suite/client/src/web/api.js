@@ -3,12 +3,14 @@
 // server so the client needs no second error path.
 import { AppError, ERROR_CODES, statusForCode, toUserError } from '@sajas/core/errors';
 import { MODELS } from '@sajas/core/models';
+import { fingerprint } from '@sajas/core/feeds';
 import { STORES } from './vault.js';
 import { limit } from './limits.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
 const INSIGHT_CATEGORIES = ['preference', 'strength', 'achievement', 'style', 'constraint', 'other'];
+const TRACKER_STATUSES = ['found', 'tailored', 'applied', 'interviewing', 'offer', 'rejected', 'tailoring'];
 
 function ok(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -136,19 +138,21 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   }
 
   async function addJob(input, init) {
-    const { title, company, location, description, applyUrl, source } = await bodyOf(input, init);
+    const { title, company, location, description, applyUrl, source, matchScore, datePosted } = await bodyOf(input, init);
     if (!String(title || '').trim() || !String(company || '').trim()) {
       throw new AppError(ERROR_CODES.VALIDATION, 'Title and company are required.');
     }
     const jobs = await vault.getAll(STORES.jobs);
-    const same = jobs.find((job) => String(job.title).trim().toLowerCase() === String(title).trim().toLowerCase()
-      && String(job.company).trim().toLowerCase() === String(company).trim().toLowerCase());
+    const wanted = fingerprint(title, company);
+    const same = jobs.find((job) => fingerprint(job.title, job.company) === wanted);
     if (same) {
       throw new AppError(ERROR_CODES.CONFLICT, 'A similar job already exists.', {
         retryable: false,
         hint: 'Find the existing job in your tracker instead of adding it again.'
       });
     }
+    const score = Number(matchScore);
+    const posted = String(datePosted || '');
     const job = {
       id: crypto.randomUUID(),
       title: limit(title, 300),
@@ -156,9 +160,10 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       location: limit(location || 'South Africa', 200),
       description: limit(description, MAX_TEXT),
       applyUrl: limit(applyUrl, 2000),
-      datePosted: now().toISOString().slice(0, 10),
-      matchScore: 75,
+      datePosted: /^\d{4}-\d{2}-\d{2}$/.test(posted) ? posted : now().toISOString().slice(0, 10),
+      matchScore: Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 75,
       status: 'found',
+      notes: '',
       source: limit(source || 'Manual', 80),
       tailoredCvText: '',
       tailoredCoverLetterText: '',
@@ -173,7 +178,24 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
     const current = await vault.get(STORES.jobs, id);
     if (!current) throw new AppError(ERROR_CODES.NOT_FOUND, 'Job not found.');
     const patch = await bodyOf(input, init);
-    const next = { ...current, ...patch, id: current.id };
+    const next = { ...current };
+    if (patch.status !== undefined) {
+      if (!TRACKER_STATUSES.includes(patch.status)) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'That is not a status this tracker uses.', {
+          retryable: false,
+          hint: 'Use one of: found, tailored, applied, interviewing, offer, rejected.'
+        });
+      }
+      next.status = patch.status;
+    }
+    if (patch.notes !== undefined) {
+      if (typeof patch.notes !== 'string') {
+        throw new AppError(ERROR_CODES.VALIDATION, 'Notes must be text.');
+      }
+      next.notes = limit(patch.notes, MAX_TEXT);
+    }
+    if (patch.applyUrl !== undefined) next.applyUrl = limit(patch.applyUrl, 2000);
+    if (patch.description !== undefined) next.description = limit(patch.description, MAX_TEXT);
     await vault.put(STORES.jobs, id, next);
     return ok({ success: true, job: next });
   }

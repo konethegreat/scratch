@@ -26,6 +26,16 @@ async function json(res) {
   return res.json();
 }
 
+async function seedJob(vault) {
+  const job = {
+    id: 'job-1', title: 'Dev', company: 'Acme', location: 'Cape Town', description: '',
+    applyUrl: '', source: 'Manual', matchScore: 75, status: 'found', notes: '',
+    dateAdded: '2026-10-20', datePosted: '2026-10-20'
+  };
+  await vault.put(STORES.jobs, job.id, job);
+  return job;
+}
+
 test('models are the public registry, without key material', async () => {
   const { call } = harness();
   const res = await call('/models');
@@ -194,6 +204,74 @@ test('candidate memory CRUD is local and typed', async () => {
   await call('/memory', { method: 'DELETE' });
   assert.equal((await json(await call('/memory'))).insights.length, 0);
   assert.equal((await json(await call('/memory'))).employers.length, 0);
+});
+
+test('a tracker update accepts a known status and notes', async () => {
+  const { call, vault } = harness();
+  const job = await seedJob(vault);
+  const res = await call(`/jobs/${job.id}`, {
+    method: 'PATCH',
+    body: { status: 'interviewing', notes: 'Call on Tuesday' }
+  });
+  assert.equal(res.status, 200);
+  const saved = await vault.get(STORES.jobs, job.id);
+  assert.equal(saved.status, 'interviewing');
+  assert.equal(saved.notes, 'Call on Tuesday');
+});
+
+test('an unknown status is rejected and nothing is written', async () => {
+  const { call, vault } = harness();
+  const job = await seedJob(vault);
+  const res = await call(`/jobs/${job.id}`, {
+    method: 'PATCH',
+    body: { status: 'hired' }
+  });
+  assert.equal(res.status, 400);
+  const body = await json(res);
+  assert.equal(body.code, 'VALIDATION');
+  assert.match(body.hint, /found/);
+  assert.equal((await vault.get(STORES.jobs, job.id)).status, 'found');
+});
+
+test('notes are bounded and unknown fields are ignored', async () => {
+  const { call, vault } = harness();
+  const job = await seedJob(vault);
+  const res = await call(`/jobs/${job.id}`, {
+    method: 'PATCH',
+    body: { notes: 'x'.repeat(25000), matchScore: 1, id: 'other' }
+  });
+  assert.equal(res.status, 200);
+  const saved = await vault.get(STORES.jobs, job.id);
+  assert.equal(saved.notes.length, 20000);
+  assert.equal(saved.matchScore, job.matchScore);
+  assert.equal(saved.id, job.id);
+});
+
+test('a new job keeps bounded feed fields and dedupes by fingerprint', async () => {
+  const { call, vault } = harness();
+  await seedJob(vault);
+  let res = await call('/jobs', { method: 'POST', body: { title: 'Dev', company: 'Acme (Pty) Ltd' } });
+  assert.equal(res.status, 409);
+  assert.equal((await json(res)).code, 'CONFLICT');
+
+  res = await call('/jobs', {
+    method: 'POST',
+    body: { title: 'Data Analyst', company: 'Beta Labs', matchScore: 130, datePosted: '2026-09-01' }
+  });
+  assert.equal(res.status, 200);
+  const job = (await json(res)).job;
+  assert.equal(job.matchScore, 100);
+  assert.equal(job.datePosted, '2026-09-01');
+  assert.equal(job.notes, '');
+
+  res = await call('/jobs', {
+    method: 'POST',
+    body: { title: 'Support Engineer', company: 'Gamma', matchScore: -5, datePosted: '2026/09/01' }
+  });
+  const low = (await json(res)).job;
+  assert.equal(low.matchScore, 0);
+  assert.match(low.datePosted, /^\d{4}-\d{2}-\d{2}$/);
+  assert.notEqual(low.datePosted, '2026/09/01');
 });
 
 test('a storage quota failure becomes STORAGE_FULL, not UNKNOWN', async () => {

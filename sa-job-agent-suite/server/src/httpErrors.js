@@ -24,6 +24,9 @@ export function errorBody(err, requestId, { success = true } = {}) {
 
 export function sendError(res, err, { status, success = true } = {}) {
   const derived = errorBody(err, res.req?.id ?? null, { success });
+  if (!res.headersSent && typeof res.setHeader === 'function') {
+    res.setHeader(REQUEST_ID_HEADER, derived.body.requestId);
+  }
   return res.status(status ?? derived.status).json(derived.body);
 }
 
@@ -40,5 +43,7 @@ export const forbidden = helper(ERROR_CODES.FORBIDDEN);
 /** Terminal middleware: a thrown route error becomes a contract response. */
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
-  return sendError(res, err);
+  const { status, body } = errorBody(err, res.req?.id ?? req?.id ?? null);
+  if (status >= 500) console.error(`[${body.requestId}] ${body.message}`);
+  return res.status(status).json(body);
 }

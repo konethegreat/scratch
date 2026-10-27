@@ -53,6 +53,7 @@ test('sendError derives status and the full wire shape from an AppError', () => 
   assert.equal(res.body.requestId, 'local-abc');
   assert.ok(res.body.hint.length > 0);
   assert.equal(Object.hasOwn(res.body, 'details'), false);
+  assert.equal(res.headers['X-Request-Id'], res.body.requestId);
 });
 
 test('sendError maps a plain error to 500 UNKNOWN with no stack', () => {
@@ -101,6 +102,48 @@ test('key-shaped text never reaches the response body', () => {
   const { body } = errorBody(new AppError('UNKNOWN', `bad ${key}`), 'local-x');
   assert.ok(!JSON.stringify(body).includes(key));
   assert.ok(body.message.includes('redacted-key'));
+});
+
+test('sendError synthesises and mirrors an id when res.req has no id', () => {
+  const res = fakeRes();
+  delete res.req.id;
+  sendError(res, new AppError(ERROR_CODES.NOT_FOUND, 'gone'));
+  assert.equal(res.headers['X-Request-Id'], res.body.requestId);
+  assert.match(res.body.requestId, /^local-/);
+});
+
+test('errorHandler logs a 5xx with the request id and scrubbed message', () => {
+  const key = 'sk-' + 'ant-api03-' + 'C'.repeat(40);
+  const res = fakeRes('local-log1234567');
+  const captured = [];
+  const originalError = console.error;
+  console.error = (line) => { captured.push(line); };
+  try {
+    errorHandler(new Error('boom ' + key), res.req, res, () => {});
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(res.statusCode, 500);
+  assert.equal(captured.length, 1);
+  const line = captured[0];
+  assert.ok(line.includes('local-log1234567'));
+  assert.ok(line.includes('redacted-key'));
+  assert.ok(!line.includes(key));
+  assert.ok(!line.includes('    at '));
+});
+
+test('errorHandler does not log a 4xx', () => {
+  const res = fakeRes('local-log1234567');
+  const captured = [];
+  const originalError = console.error;
+  console.error = (line) => { captured.push(line); };
+  try {
+    errorHandler(new AppError(ERROR_CODES.RATE_LIMITED, 'slow down'), res.req, res, () => {});
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(res.statusCode, 429);
+  assert.equal(captured.length, 0);
 });
 
 test('errorHandler answers a thrown route error with the contract', async () => {

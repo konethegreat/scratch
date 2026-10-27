@@ -316,17 +316,31 @@ Express server behind this build, so nothing in the web path may assume one.
   port accepts only `status`, `notes`, `applyUrl`, and `description` on job
   updates.
 - **Merge gate.** `npm run test:web` serves the already-built `client/dist`
-  with the production headers and runs the Playwright canary plus the offline
-  feeds, tracker and backup flow; the `web` CI job treats it as
-  merge-blocking (run `npm run build:web` first). The canary
-  asserts the key appears only in the `x-api-key` header to
-  `api.anthropic.com`, that no other origin is contacted, that the saved blob is
-  ciphertext, and that Forget and panic wipe remove exactly what they claim.
-- **CSP.** `client/public/_headers` is web-only: `script-src 'self'` and
-  `font-src 'self'` forbid third-party scripts and fonts, and `connect-src`
-  reserves `remotive.com`, `www.arbeitnow.com` and `jobicy.com` for later feed
-  milestones. Do not add analytics, remote fonts or any other third-party
-  origin to the web build.
+  with the production headers and runs three Playwright passes: the canary,
+  the offline feeds, tracker and backup flow, and the two-context isolation
+  pass. The `web` CI job treats it as merge-blocking (run `npm run build:web`
+  first). The canary asserts the key appears only in the `x-api-key` header to
+  `api.anthropic.com`, that no other origin is contacted, that a real backup
+  export contains no key and no `keyVault`, that saved blobs are ciphertext,
+  that Forget and panic wipe remove exactly what they claim, and that CSP
+  stops a third-party script before any request leaves the page.
+- **Isolation invariants.** Every store lives in `sajas-web` IndexedDB and is
+  partitioned by browser profile and origin. Nothing is shared between
+  profiles, and no request carries user data to our origin.
+  `scripts/web-isolation.mjs` proves two contexts stay separate, and that a
+  quota failure reports `STORAGE_FULL` with the web recovery copy while the
+  stored value is unchanged. If it fails, treat it as a merge blocker, not a
+  flaky test.
+- **Storage pressure.** The IndexedDB adapter translates `QuotaExceededError`
+  into `STORAGE_FULL` with web copy: export a backup, delete jobs you no
+  longer need, or clear site data for this page. Writes still reject; never
+  add optimistic persistence for a failed write.
+- **CSP and framing.** `client/public/_headers` is web-only: `script-src
+  'self'` and `font-src 'self'` forbid third-party scripts and fonts,
+  `connect-src` allows only our origin, `api.anthropic.com` and the three
+  feeds, and `frame-ancestors 'none'` plus `X-Frame-Options: DENY`, COOP and
+  CORP `same-origin` prevent framing and cross-origin embedding. Do not add
+  analytics, remote fonts or any other third-party origin to the web build.
 
 ---
 

@@ -1,26 +1,57 @@
 # Security Policy
 
-SA-JAS is a local-first desktop application. All data — your CV, contact details, API keys, scraped jobs — stays on your own machine. Nothing is sent to any SA-JAS server because there isn't one.
+SA-JAS runs in two shapes: a hosted web app at https://sajas.pages.dev with a bring-your-own Anthropic key, and a local-first desktop application. Neither shape sends your data to a SA-JAS server. There is no SA-JAS server holding user data.
 
 ---
 
-## Architecture security model
+## Hosted web app
+
+The hosted app is a static Cloudflare Pages bundle. There are no Pages Functions, no accounts, and no server-side database.
 
 | Layer | What protects it |
 |---|---|
-| API keys | Stored in `keys.json`, never in `db.json`. Never returned raw from any API endpoint (boolean `hasGeminiKey` flag only). Never sent to portal pages. |
-| CV and personal data | Stored in `db.json` in your OS user-data directory. Never leaves your machine except as input to the AI provider you chose. |
+| Isolation | All data lives in the browser IndexedDB database `sajas-web`, partitioned by browser profile and origin. Another profile, browser, device or private window starts empty. |
+| API key | The plaintext key exists only in a closure in `keyStore.js`. It is never written to localStorage, sessionStorage, cookies, URLs, logs or the backup. The optional Remember form stores only an AES-GCM blob in the `keyVault` store, unlocked by a passphrase that is never stored. |
+| Key requests | Keyed requests go directly from the browser to `api.anthropic.com` in the `x-api-key` header. No request carries the key to our origin, and `connect-src` does not allow it. |
+| Backup | The export contains `profile`, `jobs`, `answers`, `memory`, `usage` and `meta`. It never contains `keyVault`. |
+| Response headers | Strict CSP (`script-src 'self'`, explicit `connect-src`, `frame-ancestors 'none'`, `base-uri 'none'`, `object-src 'none'`, `form-action 'self'`), `X-Frame-Options: DENY`, COOP and CORP `same-origin`, HSTS, `nosniff`, `no-referrer`, and a restrictive Permissions Policy. |
+| Merge gate | `scripts/web-canary.mjs` fails the build if the key reaches the DOM, form values, iframes, URL, localStorage, sessionStorage, cookies, IndexedDB plaintext, the console, a backup export, or any request or header other than `x-api-key` to `api.anthropic.com`. It also proves CSP blocks a third-party script. `scripts/web-isolation.mjs` proves two browser contexts share nothing and that a quota failure is reported without persisting the failed write. |
+
+What our origin sees: requests for static assets only. There is no analytics, no telemetry and no user data on the origin.
+
+What the app never sends to our origin: the API key, the CV, profile details, application answers, jobs, tracker state or backups.
+
+### Free-plan limits
+
+Cloudflare Pages free plan, checked on 2026-10-27: 500 builds per month, 20,000 files per deployment, 25 MiB maximum file size, and unmetered requests for static assets. This deployment has no Functions. Requests that invoke Functions are billed as Workers, with a free daily request allowance, which is one reason the app has none.
+
+### Residual risks
+
+- **XSS on our origin.** A script injected into the app could read the in-memory key. The CSP forbids inline and third-party scripts, the client has no dangerous HTML sinks, React escapes rendered values, and the canary detects key leaks. This remains the main risk a static app cannot remove completely.
+- **Malicious browser extensions and device access.** An extension, or anyone with access to the unlocked device, can read page state. Use a dedicated browser profile on a device you trust.
+- **IndexedDB eviction.** The browser may evict storage under pressure. When the quota is reached the app reports `STORAGE_FULL`, tells you to export a backup, and does not persist the failed write. Export regularly.
+- **No account recovery.** Clearing site data, using a different profile or losing the device loses the local data and any saved key blob. A backup file is the only recovery path.
+- **Feeds see your IP address.** The three job feeds are fetched directly by your browser, so their operators see your IP and request headers, as they would for any website you visit.
+
+---
+
+## Desktop architecture security model
+
+| Layer | What protects it |
+|---|---|
+| API keys | Stored in `keys.json`, never in `db.json`. Never returned raw from any API endpoint (boolean `hasAnthropicKey` flag only). Never sent to portal pages. |
+| CV and personal data | Stored in `db.json` in your OS user-data directory. Never leaves your machine except as input to Anthropic when you use an AI feature. |
 | Browser sessions | Persistent Playwright profile in `browser-profile/`. On Windows with real Chrome, cookies are DPAPI-encrypted and tied to your local Windows account. |
 | AI prompts (Agent 2) | Every prompt begins with an injection shield. The job description is wrapped in `[BEGIN UNTRUSTED JOB DESCRIPTION]` / `[END UNTRUSTED JOB DESCRIPTION]` markers. Any directives found inside are treated as plain text, not instructions. |
-| Apply portal pages (Agent 3) | DOM injection scanner runs before HUD injection, looking for hidden elements (display:none, opacity<0.1, fontSize<2px) that match known manipulation patterns. Only `{ title, company, autofill, tailoredCvText, tailoredCoverLetterText }` enter `page.evaluate` — `baseCv` and API keys never touch the portal page context. Scraped strings are HTML-escaped before insertion into innerHTML. `applyUrl` is validated to `http://` or `https://` before navigation — `javascript:`, `file://`, and `data:` schemes are rejected. |
+| Apply portal pages (Agent 3) | The DOM injection scanner runs before HUD injection, looking for hidden elements (display:none, opacity<0.1, fontSize<2px) that match known manipulation patterns. Only `{ title, company, autofill, tailoredCvText, tailoredCoverLetterText }` enter `page.evaluate`; `baseCv` and API keys never touch the portal page context. Scraped strings are HTML-escaped before insertion into innerHTML. `applyUrl` is validated to `http://` or `https://` before navigation, so `javascript:`, `file://` and `data:` schemes are rejected. |
 | Electron renderer | `contextIsolation: true`, `nodeIntegration: false`. External links open in the system browser via `shell.openExternal`, not inside the app window. |
-| Git history | `keys.json`, `db.json`, and `browser-profile/` are gitignored. `.env` carries `PORT` only — no secrets. |
+| Git history | `keys.json`, `db.json` and `browser-profile/` are gitignored. `.env` carries `PORT` only, no secrets. |
 
 ---
 
 ## Reporting a vulnerability
 
-SA-JAS is free, open-source software run entirely on your own machine. There is no hosted service to attack. Even so, security bugs in the local app matter — a malicious job listing could attempt to exploit the scraper or the Apply Copilot.
+SA-JAS is free, open-source software. The hosted app has no server-side user data to attack. Security bugs still matter: a malicious job listing could attempt to exploit the scraper or the Apply Copilot.
 
 **To report a vulnerability:**
 
@@ -29,7 +60,7 @@ SA-JAS is free, open-source software run entirely on your own machine. There is 
 3. Include:
    - A description of the vulnerability
    - Steps to reproduce
-   - The component affected (Agent 1 / 2 / 3, Electron shell, server API)
+   - The component affected (Agent 1 / 2 / 3, Electron shell, server API, hosted web app)
    - Potential impact
 
 You will receive a response within **7 days**. If a fix is warranted, a patched release will follow with credit to you in the changelog (unless you prefer to remain anonymous).
@@ -41,16 +72,18 @@ You will receive a response within **7 days**. If a fix is warranted, a patched 
 | In scope | Out of scope |
 |---|---|
 | Prompt injection via scraped job content | Attacks requiring physical access to the user's machine |
-| XSS in the Apply Copilot HUD | Vulnerabilities in third-party job sites (report to them) |
+| XSS in the Apply Copilot HUD or the hosted app | Vulnerabilities in third-party job sites (report to them) |
 | URL injection via `applyUrl` | Rate-limiting or scraping fairness on job sites |
 | Electron context isolation bypass | Social engineering of the user |
 | Local data exfiltration via crafted job listings | Denial of service against the local server |
+| Cross-profile data leakage in the hosted app | Browser or operating system vulnerabilities |
 
 ---
 
 ## Known limitations
 
-- **Injection scanner is heuristic.** The DOM scanner in Agent 3 matches text patterns and visibility styles. It can be bypassed by Unicode homoglyphs, zero-width characters, or novel phrasing. It is a warning layer, not a block.
-- **AI providers are third-party.** Your CV and job description are sent to Google (Gemini), Anthropic, or OpenRouter depending on your chosen provider. Review each provider's data retention and privacy policies before use.
-- **Local API has no authentication.** The Express server listens on `localhost:5000` and trusts all requests. This is intentional for a single-user desktop app. Do not expose this port to a network.
+- **The injection scanner is heuristic.** The DOM scanner in Agent 3 matches text patterns and visibility styles. It can be bypassed by Unicode homoglyphs, zero-width characters or novel phrasing. It is a warning layer, not a block.
+- **Anthropic is the only AI provider.** Your CV and the job description are sent to Anthropic when you use an AI feature. Review Anthropic's data retention and privacy policies before use.
+- **The local API has no authentication.** The Express server listens on `localhost:5000` and trusts requests that pass the local guard. This is intentional for a single-user desktop app. Do not expose this port to a network.
 - **`browser-profile/` contains live session cookies.** Treat this directory with the same sensitivity as saved passwords. The `.gitignore` excludes it, but be careful with backups and file-sharing tools.
+- **The hosted app is only as strong as its origin.** A compromise of the Cloudflare deployment, or of a dependency that gains a script tag, bypasses the client-side isolation model. The CSP, the canary and the no-third-party rule are the controls that make this hard, and they are tested on every pull request.

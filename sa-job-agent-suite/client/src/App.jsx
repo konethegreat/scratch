@@ -39,7 +39,8 @@ import {
   Coins,
   Scale,
   Rocket,
-  RotateCw
+  RotateCw,
+  LifeBuoy
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
@@ -55,9 +56,12 @@ import ErrorCard from './ErrorCard.jsx';
 import RecentErrors from './RecentErrors.jsx';
 import { copyToClipboard } from './clipboard.js';
 import { printDocument } from './print.js';
+import Help from './Help.jsx';
+import { supportMailto } from './support.js';
 import {
   contractFromBody,
   describeUserError,
+  getRecentErrors,
   readResponseError,
   recordError
 } from './errors.js';
@@ -91,7 +95,7 @@ function useToasts() {
   return {
     toasts,
     success: (msg, title = 'Success') => push({ type: 'success', title, msg }),
-    error:   (msg, title = 'Error')   => push({ type: 'error',   title, msg }),
+    error:   (msg, title = 'Error', options = {}) => push({ type: 'error', title, msg, duration: options.action ? 10_000 : 4_500, ...options }),
     info:    (msg, title = 'Info')    => push({ type: 'info',    title, msg }),
     remove
   };
@@ -115,6 +119,9 @@ function ToastStack({ toasts, onClose }) {
           <div className="toast-body">
             <div className="toast-title">{toast.title}</div>
             <div className="toast-msg">{toast.msg}</div>
+            {toast.action && (
+              <a className="toast-action" href={toast.action.href}>{toast.action.label}</a>
+            )}
           </div>
           <button type="button" className="toast-close" onClick={() => onClose(toast.id)} aria-label="Dismiss notification">
             <X size={14} aria-hidden="true" />
@@ -291,7 +298,9 @@ export default function App() {
         : contractFromBody(input, undefined, fallback),
       { where, fallback }
     );
-    toasts.error(describeUserError(info), info.code);
+    toasts.error(describeUserError(info), info.code, {
+      action: { label: 'Get help', href: supportMailto(info) }
+    });
     return info;
   };
 
@@ -1243,6 +1252,7 @@ export default function App() {
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 'auto' }}>
           <SidebarLink active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<Settings size={16} />}>Profile &amp; Settings</SidebarLink>
+          <SidebarLink active={activeTab === 'help'} onClick={() => setActiveTab('help')} icon={<LifeBuoy size={16} />}>Help &amp; Support</SidebarLink>
           <div className="tiny" style={{ marginTop: 12, textAlign: 'center' }}>
             <span className={`status-dot${hunterRunning ? ' active' : ''}`} aria-hidden="true" />
             <span style={{ color: hunterRunning ? 'var(--color-success)' : 'var(--text-muted)' }}>
@@ -1893,6 +1903,8 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {activeTab === 'help' && <Help lastError={getRecentErrors()[0] || null} />}
 
         {/* ============================== PROFILE ============================== */}
         {activeTab === 'profile' && (

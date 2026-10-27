@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ArrowRight, ArrowUpRight, MapPin } from 'lucide-react';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+import { SUPPORT, FAQ } from './support.js';
 
 const WORK = [
   {
@@ -108,6 +109,7 @@ export default function Landing({ onEnter }) {
         <nav className="landing-nav" aria-label="Sections">
           <a href="#work">Work</a>
           <a href="#approach">Approach</a>
+          <a href="#support">Support</a>
           <a href="https://konethegreat.github.io" target="_blank" rel="noopener noreferrer">Portfolio</a>
           <a href="https://k-one-it-solutions-website.erictshivhinda.workers.dev" target="_blank" rel="noopener noreferrer">Client site</a>
         </nav>
@@ -188,6 +190,30 @@ export default function Landing({ onEnter }) {
                 <p>{principle.body}</p>
               </div>
             ))}
+          </div>
+        </section>
+        <section className="landing-section reveal" id="support" aria-labelledby="support-title">
+          <div className="landing-section-head">
+            <h2 id="support-title">Support</h2>
+            <p className="landing-section-sub">Reach the person who built it.</p>
+          </div>
+          <div className="grid-2">
+            <div className="panel support-card">
+              <h3>Contact</h3>
+              <p><a href={`mailto:${SUPPORT.email}`}>{SUPPORT.email}</a></p>
+              <p><a href={SUPPORT.phoneHref}>{SUPPORT.phone}</a></p>
+              <p>{SUPPORT.location}</p>
+              <div style={{ marginTop: 12 }}><SocialLinks /></div>
+            </div>
+            <div className="panel support-card">
+              <h3>Common questions</h3>
+              {FAQ.slice(0, 3).map((item) => (
+                <details key={item.q}>
+                  <summary>{item.q}</summary>
+                  <p>{item.a}</p>
+                </details>
+              ))}
+            </div>
           </div>
         </section>
       </main>

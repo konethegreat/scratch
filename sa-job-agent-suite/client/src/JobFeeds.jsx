@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ExternalLink, Loader2, MapPin, Plus, RefreshCw, Rss } from 'lucide-react';
 import {
-  FEED_SOURCES, dedupeJobs, filterJobs, fingerprint, sourceLabel, splitList
+  FEED_SOURCES, dedupeJobs, filterJobs, fingerprint, sourceLabel, splitList, trackerFingerprints
 } from '@sajas/core/feeds';
 import { getFeedClient } from './web/feeds.js';
 import { readResponseError, recordError } from './errors.js';
@@ -25,7 +25,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
   const [tracked, setTracked] = useState(() => new Set());
 
   useEffect(() => {
-    setTracked(new Set(jobs.map((job) => fingerprint(job.title, job.company))));
+    setTracked(trackerFingerprints(jobs));
   }, [jobs]);
 
   const load = useCallback(async ({ force = false } = {}) => {
@@ -35,6 +35,9 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
       setResults(dedupeJobs(outcome.results.flatMap((entry) => entry.jobs)));
       setErrors(outcome.errors);
       setMeta(Object.fromEntries(outcome.results.map((entry) => [entry.source, entry.fetchedAt])));
+    } catch (error) {
+      const info = recordError(error, { where: 'load feeds' });
+      setNotice(info.message);
     } finally {
       setLoading(false);
     }

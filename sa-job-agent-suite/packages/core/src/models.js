@@ -58,6 +58,8 @@ export const TASKS = Object.freeze({
   'memory':          { model: S, effort: 'low',    maxTokens: 6000 },
   'computer-use':    { model: S, effort: 'medium', maxTokens: 4096 },
   'extract':         { model: MODEL_IDS.haiku, effort: 'low', maxTokens: 6000 },
+  'rag':             { model: S, effort: 'medium', maxTokens: 12000 },
+  'ground':          { model: MODEL_IDS.haiku, effort: 'medium', maxTokens: 4000 },
   'core':            { model: S, effort: 'medium', maxTokens: 8000 }
 });
 

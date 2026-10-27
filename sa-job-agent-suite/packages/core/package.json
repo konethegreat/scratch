@@ -12,7 +12,8 @@
     "./feeds": "./src/feeds/index.js",
     "./ai": "./src/ai.js",
     "./costs": "./src/costs.js",
-    "./tailor": "./src/tailorPrompts.js"
+    "./tailor": "./src/tailorPrompts.js",
+    "./rag": "./src/rag/index.js"
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.js\""

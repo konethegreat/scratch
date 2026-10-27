@@ -17,7 +17,7 @@ test('the code union contains the spec codes and the three HTTP extensions', () 
   for (const code of [
     'KEY_INVALID', 'KEY_ADMIN', 'AUTH_REJECTED', 'KEY_PERMISSION', 'RATE_LIMITED',
     'SPEND_CAP', 'OVERLOADED', 'BUDGET_EXCEEDED', 'NETWORK_OFFLINE', 'CORS_BLOCKED',
-    'STORAGE_FULL', 'STORAGE_UNAVAILABLE', 'FEED_FAILED', 'VALIDATION',
+    'STORAGE_FULL', 'STORAGE_UNAVAILABLE', 'FEED_FAILED', 'GROUNDING_FAILED', 'VALIDATION',
     'NOT_SUPPORTED_IN_WEB', 'UNKNOWN', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT'
   ]) {
     assert.equal(ERROR_CODES[code], code);
@@ -36,6 +36,7 @@ test('statusForCode maps every code to its HTTP status', () => {
   assert.equal(statusForCode('NOT_FOUND'), 404);
   assert.equal(statusForCode('CONFLICT'), 409);
   assert.equal(statusForCode('BUDGET_EXCEEDED'), 402);
+  assert.equal(statusForCode('GROUNDING_FAILED'), 422);
   assert.equal(statusForCode('RATE_LIMITED'), 429);
   assert.equal(statusForCode('NOT_SUPPORTED_IN_WEB'), 501);
   assert.equal(statusForCode('OVERLOADED'), 503);

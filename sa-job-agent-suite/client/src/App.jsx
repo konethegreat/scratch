@@ -43,6 +43,7 @@ import {
   LifeBuoy
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
+import AskDocuments from './AskDocuments.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
@@ -305,6 +306,7 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
+  const [askSeed, setAskSeed] = useState(null);
 
   // Web builds gate the whole shell behind onboarding/unlock. Desktop starts ready.
   const [webReady, setWebReady] = useState(!IS_WEB);
@@ -1150,6 +1152,7 @@ export default function App() {
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message for you to review and send.' },
     routines:  { title: 'Routines',            subtitle: 'Schedule unattended hunts that find jobs, and optionally tailor them, while you sleep. They never apply for you.' },
     memory:    { title: 'Candidate Memory',    subtitle: 'Learned insights, employer notes and what wins. Read by all three agents.' },
+    ask:       { title: 'Ask Documents',       subtitle: 'Ask questions and draft answers from your own documents. Every answer cites the passage it used or refuses.' },
     logs:      { title: 'Activity Console',    subtitle: 'Real-time, colour-coded logs from each running agent.' },
     profile:   { title: 'Profile & Settings',  subtitle: 'Anthropic key, search criteria, personal info and base CV.' }
   };
@@ -1245,6 +1248,7 @@ export default function App() {
             <SidebarLink active={activeTab === 'routines'}  onClick={() => setActiveTab('routines')}  icon={<Clock size={16} />}>Routines</SidebarLink>
           )}
           <SidebarLink active={activeTab === 'memory'}    onClick={() => setActiveTab('memory')}    icon={<Brain size={16} />}>Candidate Memory</SidebarLink>
+          <SidebarLink active={activeTab === 'ask'}       onClick={() => setActiveTab('ask')}       icon={<Search size={16} />}>Ask Documents</SidebarLink>
           {isTabVisible('logs', IS_WEB) && (
             <SidebarLink active={activeTab === 'logs'}      onClick={() => setActiveTab('logs')}      icon={<Terminal size={16} />}>Activity Logs</SidebarLink>
           )}
@@ -1876,6 +1880,17 @@ export default function App() {
           <CandidateMemory apiBase={API_BASE} toasts={toasts} refreshSignal={refreshTick} />
         )}
 
+        {activeTab === 'ask' && (
+          <AskDocuments
+            apiBase={API_BASE}
+            toasts={toasts}
+            refreshSignal={refreshTick}
+            seed={askSeed}
+            onOpenProfile={() => { setActiveTab('profile'); setSettingsTab('profile'); }}
+            onError={(input, where) => fail(input, where || 'ask documents')}
+          />
+        )}
+
         {!IS_WEB && activeTab === 'logs' && (
           <div className="panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
@@ -2404,6 +2419,10 @@ export default function App() {
                 apiBase={API_BASE}
                 toasts={toasts}
                 refreshSignal={refreshTick}
+                onDraftInAsk={(question) => {
+                  setAskSeed({ question, purpose: 'application-answer', at: Date.now() });
+                  setActiveTab('ask');
+                }}
               />
             )}
 

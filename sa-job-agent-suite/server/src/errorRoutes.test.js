@@ -118,3 +118,20 @@ test('an unknown /api path answers a contract-shaped 404', async () => {
   assert.match(body.requestId, /^local-/);
   assert.equal(response.headers.get('x-request-id'), body.requestId);
 });
+
+test('RAG status answers counts without a key', async () => {
+  const response = await fetch(`${runtime.origin}/api/rag/status`);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(typeof body.documents, 'number');
+  assert.equal(typeof body.chunks, 'number');
+  assert.equal(body.hasKey, false);
+  assert.ok(Array.isArray(body.missing));
+});
+
+test('RAG ask without a key answers KEY_INVALID', async () => {
+  const response = await postJson('/api/rag/ask', { question: 'What is my notice period?' });
+  const body = await response.json();
+  assert.equal(response.status, 400);
+  assert.equal(body.code, 'KEY_INVALID');
+});

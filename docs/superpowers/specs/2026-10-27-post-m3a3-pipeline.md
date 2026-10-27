@@ -20,8 +20,8 @@ A second request on the same day chose the next four capabilities, in order: web
 | 1 | API compliance | Shipped 2026-10-27 (PR #8, `fd4863f`) | All offline tests pass and each changed API assumption cites the docs |
 | 2 | Live-scale hardening and isolation | Shipped 2026-10-27 (PR #9) | Isolation, key-canary, spend-cap and feed-failure tests pass |
 | 3 | UI/UX refresh | Shipped 2026-10-27 (PR #11) | Light mode, copy sweep and the new home page pass the acceptance list below |
-| 4 | Web tailoring and support | In progress | A visitor tailors CV and letter in the browser, spend is tracked and capped, and support is reachable |
-| 5 | Agentic RAG over candidate documents | Planned | Answers cite retrieved passages, refuse when unsupported, and pass the grounding eval |
+| 4 | Web tailoring and support | Shipped 2026-10-27 (PR #12, `aff14da`) | A visitor tailors CV and letter in the browser, spend is tracked and capped, and support is reachable |
+| 5 | Agentic RAG over candidate documents | In progress ([design](2026-10-27-agentic-rag-design.md)) | Answers cite retrieved passages, refuse when unsupported, and pass the grounding eval |
 | 6 | Real-browser auto-apply | Planned | A feasibility gate picks the delivery form, then the chosen form passes an end-to-end apply rehearsal |
 | 7 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
 
@@ -175,6 +175,8 @@ Acceptance criteria:
 - A fixture set proves that removing the supporting chunk flips an answer to a refusal.
 - No document text, index, or embedding leaves the browser or desktop except inside the user's own Anthropic request.
 - Prompt caching and the no-sampling-params rule still hold.
+
+**Evidence:** `packages/core/src/rag/*.test.js` covers the tokenizer, chunker, corpus, BM25 ranking, prompts, citation validation and prepare flow offline. `server/src/rag/service.test.js`, `client/src/web/rag.test.js` and `client/src/web/api.test.js` cover both services, including budget stops and usage buckets. `evals/rag.test.js` proves an answerable question cites, an unanswerable one refuses, and removing the supporting document flips an answer to a refusal. `scripts/web-rag.mjs` drives the real tab in Chromium against a mocked Anthropic endpoint and checks laziness, refusal without a call, document check gaps, the budget stop, and no key to our origin.
 
 Out of scope: a hosted vector database, server-side document storage, cross-user retrieval, and any automatic ingest of employer pages.
 

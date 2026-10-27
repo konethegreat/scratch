@@ -8,6 +8,7 @@ import { STORES } from './vault.js';
 import { limit } from './limits.js';
 import { createUsageLedger } from './usage.js';
 import { createWebTailor } from './tailor.js';
+import { createWebRag } from './rag.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
@@ -76,6 +77,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   const basePath = base.pathname.replace(/\/$/, '');
   const usage = createUsageLedger({ vault, now });
   const tailor = createWebTailor({ vault, keyStore, usage, activity, now, ...(loadAi ? { loadAi } : {}) });
+  const rag = createWebRag({ vault, keyStore, usage, activity, now, ...(loadAi ? { loadAi } : {}) });
 
   function pathOf(input) {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url;
@@ -319,6 +321,9 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
         activity.add('Usage history cleared by user.', 'system');
         return ok({ success: true });
       }
+      if (path === '/rag/status' && method === 'GET') return ok(await rag.status());
+      if (path === '/rag/ask' && method === 'POST') return ok(await rag.ask(await bodyOf(input, init)));
+      if (path === '/rag/check' && method === 'POST') return ok(await rag.check(await bodyOf(input, init)));
       if (path === '/documents' && method === 'GET') return ok([]);
       if (path === '/jobs' && method === 'GET') return await getJobs();
       if (path === '/jobs' && method === 'POST') return await addJob(input, init);

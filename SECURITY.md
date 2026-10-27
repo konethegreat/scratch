@@ -22,6 +22,10 @@ What our origin sees: requests for static assets only. There is no analytics, no
 
 What the app never sends to our origin: the API key, the CV, profile details, application answers, jobs, tracker state or backups.
 
+### Ask Documents
+
+The document corpus and the retrieval index are built in the page or the desktop process and are never uploaded to our origin. Only the passages retrieved for one question are sent inside the candidate's own Anthropic request. The index is never persisted, exported, or backed up. Saved documents are never sent to another user.
+
 ### Free-plan limits
 
 Cloudflare Pages free plan, checked on 2026-10-27: 500 builds per month, 20,000 files per deployment, 25 MiB maximum file size, and unmetered requests for static assets. This deployment has no Functions. Requests that invoke Functions are billed as Workers, with a free daily request allowance, which is one reason the app has none.

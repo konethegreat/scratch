@@ -331,3 +331,21 @@ test('the tailor route runs in the browser and no longer answers 501', async () 
   const batch = await api.handle(`${API_BASE}/jobs/tailor-batch`, { method: 'POST', body: JSON.stringify({}) });
   assert.equal(batch.status, 501);
 });
+
+test('rag status and a short question are served by the in-page API', async () => {
+  const { call, vault, keyStore } = harness({
+    profile: { current: { baseCv: 'Kone Tshivhinda. Software developer with ten years of experience building web systems in South Africa.' } }
+  });
+  keyStore.setKey(API_KEY);
+
+  const status = await call('/rag/status');
+  assert.equal(status.status, 200);
+  const body = await json(status);
+  assert.equal(body.documents, 1);
+  assert.equal(body.hasKey, true);
+
+  const bad = await call('/rag/ask', { method: 'POST', body: { question: 'a' } });
+  assert.equal(bad.status, 400);
+  assert.equal((await json(bad)).code, 'VALIDATION');
+  assert.equal(JSON.stringify(await vault.exportAll()).includes(API_KEY), false);
+});

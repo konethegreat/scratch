@@ -43,6 +43,7 @@ A React dashboard sits on top: live agent terminal, KPI tiles, job pipeline, pro
 
 - **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, lenient SA-location filter.
 - **AI tailoring** — Claude (Anthropic only; Sonnet 5.5 by default, per-task model overrides); ATS-friendly CVs + cover letters in SA English, rendered to PDF.
+- **Ask Documents.** Ask questions and draft application answers from your own CV, letters, saved answers and notes. Answers cite the retrieved passage or refuse. A document check lists claims your sources do not support.
 - **Persistent Apply Copilot** — a floating HUD that survives navigation and follows new tabs/popups (e.g. PNet's "I'm interested").
 - **Auto-pilot** — fills each real form, attaches your CV PDF, and walks multi-step flows: on listing pages it may click Apply / I'm interested to reach the form, but once inside the application it only clicks Next / Continue / Proceed (a bare "Apply" or any Submit is left to you). Toggle on/off in the HUD.
 - **Page understanding** — a per-page AI **planner** comprehends each page (form vs listing vs login) and decides what to do, instead of brittle keyword rules. Optional **vision fallback** (screenshot → multimodal model) for tricky/custom pages.

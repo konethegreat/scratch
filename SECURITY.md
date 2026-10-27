@@ -10,9 +10,9 @@ The hosted app is a static Cloudflare Pages bundle. There are no Pages Functions
 
 | Layer | What protects it |
 |---|---|
-| Isolation | All data lives in the browser IndexedDB database `sajas-web`, partitioned by browser profile and origin. Another profile, browser, device or private window starts empty. |
-| API key | The plaintext key exists only in a closure in `keyStore.js`. It is never written to localStorage, sessionStorage, cookies, URLs, logs or the backup. The optional Remember form stores only an AES-GCM blob in the `keyVault` store, unlocked by a passphrase that is never stored. |
-| Key requests | Keyed requests go directly from the browser to `api.anthropic.com` in the `x-api-key` header. No request carries the key to our origin, and `connect-src` does not allow it. |
+| Isolation | All persisted data lives in the browser IndexedDB database `sajas-web`, partitioned by browser profile and origin. Another profile, browser, device or private window starts empty. |
+| API key | The plaintext key is held in memory in a closure in `keyStore.js`. It is never written to localStorage, sessionStorage, cookies, URLs, logs or the backup. The optional Remember form stores only an AES-GCM blob in the `keyVault` store, unlocked by a passphrase that is never stored. |
+| Key requests | Keyed requests go directly from the browser to `api.anthropic.com` in the `x-api-key` header. No code path sends the key to our origin, and the canary fails the build if the key appears in any request URL, body or header other than `x-api-key` to `api.anthropic.com`. |
 | Backup | The export contains `profile`, `jobs`, `answers`, `memory`, `usage` and `meta`. It never contains `keyVault`. |
 | Response headers | Strict CSP (`script-src 'self'`, explicit `connect-src`, `frame-ancestors 'none'`, `base-uri 'none'`, `object-src 'none'`, `form-action 'self'`), `X-Frame-Options: DENY`, COOP and CORP `same-origin`, HSTS, `nosniff`, `no-referrer`, and a restrictive Permissions Policy. |
 | Merge gate | `scripts/web-canary.mjs` fails the build if the key reaches the DOM, form values, iframes, URL, localStorage, sessionStorage, cookies, IndexedDB plaintext, the console, a backup export, or any request or header other than `x-api-key` to `api.anthropic.com`. It also proves CSP blocks a third-party script. `scripts/web-isolation.mjs` proves two browser contexts share nothing and that a quota failure is reported without persisting the failed write. |

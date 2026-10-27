@@ -275,7 +275,7 @@ Web search adds about $0.01 per search. Prices are the registry's estimates (`pa
 
 ### When something goes wrong
 
-Every error card and toast names a code, the cause and a fix. The most common:
+Every error card and every contract-driven error toast names a code, the cause and a fix. The most common:
 
 | Code | What happened | What to do |
 |---|---|---|
@@ -286,7 +286,7 @@ Every error card and toast names a code, the cause and a fix. The most common:
 | `BUDGET_EXCEEDED` | The daily AI budget is spent | Raise the cap in Settings → AI & Cost, or wait until tomorrow |
 | `NETWORK_OFFLINE` / `CORS_BLOCKED` | The request never reached the service | Check the connection/proxy, then Retry |
 | `STORAGE_FULL` / `STORAGE_UNAVAILABLE` | The browser blocked or filled local storage | Allow site data, free space, then reload |
-| `CONFLICT` | Another hunt/tailor/apply run owns the browser | Wait for it to finish, then Retry |
+| `CONFLICT` | Another run owns the browser, or this item already exists / the run is no longer active | Wait for the running job to finish; for a duplicate, open the existing item rather than retrying |
 
 Click **Copy diagnostics** on any error card (or in Activity Logs → Recent
 errors) to copy the code, request id and scrubbed detail. The log is memory-only

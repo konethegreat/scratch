@@ -206,8 +206,9 @@ Codes: `KEY_INVALID`, `KEY_ADMIN`, `AUTH_REJECTED`, `RATE_LIMITED`,
 - `client/src/errors.js` parses responses (`readResponseError`,
   `contractFromBody`), keeps the last 20 failures in memory and builds
   copyable diagnostics. `ErrorCard` shows cause, hint, Retry when the code is
-  retryable, Details and Copy diagnostics; `ErrorBoundary` catches render
-  crashes; the Logs tab lists recent errors.
+  retryable and the view supplies a retry handler, Details only when the payload
+  carries `details`, and Copy diagnostics; `ErrorBoundary` catches render
+  crashes; the Activity Logs tab lists recent errors.
 - Messages, hints and details are scrubbed with `scrubSecrets` before they
   leave the core, the server or the client. Server `details` never contains a
   stack trace.

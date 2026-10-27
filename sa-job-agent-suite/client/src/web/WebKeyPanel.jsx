@@ -4,6 +4,7 @@ import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import ErrorCard from '../ErrorCard.jsx';
 import { recordError } from '../errors.js';
 import { IDLE_OPTIONS, MIN_PASSPHRASE } from './keyStore.js';
+import { clearFeedCache } from './feeds.js';
 
 const CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
 
@@ -79,6 +80,8 @@ export default function WebKeyPanel({ runtime, refreshSignal = 0, onChanged, onA
     setBusy(true);
     try {
       await runtime.keyStore.panicWipe();
+      // Feed rows live in a memory cache; drop them so nothing survives the wipe.
+      clearFeedCache();
       window.location.reload();
     } catch (err) {
       setError(recordError(err, { where: 'panic wipe' }));

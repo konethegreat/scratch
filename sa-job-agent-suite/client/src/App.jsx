@@ -41,6 +41,7 @@ import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import JobFeeds from './JobFeeds.jsx';
+import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ErrorCard from './ErrorCard.jsx';
@@ -1859,7 +1860,8 @@ export default function App() {
                 { id: 'profile', label: 'Profile & CV',        icon: <FileText size={13} /> },
                 { id: 'search',  label: 'Job Search',          icon: <Search size={13} /> },
                 { id: 'answers', label: 'Application Answers', icon: <Database size={13} /> },
-                { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> }
+                { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> },
+                { id: 'backup',  label: 'Backup',              icon: <ShieldCheck size={13} /> }
               ], IS_WEB)}
             />
 
@@ -2418,6 +2420,10 @@ export default function App() {
                 </div>
               </section>
             </>)}
+
+            {IS_WEB && settingsTab === 'backup' && (
+              <SettingsBackup vault={webRuntime.vault} toasts={toasts} onImported={refreshAll} />
+            )}
 
             </div>
           </div>

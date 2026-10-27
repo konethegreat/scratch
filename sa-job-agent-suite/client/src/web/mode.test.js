@@ -27,6 +27,12 @@ test('web settings hide answers and data, desktop keeps them', () => {
   assert.deepEqual(filterSettingsTabs(tabs, false).map((t) => t.id), ['ai', 'profile', 'search', 'answers', 'data']);
 });
 
+test('the backup tab is hidden on desktop and shown on web', () => {
+  const tabs = [{ id: 'ai' }, { id: 'data' }, { id: 'backup' }];
+  assert.deepEqual(filterSettingsTabs(tabs, false).map((tab) => tab.id), ['ai', 'data']);
+  assert.deepEqual(filterSettingsTabs(tabs, true).map((tab) => tab.id), ['ai', 'backup']);
+});
+
 test('server-only settings are a known subset', () => {
   for (const id of SERVER_ONLY_SETTINGS) {
     assert.ok(['answers', 'data'].includes(id), id);

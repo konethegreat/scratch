@@ -3,7 +3,7 @@ import { getProfile, readDb, updateJob, addLog, buildMemoryDigest, buildEmployer
 import { callLlmFull, assertAnthropicKey } from './llm.js';
 import { renderMarkdownToPdf } from './pdf.js';
 import { researchCompany, researchFanoutReady } from './companyResearch.js';
-import { buildTailorPrompts, INJECTION_SHIELD } from './tailorPrompts.js';
+import { buildTailorPrompts, INJECTION_SHIELD } from '@sajas/core/tailor';
 import { withTask } from '../telemetry.js';
 
 /**

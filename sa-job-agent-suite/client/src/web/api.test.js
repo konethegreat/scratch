@@ -5,6 +5,9 @@ import { createMemoryAdapter } from './memoryAdapter.js';
 import { createKeyStore } from './keyStore.js';
 import { createActivity } from './activity.js';
 import { createWebApi } from './api.js';
+import { fakeClient } from '@sajas/core/testing';
+import { callClaude } from '@sajas/core/ai';
+import { MODEL_IDS } from '@sajas/core/models';
 
 const API_BASE = 'http://localhost:5000/api';
 const API_KEY = ['sk', 'ant', 'api03', 'G'.repeat(24)].join('-');
@@ -98,15 +101,23 @@ test('DELETE /profile/key/anthropic forgets the key and any saved blob', async (
   assert.equal((await json(await call('/profile'))).hasAnthropicKey, false);
 });
 
-test('usage has the server shape, a live budget cap, and can be cleared', async () => {
-  const { call } = harness({ profile: { current: { dailyBudgetUSD: 5 } } });
+test('usage starts empty, reflects the ledger, and can be cleared', async () => {
+  const { call, vault } = harness({ profile: { current: { dailyBudgetUSD: 5 } } });
+  const { createUsageLedger } = await import('./usage.js');
+  const ledger = createUsageLedger({ vault });
+  await ledger.record({ model: 'claude-sonnet-5-5', bucket: 'tailor', inputTokens: 1_000_000 });
+
   const usage = await json(await call('/usage'));
-  assert.equal(usage.today.calls, 0);
-  assert.equal(usage.today.estCostUSD, 0);
-  assert.deepEqual(usage.history, []);
+  assert.equal(usage.today.calls, 1);
+  assert.equal(usage.today.estCostUSD, 2);
+  assert.equal(usage.history.length, 1);
   assert.equal(usage.budget.capUSD, 5);
   assert.equal(usage.budget.exceeded, false);
+
   assert.equal((await call('/usage', { method: 'DELETE' })).status, 200);
+  const cleared = await json(await call('/usage'));
+  assert.equal(cleared.today.calls, 0);
+  assert.deepEqual(cleared.history, []);
 });
 
 test('logs read and clear the in-memory activity ring', async () => {
@@ -283,4 +294,40 @@ test('a storage quota failure becomes STORAGE_FULL, not UNKNOWN', async () => {
   const body = await res.json();
   assert.equal(body.code, 'STORAGE_FULL');
   assert.ok(body.hint);
+});
+
+const reply = (text) => ({
+  id: 'msg_1', type: 'message', role: 'assistant', model: MODEL_IDS.sonnet,
+  content: [{ type: 'text', text }], stop_reason: 'end_turn',
+  usage: { input_tokens: 100, output_tokens: 50 }
+});
+
+test('the tailor route runs in the browser and no longer answers 501', async () => {
+  const { vault, keyStore } = harness({
+    profile: { current: {
+      baseCv: 'Kone Tshivhinda. Software developer with ten years of experience building web systems in South Africa.',
+      dailyBudgetUSD: 5
+    } }
+  });
+  await seedJob(vault);
+  keyStore.setKey(API_KEY);
+
+  const fake = fakeClient([reply('# Web CV'), reply('# Web Letter')]);
+  const api = createWebApi({
+    apiBase: API_BASE, vault, keyStore, activity: createActivity(),
+    loadAi: async () => ({ callClaude, makeClient: () => fake.client })
+  });
+  const res = await api.handle(`${API_BASE}/jobs/job-1/tailor`, { method: 'POST', body: JSON.stringify({}) });
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.success, true);
+  assert.equal(body.job.tailoredCvText, '# Web CV');
+  assert.equal(body.job.tailoredCoverLetterText, '# Web Letter');
+
+  const usage = await json(await api.handle(`${API_BASE}/usage`));
+  assert.equal(usage.today.calls, 2);
+  assert.ok(usage.today.estCostUSD > 0);
+
+  const batch = await api.handle(`${API_BASE}/jobs/tailor-batch`, { method: 'POST', body: JSON.stringify({}) });
+  assert.equal(batch.status, 501);
 });

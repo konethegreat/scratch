@@ -109,14 +109,31 @@ npm run build:web && npm run test:web  # build, then run the local canary check
 ```
 
 The alpha is a browser workbench, not the full suite: your profile, the job
-tracker, candidate memory and settings work and persist in this browser.
-Hunting, tailoring and the apply copilot are not available in the web alpha;
-use the desktop app for those. The Copilot, Referrals, Routines and Logs tabs
-are hidden, and Job Feeds is available in web mode. Job Hunter and Document
-Tailor still appear, but their crawler controls (Launch crawler, Stop crawler,
-Tailor all found, Re-check links) are hidden. The remaining server-backed
-actions (Optimise CV & letter, Apply) stay clickable, and each answers with a
-typed "not available in the web app" error.
+tracker, candidate memory, settings, Job Feeds and Document Tailor work and
+persist in this browser. Tailoring calls Anthropic directly with your own key
+and never sends your documents to this site. Hunting and the apply copilot are
+desktop features; the Copilot, Referrals, Routines and Logs tabs are hidden in
+web mode. Job Hunter still appears, but its crawler controls are hidden and the
+server-backed hunter actions answer with a typed "not available in the web app"
+error.
+
+### Tailoring in the browser
+
+1. Add a standard Anthropic API key in the key panel. It stays in the tab.
+2. Paste your base CV in Profile & Settings.
+3. Open Document Tailor, pick a job, and choose Optimise CV & letter.
+4. Copy, download the Markdown, or print to PDF.
+
+Usage and estimated spend appear in Profile & Settings, and the daily cap stops
+a run before the request when today reaches it. Company research and employer
+notes remain desktop-only.
+
+### Support
+
+The landing page and the Help & Support tab list Kone's public contact details
+and an FAQ. Every error toast offers Get help, which opens an email with the
+error code, request ID, page, and browser. The report never includes your key,
+profile, jobs, or documents.
 
 ### Job feeds and tracker
 
@@ -229,7 +246,7 @@ sa-job-agent-suite/
 ├── keys.json                 # API keys only, separate from db.json (gitignored)
 ├── browser-profile/          # persistent Playwright session (gitignored)
 ├── electron/                 # main.js (CommonJS) + preload.js
-├── packages/core/            # @sajas/core: model registry, callClaude, cost estimator, key/secret helpers
+├── packages/core/            # @sajas/core: models, callClaude, costs, secrets, feeds, tailor prompts
 ├── evals/                    # eval harness (dry by default) + deterministic output checks
 ├── client/                   # React + Vite frontend
 │   └── src/
@@ -248,7 +265,6 @@ sa-job-agent-suite/
             ├── agent3-applier.js  # persistent HUD, autopilot, 3-pass smart-fill
             ├── pageBrain.js       # planner + vision fallback + clickButtonByText
             ├── jobSearchAI.js     # Claude grounded web_search engine
-            ├── tailorPrompts.js   # cache-stable prompts for Agent 2
             ├── llm.js             # server adapter over @sajas/core: callLlm / callLlmFull / callLlmVision
             └── pdf.js             # Markdown → PDF
 ```

@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present && node --test \"evals/*.test.js\" && node --test scripts/hunter-record.test.mjs && node --test \"scripts/lib/*.test.mjs\"",
-    "test:web": "node scripts/check-ui.mjs && node scripts/web-canary.mjs && node scripts/web-feeds.mjs && node scripts/web-isolation.mjs && node scripts/web-ui.mjs",
+    "test:web": "node scripts/check-ui.mjs && node scripts/web-canary.mjs && node scripts/web-feeds.mjs && node scripts/web-isolation.mjs && node scripts/web-ui.mjs && node scripts/web-tailor.mjs",
     "eval": "node evals/run.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "demo": "node scripts/demo.mjs",

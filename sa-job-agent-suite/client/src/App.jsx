@@ -21,6 +21,7 @@ import {
   Upload,
   Download,
   Copy,
+  Printer,
   Eye,
   EyeOff,
   ExternalLink,
@@ -38,7 +39,8 @@ import {
   Coins,
   Scale,
   Rocket,
-  RotateCw
+  RotateCw,
+  LifeBuoy
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
@@ -53,9 +55,13 @@ import Dialog from './Dialog.jsx';
 import ErrorCard from './ErrorCard.jsx';
 import RecentErrors from './RecentErrors.jsx';
 import { copyToClipboard } from './clipboard.js';
+import { printDocument } from './print.js';
+import Help from './Help.jsx';
+import { supportMailto } from './support.js';
 import {
   contractFromBody,
   describeUserError,
+  getRecentErrors,
   readResponseError,
   recordError
 } from './errors.js';
@@ -89,7 +95,7 @@ function useToasts() {
   return {
     toasts,
     success: (msg, title = 'Success') => push({ type: 'success', title, msg }),
-    error:   (msg, title = 'Error')   => push({ type: 'error',   title, msg }),
+    error:   (msg, title = 'Error', options = {}) => push({ type: 'error', title, msg, duration: options.action ? 10_000 : 4_500, ...options }),
     info:    (msg, title = 'Info')    => push({ type: 'info',    title, msg }),
     remove
   };
@@ -113,6 +119,9 @@ function ToastStack({ toasts, onClose }) {
           <div className="toast-body">
             <div className="toast-title">{toast.title}</div>
             <div className="toast-msg">{toast.msg}</div>
+            {toast.action && (
+              <a className="toast-action" href={toast.action.href}>{toast.action.label}</a>
+            )}
           </div>
           <button type="button" className="toast-close" onClick={() => onClose(toast.id)} aria-label="Dismiss notification">
             <X size={14} aria-hidden="true" />
@@ -289,7 +298,9 @@ export default function App() {
         : contractFromBody(input, undefined, fallback),
       { where, fallback }
     );
-    toasts.error(describeUserError(info), info.code);
+    toasts.error(describeUserError(info), info.code, {
+      action: { label: 'Get help', href: supportMailto(info) }
+    });
     return info;
   };
 
@@ -651,8 +662,18 @@ export default function App() {
       const res = await fetch(`${API_BASE}/jobs/${jobId}/tailor`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
-        toasts.info('Tailoring started. Watch the job status update when complete.', 'Tailor started');
-        await fetchJobs();
+        if (IS_WEB && data.job) {
+          setJobs((list) => list.map((job) => (job.id === data.job.id ? data.job : job)));
+          setSelectedJob((job) => (job && job.id === data.job.id ? data.job : job));
+          if (data.warning) {
+            toasts.error(data.warning, 'Cover letter not generated');
+          } else {
+            toasts.success('Your tailored CV and cover letter are ready.', 'Tailoring complete');
+          }
+        } else {
+          toasts.info('Tailoring started. Watch the job status update when complete.', 'Tailor started');
+          await fetchJobs();
+        }
       } else {
         fail(contractFromBody(data, res.status, 'Tailoring failed. Check the logs for details.'), 'tailor job');
       }
@@ -661,6 +682,12 @@ export default function App() {
     } finally {
       setTailoringJobId(null);
     }
+  };
+
+  const printText = (title, text) => {
+    if (!text) return toasts.error('Nothing to print yet.');
+    const opened = printDocument({ title, text });
+    if (!opened) toasts.error('The print window was blocked. Allow pop-ups for this site, or use Copy.');
   };
 
   // T4: tailor every 'found' job concurrently (server bounds it by tailorConcurrency).
@@ -1225,6 +1252,7 @@ export default function App() {
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 'auto' }}>
           <SidebarLink active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<Settings size={16} />}>Profile &amp; Settings</SidebarLink>
+          <SidebarLink active={activeTab === 'help'} onClick={() => setActiveTab('help')} icon={<LifeBuoy size={16} />}>Help &amp; Support</SidebarLink>
           <div className="tiny" style={{ marginTop: 12, textAlign: 'center' }}>
             <span className={`status-dot${hunterRunning ? ' active' : ''}`} aria-hidden="true" />
             <span style={{ color: hunterRunning ? 'var(--color-success)' : 'var(--text-muted)' }}>
@@ -1662,7 +1690,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex-gap">
-                    <button className="btn-primary" onClick={() => triggerTailor(selectedJob.id)} disabled={tailoringJobId === selectedJob.id || selectedJob.status === 'tailoring'}>
+                    <button data-testid="optimise-cv" className="btn-primary" onClick={() => triggerTailor(selectedJob.id)} disabled={tailoringJobId === selectedJob.id || selectedJob.status === 'tailoring'}>
                       {(tailoringJobId === selectedJob.id || selectedJob.status === 'tailoring') ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
                       {(tailoringJobId === selectedJob.id || selectedJob.status === 'tailoring') ? 'Tailoring…' : (selectedJob.status === 'found' ? 'Optimise CV & letter' : 'Re-tailor')}
                     </button>
@@ -1671,6 +1699,12 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {IS_WEB && (
+                  <p className="hint" style={{ marginBottom: 16 }}>
+                    Web tailoring uses your base CV and the job description. Company research and employer notes stay in the desktop app.
+                  </p>
+                )}
 
                 {selectedJob.description && (
                   <details className="panel" style={{ padding: 14, marginBottom: 18, background: 'var(--bg-surface-2)', border: '1px solid var(--border)' }}>
@@ -1690,20 +1724,24 @@ export default function App() {
                 ) : (
                   <div className="grid-2">
                     <DocumentBox
+                      testId="tailored-cv"
                       title="Tailored CV"
                       tone="accent"
                       text={selectedJob.tailoredCvText}
                       filename={`CV_${slug(selectedJob.title)}_${slug(selectedJob.company)}.md`}
                       onCopy={copyText}
                       onDownload={downloadText}
+                      onPrint={printText}
                     />
                     <DocumentBox
+                      testId="tailored-cover-letter"
                       title="Tailored Cover Letter"
                       tone="info"
                       text={selectedJob.tailoredCoverLetterText}
                       filename={`CoverLetter_${slug(selectedJob.title)}_${slug(selectedJob.company)}.md`}
                       onCopy={copyText}
                       onDownload={downloadText}
+                      onPrint={printText}
                     />
                   </div>
                 )}
@@ -1865,6 +1903,8 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {activeTab === 'help' && <Help lastError={getRecentErrors()[0] || null} />}
 
         {/* ============================== PROFILE ============================== */}
         {activeTab === 'profile' && (
@@ -2903,10 +2943,10 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
   );
 }
 
-function DocumentBox({ title, tone, text, filename, onCopy, onDownload }) {
+function DocumentBox({ title, tone, text, filename, onCopy, onDownload, onPrint, testId }) {
   const color = tone === 'accent' ? 'var(--color-accent)' : 'var(--color-info)';
   return (
-    <div className="panel" style={{ padding: 16, background: 'var(--bg-surface-2)' }}>
+    <div className="panel" style={{ padding: 16, background: 'var(--bg-surface-2)' }} data-testid={testId}>
       <div className="flex-between" style={{ marginBottom: 10 }}>
         <h4 style={{ fontSize: 14, color }}>{title}</h4>
         <div className="flex-gap">
@@ -2915,6 +2955,9 @@ function DocumentBox({ title, tone, text, filename, onCopy, onDownload }) {
           </button>
           <button type="button" className="btn-ghost btn-xs" onClick={() => onDownload(text, filename)}>
             <Download size={12} /> .md
+          </button>
+          <button type="button" className="btn-ghost btn-xs" onClick={() => onPrint(title, text)}>
+            <Printer size={12} /> Print
           </button>
         </div>
       </div>

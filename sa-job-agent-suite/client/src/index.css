@@ -402,6 +402,14 @@ button:disabled {
 .toast .toast-body  { flex: 1; }
 .toast .toast-title { font-weight: 700; margin-bottom: 2px; color: var(--text-primary); font-size: 13px; }
 .toast .toast-msg   { color: var(--text-secondary); font-size: 12px; }
+.toast-action {
+  align-self: flex-start;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: underline;
+}
 .toast button.toast-close {
   background: none;
   border: none;
@@ -853,4 +861,25 @@ input[type=number] { -moz-appearance: textfield; }
 @media (max-width: 560px) {
   .landing-header { flex-wrap: wrap; }
   .landing-actions { width: 100%; justify-content: space-between; }
+}
+
+.support-card h3 {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.support-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.support-card a {
+  color: var(--color-info);
+}
+.support-card details {
+  margin-top: 8px;
+}
+.support-card summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
 }

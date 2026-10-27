@@ -7,9 +7,11 @@
 
 ## Purpose
 
-M3a-3 shipped the hosted web alpha: zero-knowledge key handling, the web shell, job feeds, dedupe, and the tracker. The master plan defines the architecture and milestones M0 to M6, but it did not give the follow-up work a named lane. This document names the three arcs that come next, so none of them is dropped or silently reordered.
+M3a-3 shipped the hosted web alpha: zero-knowledge key handling, the web shell, job feeds, dedupe, and the tracker. The master plan defines the architecture and milestones M0 to M6, but it did not give the follow-up work a named lane. This document names the arcs that come next, so none of them is dropped or silently reordered.
 
 A request from 2026-10-27 asked for three things beyond M3a-3: verify the app against the current Anthropic API, make the free hosted app survive real traffic without exposing keys or mixing users, and refresh the UI with light mode and a home page built from Kone's public work. The first two are correctness and safety work. The third is committed product work, not a nice-to-have.
+
+A second request on the same day chose the next four capabilities, in order: web tailoring, agentic RAG, real-browser auto-apply, and inbox/MCP. It also added a support section with Kone's public contact details to the first of those arcs. The user's condition is explicit: the system has to work before it is shown to anyone. Each arc therefore ends with a live browser check of the real flow, not only green tests.
 
 ## Order
 
@@ -18,8 +20,12 @@ A request from 2026-10-27 asked for three things beyond M3a-3: verify the app ag
 | 1 | API compliance | Shipped 2026-10-27 (PR #8, `fd4863f`) | All offline tests pass and each changed API assumption cites the docs |
 | 2 | Live-scale hardening and isolation | Shipped 2026-10-27 (PR #9) | Isolation, key-canary, spend-cap and feed-failure tests pass |
 | 3 | UI/UX refresh | Shipped 2026-10-27 (PR #11) | Light mode, copy sweep and the new home page pass the acceptance list below |
+| 4 | Web tailoring and support | In progress | A visitor tailors CV and letter in the browser, spend is tracked and capped, and support is reachable |
+| 5 | Agentic RAG over candidate documents | Planned | Answers cite retrieved passages, refuse when unsupported, and pass the grounding eval |
+| 6 | Real-browser auto-apply | Planned | A feasibility gate picks the delivery form, then the chosen form passes an end-to-end apply rehearsal |
+| 7 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
 
-Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing.
+Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing. Arc 4 depends on Arc 3 because tailoring uses the refreshed document pane and the shared design tokens. Arc 5 depends on Arc 4 because retrieval is applied to the documents that web tailoring produces. Arcs 6 and 7 depend on Arc 5 because both need grounded candidate and employer context.
 
 ## Arc 1: API compliance
 
@@ -116,6 +122,104 @@ Acceptance criteria:
 
 Out of scope: new product features, new data sources, and any change to the key lifecycle.
 
+## Arc 4: Web tailoring and support (shipped 2026-10-27 in PR #12)
+
+**Goal:** make the Document Tailor tab work in the hosted app, with honest spend tracking, and give every visitor a support path.
+
+The desktop tailor already exists and its prompts are pure. The web port blocks the endpoint, so the tab is visible and broken. This arc moves the prompts into `@sajas/core`, calls Anthropic directly from the browser with the visitor's key, records usage in IndexedDB, enforces the daily cap before every request, and adds Copy, Markdown download, and Print to PDF. It also adds a landing support section and an in-app Help tab with Kone's public contact details, an FAQ, and a report action whose diagnostics contain no key or personal data.
+
+Full design: [`2026-10-27-web-tailoring-support-design.md`](2026-10-27-web-tailoring-support-design.md).
+
+Acceptance criteria:
+
+- A visitor with a valid key and a base CV tailors a saved job in the hosted app and sees both documents.
+- Spend appears in the Usage panel and the daily cap stops a run before the request.
+- A failed re-tailor keeps the previous documents; truncated or empty output is never saved.
+- Copy, Markdown download, and Print to PDF work in a browser.
+- The landing page and Help tab show the approved contact details and the FAQ.
+- Every error toast offers "Get help" with diagnostics that contain no key, profile, job, or CV text.
+- The client bundle does not load the Anthropic SDK until the first tailor run.
+- All gates pass offline, then the live flow is checked in a real browser before promotion.
+
+Out of scope: web research fan-out, memory digests, batch tailoring, server PDFs, and any request that carries user data to our origin.
+
+**Evidence:** `packages/core/src/tailorPrompts.test.js`, `client/src/web/usage.test.js`, `client/src/web/tailor.test.js`, `client/src/print.test.js` and `client/src/support.test.js` cover the units offline. `scripts/web-tailor.mjs` drives the real flow in Chromium against a mocked Anthropic endpoint: tailor, documents, Copy, Print, Usage, budget stop with a Get help link, Help and landing Support, reload persistence, and no key to our origin. The live check runs the same flow on the deployed URL.
+
+## Arc 5: Agentic RAG over candidate documents
+
+**Goal:** answer questions and draft application content from the candidate's own documents, with grounded citations and a refusal when the documents do not support an answer.
+
+The user supplied `C:\Users\Kone\Downloads\ibm_style_advanced_rag_guide.md` on 2026-10-27 and asked that it shape Arcs 5, 6, and 7. Its protocols are binding for this arc:
+
+- **Strict boundedness.** Answer only from the retrieved context. If the context does not contain the answer, say so in a fixed sentence. Do not use prior training knowledge to fill gaps.
+- **Inline citation and attribution.** Every factual claim carries the source tag injected at the head of its chunk, for example `[Doc: base-cv | Chunk: 2]`.
+- **Verification.** Self-audit claims and citations before answering, and return a structured result with `is_supported_by_context`, `answer`, and `cited_sources` when structured outputs are enabled.
+- **Structural integrity.** Preserve tables, lists, and headings from the source.
+- **Metadata injection.** Every chunk handed to the model starts with its document name, section, and chunk index.
+
+One part of the guide is deliberately not adopted. It recommends temperature 0.0 to 0.1 and top-p 0.1 to 0.3. SA-JAS never sends sampling parameters, by standing API rule. Determinism comes from `output_config.effort`, the strict system prompt, the citation schema, and a verification pass. The spec will state this deviation and why.
+
+Scope:
+
+- Corpus: base CV, tailored CVs, cover letters, saved application answers, candidate memory insights, and saved job descriptions.
+- Retrieval: a local lexical index (BM25 or equivalent) in the browser and on the desktop. No embeddings, no extra provider, no document text sent anywhere except the chosen passages in the user's own Anthropic request.
+- Chunking with stable IDs, metadata headers, and a version stamp so stale chunks are dropped when a document changes.
+- Surfaces: an "Ask your documents" panel, grounded application answers, and a grounding pass for tailoring that refuses to invent facts.
+- Refusal path: a plain message naming which documents were searched and what is missing, with a link to add the missing document.
+- Evals: offline fixtures with answerable and unanswerable questions, citation coverage, unsupported-claim detection, and refusal accuracy.
+
+Acceptance criteria:
+
+- Every answer cites the passages it used and returns the structured verification block.
+- Unanswerable questions are refused with the fixed message, not guessed.
+- A fixture set proves that removing the supporting chunk flips an answer to a refusal.
+- No document text, index, or embedding leaves the browser or desktop except inside the user's own Anthropic request.
+- Prompt caching and the no-sampling-params rule still hold.
+
+Out of scope: a hosted vector database, server-side document storage, cross-user retrieval, and any automatic ingest of employer pages.
+
+## Arc 6: Real-browser auto-apply
+
+**Goal:** help the candidate complete a real application form without taking control away from them.
+
+The hosted app is static and runs on a different origin from the job board. Browser security forbids a page from scripting another origin's form. Real-browser automation therefore cannot live in the hosted page. This arc begins with a feasibility gate that compares three delivery forms:
+
+1. **Guided apply packet (web).** A per-field copy list, a one-click open of the application URL, and a checklist. Works everywhere, no extension, no credentials.
+2. **Browser extension.** Fills the form in the active tab after an explicit user action. Needs store review, permissions, and a clear scope, and must never submit silently.
+3. **Desktop automation.** The existing Playwright copilot, improved and documented.
+
+The gate picks the form with the best reach for the user's actual job boards, and the arc implements only that form. Rules for every form: no CAPTCHA bypass, no mass applying, no credential harvesting, no hidden submission. The user reviews and submits. The submit guard stays.
+
+Acceptance criteria:
+
+- A written feasibility decision names the chosen form and the rejected options with reasons.
+- The chosen form completes a rehearsal against a local fake application form, with screenshots as evidence.
+- The user must confirm before any real submission, and the app records what was submitted.
+- No new secret leaves the device, and no third-party page is scripted without an explicit user action.
+
+Out of scope: solving CAPTCHAs, bulk applications, and any automation that hides its actions from the user.
+
+## Arc 7: Inbox and MCP integration
+
+**Goal:** let the candidate pull application replies into the tracker and let their own tools read SA-JAS data safely.
+
+The hosted app cannot receive mail or host an MCP server. This arc starts with a feasibility gate:
+
+1. **MCP server for desktop.** A local, read-only-by-default server exposing jobs, memory, and documents to MCP clients such as Claude Desktop, with an explicit write scope and an audit log.
+2. **Inbox import in the browser.** Parse forwarded `.eml` files or pasted messages into application events. No mailbox credentials in the web app.
+3. **Desktop IMAP.** Read-only mailbox sync behind an explicit opt-in, with credentials in the OS keychain, never in the web build.
+
+The gate picks what can ship safely first, and the arc implements that. Every form follows the same rules: read-only by default, explicit consent for each write, no background scanning without a visible switch, and no credentials outside the OS keychain or a native process.
+
+Acceptance criteria:
+
+- A written feasibility decision names the chosen form and the rejected options with reasons.
+- Offline fixtures prove that a reply is matched to the right application and that nothing is written without confirmation.
+- The MCP surface, if chosen, lists no key material and cannot read the web vault.
+- Removing the integration deletes its credentials and stops all background work.
+
+Out of scope: hosting an MCP server on our origin, reading mail without consent, and storing mailbox credentials in a browser.
+
 ## Gates
 
 Every arc ends with the same gates, run from `sa-job-agent-suite/`:
@@ -129,4 +233,4 @@ npm run test:web
 node tools/check-secrets.mjs --all
 ```
 
-Plus, for Arc 2 and Arc 3: a live smoke check on the deployed URL after the merge, and a short note in the PR describing what a human should click to verify the change.
+Plus, for every arc that ships user-facing behaviour: a live check on the deployed URL after the merge, and a short note in the PR describing what a human should click to verify the change. For Arc 4 onward the live check must exercise the real flow in a browser, not only load the page.

@@ -649,3 +649,11 @@ test('the fallback step is still allowed on a continuation', async () => {
     resetLearnedCapabilities();
   }
 });
+
+test('the browser allowance is opt-in and absent by default', () => {
+  const plain = makeClient({ apiKey: KEY });
+  assert.equal(plain._options.dangerouslyAllowBrowser, undefined);
+  const browser = makeClient({ apiKey: KEY, allowBrowser: true });
+  assert.equal(browser._options.dangerouslyAllowBrowser, true);
+  assert.equal(browser._options.baseURL, ANTHROPIC_BASE_URL);
+});

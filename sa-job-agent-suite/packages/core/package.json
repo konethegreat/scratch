@@ -9,7 +9,10 @@
     "./secrets": "./src/secrets.js",
     "./models": "./src/models.js",
     "./testing": "./src/testing.js",
-    "./feeds": "./src/feeds/index.js"
+    "./feeds": "./src/feeds/index.js",
+    "./ai": "./src/ai.js",
+    "./costs": "./src/costs.js",
+    "./tailor": "./src/tailorPrompts.js"
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.js\""

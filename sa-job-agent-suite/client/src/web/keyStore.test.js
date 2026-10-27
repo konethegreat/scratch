@@ -7,6 +7,7 @@ import { createKeyStore, KEY_VAULT_KEY, IDLE_OPTIONS } from './keyStore.js';
 
 const API_KEY = ['sk', 'ant', 'api03', 'B'.repeat(24)].join('-');
 const ADMIN_KEY = ['sk', 'ant', 'admin01', 'C'.repeat(24)].join('-');
+const META_KEY = 'key';
 const T0 = 1_000_000;
 
 function make({ saved } = {}) {
@@ -66,6 +67,28 @@ test('forget drops memory and the saved blob', async () => {
   assert.equal(store.hasKey(), false);
   assert.equal(await store.hasSavedKey(), false);
   assert.equal(await vault.get(STORES.keyVault, KEY_VAULT_KEY), undefined);
+  assert.equal((await vault.get(STORES.meta, META_KEY)).remembered, false);
+});
+
+test('forget without wiping keeps the blob and records it as remembered', async () => {
+  const { store, vault } = make();
+  store.setKey(API_KEY);
+  await store.remember('a long passphrase');
+  await store.forget({ wipeSaved: false });
+  assert.equal(store.hasKey(), false);
+  assert.equal(await store.hasSavedKey(), true);
+  assert.equal((await vault.get(STORES.meta, META_KEY)).remembered, true);
+});
+
+test('idle minutes persist across key stores and an invalid choice changes nothing', async () => {
+  const { store, vault } = make();
+  await store.saveIdleMinutes(15);
+  const reopened = createKeyStore({ vault });
+  assert.equal(await reopened.loadIdleMinutes(), 15);
+  assert.equal(reopened.getIdleMinutes(), 15);
+  await assert.rejects(() => reopened.saveIdleMinutes(7), (e) => e.code === 'VALIDATION');
+  assert.equal(reopened.getIdleMinutes(), 15);
+  assert.equal((await vault.get(STORES.meta, META_KEY)).idleMinutes, 15);
 });
 
 test('idle forget runs at the configured minute and touch resets it', async () => {

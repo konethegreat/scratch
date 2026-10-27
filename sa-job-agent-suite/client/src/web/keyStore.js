@@ -114,8 +114,11 @@ export function createKeyStore({ vault, now = () => Date.now(), encrypt = encryp
     async forget({ wipeSaved = true } = {}) {
       store.clearMemory();
       if (wipeSaved) await vault.delete(STORES.keyVault, KEY_VAULT_KEY);
+      // The flag must mirror the vault: a kept blob still needs the unlock screen
+      // after reload, so only report "not remembered" once it is really gone.
+      const remembered = await store.hasSavedKey();
       const meta = await readMeta();
-      await vault.put(STORES.meta, META_KEY, { ...meta, idleMinutes, remembered: false });
+      await vault.put(STORES.meta, META_KEY, { ...meta, idleMinutes, remembered });
     },
 
     async panicWipe() {

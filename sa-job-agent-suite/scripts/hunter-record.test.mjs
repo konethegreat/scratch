@@ -45,7 +45,15 @@ test('sanitizeHtml never throws on malformed or non-string input', () => {
   assert.doesNotThrow(() => sanitizeHtml('<div><script>alert(1)'));
   assert.doesNotThrow(() => sanitizeHtml('<a href="unterminated>click</a><iframe'));
   assert.doesNotThrow(() => sanitizeHtml('<p>ok</p'));
+  assert.doesNotMatch(sanitizeHtml('<div><script>alert(1)'), /alert\(1\)/, 'an unclosed script body is dropped');
+  assert.doesNotMatch(sanitizeHtml('<p>ok</p><style>.leak{color:red}'), /leak/);
+  assert.doesNotMatch(sanitizeHtml('<noscript>tracker()'), /tracker\(\)/);
   assert.equal(sanitizeHtml(null), '');
   assert.equal(sanitizeHtml(undefined), '');
   assert.equal(sanitizeHtml(''), '');
+});
+
+test('sanitizeHtml masks a phone-like run only from 9 digits up', () => {
+  assert.equal(sanitizeHtml('<span>12345678</span>'), '<span>12345678</span>', '8 digits survive');
+  assert.equal(sanitizeHtml('<span>123456789</span>'), '<span>[phone]</span>', '9 digits are masked');
 });

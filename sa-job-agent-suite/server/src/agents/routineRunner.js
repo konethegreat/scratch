@@ -138,10 +138,22 @@ export async function runRoutine(routine, { trigger = 'schedule' } = {}) {
   try {
     // ── Canary-only routine: source health, no hunting/tailoring/AI ──────────
     if (routine.type === 'canary') {
-      const results = (await canarySession({})) || {};
-      const list = Object.values(results);
+      const results = await canarySession({});
+      const canary = results && typeof results === 'object' ? results : {};
+      const list = Object.values(canary);
+      if (list.length === 0) {
+        // Ruling T10-i: nothing tested is not a success.
+        result.canary = canary;
+        result.tested = 0;
+        result.passed = 0;
+        result.note = 'No enabled sources to test.';
+        result.finishedAt = new Date().toISOString();
+        setRoutineRunState(routine.id, { lastRun: result.finishedAt, lastStatus: 'skipped', lastResult: result });
+        addLog(`Routine "${routine.name}" skipped — ${result.note}`, 'system');
+        return result;
+      }
       const passed = list.filter((entry) => entry && entry.pass === true).length;
-      result.canary = results;
+      result.canary = canary;
       result.tested = list.length;
       result.passed = passed;
       result.note = `Canary check: ${passed}/${list.length} source(s) passed.`;

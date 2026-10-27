@@ -13,15 +13,18 @@ const QUERY = { keyword: 'software engineer', location: 'Johannesburg' };
 
 /**
  * Live pages recorded by `scripts/hunter-record.mjs` for one source:
- * `<id>.html` or `<id>-*.html`, sorted. A missing directory yields [] (the
- * directory is gitignored, so a fresh checkout has none). `dir` is a test seam.
+ * `<id>.html` or `<id>-*.html`, sorted. A missing directory (ENOENT) yields []
+ * because the directory is gitignored, so a fresh checkout has none; any other
+ * readdir failure (e.g. EACCES) is rethrown so an unreadable directory fails
+ * loudly instead of reading as "no recordings". `dir` is a test seam.
  */
 export function recordedFixtures(sourceId, dir = RECORDED_DIR) {
   let names;
   try {
     names = readdirSync(dir);
-  } catch {
-    return [];
+  } catch (err) {
+    if (err?.code === 'ENOENT') return [];
+    throw err;
   }
   const exact = `${sourceId}.html`;
   const prefix = `${sourceId}-`;
@@ -72,6 +75,8 @@ async function extractFromPath(source, filePath) {
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
+    // Recorded pages are real site HTML: never let them fetch live subresources.
+    await page.route('**/*', (route) => route.abort());
     await page.setContent(readFileSync(filePath, 'utf8'));
     return await page.evaluate(source.extractInPage, { keyword: QUERY.keyword, location: QUERY.location, origin: source.origin });
   } finally {
@@ -103,6 +108,12 @@ test('recordedFixtures lists only this source\'s .html recordings, sorted, and t
       ['linkedin-20251231.html', 'linkedin-20260101.html', 'linkedin.html']
     );
     assert.deepEqual(recordedFixtures('gumtree', tmp), [], 'another source has no recordings here');
+    // Only ENOENT means "no recordings yet"; any other readdir failure is real.
+    assert.throws(
+      () => recordedFixtures('linkedin', path.join(tmp, 'linkedin.html')),
+      (err) => err.code !== 'ENOENT',
+      'an unreadable path fails loudly instead of reading as empty'
+    );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

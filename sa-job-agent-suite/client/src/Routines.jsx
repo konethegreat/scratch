@@ -21,6 +21,39 @@ const FREQ_LABEL = {
   every_n_hours: 'Every few hours'
 };
 
+const TYPE_LABEL = {
+  hunt: 'Find only',
+  hunt_and_tailor: 'Find & tailor',
+  dream: 'Reflect & learn',
+  canary: 'Check sources'
+};
+
+/** One-line "what this routine does" for the list row. */
+function typeSummary(r) {
+  const label = TYPE_LABEL[r.type] || TYPE_LABEL.hunt;
+  return r.type === 'hunt_and_tailor' ? `${label} ${r.autoTailorCount}` : label;
+}
+
+/**
+ * The " · ..." fragment after "Last run: <time>". A skipped canary shows its
+ * note (e.g. "No enabled sources to test.") rather than "tested 0, passed 0".
+ */
+function lastResultSummary(r) {
+  const res = r.lastResult;
+  if (!res) return '';
+  const skippedCanary = r.type === 'canary' && r.lastStatus === 'skipped';
+  if (r.lastStatus !== 'ok' && r.lastStatus !== 'error' && !skippedCanary) return '';
+  const parts = [];
+  if (r.type === 'canary') {
+    if (!skippedCanary) parts.push(`tested ${res.tested ?? 0}, passed ${res.passed ?? 0}`);
+  } else if (r.type !== 'dream') {
+    parts.push(`saved ${res.totalSaved ?? 0}, tailored ${res.tailored ?? 0}`);
+  }
+  if (res.note) parts.push(res.note);
+  if (res.error) parts.push(res.error);
+  return parts.map((part) => ` · ${part}`).join('');
+}
+
 function emptyForm() {
   return {
     name: 'Morning job hunt',
@@ -274,7 +307,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               <div>
                 <div style={{ fontWeight: 700 }}>{r.name}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  {scheduleSummary(r)} · {r.type === 'hunt_and_tailor' ? `Find & tailor ${r.autoTailorCount}` : r.type === 'dream' ? 'Reflect & learn' : r.type === 'canary' ? 'Check sources' : 'Find only'}
+                  {scheduleSummary(r)} · {typeSummary(r)}
                 </div>
               </div>
             </div>
@@ -293,19 +326,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
           <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
             <div className="muted" style={{ fontSize: 12 }}>
               Last run: {fmt(r.lastRun)}
-              {r.lastResult && (r.lastStatus === 'ok' || r.lastStatus === 'error') && (
-                r.type === 'dream'
-                  ? <>{r.lastResult.note ? ` · ${r.lastResult.note}` : ''}{r.lastResult.error ? ` · ${r.lastResult.error}` : ''}</>
-                  : r.type === 'canary'
-                    ? <> · tested {r.lastResult.tested ?? 0}, passed {r.lastResult.passed ?? 0}
-                        {r.lastResult.note ? ` · ${r.lastResult.note}` : ''}
-                        {r.lastResult.error ? ` · ${r.lastResult.error}` : ''}
-                      </>
-                    : <> · saved {r.lastResult.totalSaved ?? 0}, tailored {r.lastResult.tailored ?? 0}
-                        {r.lastResult.note ? ` · ${r.lastResult.note}` : ''}
-                        {r.lastResult.error ? ` · ${r.lastResult.error}` : ''}
-                      </>
-              )}
+              {lastResultSummary(r)}
             </div>
             <button className="btn-secondary btn-xs" onClick={() => runNow(r)} disabled={r.lastStatus === 'running'}>
               <Play size={12} /> Run now

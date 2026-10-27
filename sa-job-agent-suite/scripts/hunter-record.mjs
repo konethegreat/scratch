@@ -5,10 +5,12 @@
 //   node scripts/hunter-record.mjs <sourceId> [--keyword <kw>] [--location <loc>] --yes
 //
 // This visits the LIVE site. It never writes the DB, never takes the browser
-// lock and never calls the AI: it loads page 1 headlessly, sanitises the HTML
-// (scripts, styles, noscript, iframes, inline handlers, emails, phone numbers)
-// and writes server/src/hunter/fixtures/recorded/<id>-<yyyymmdd>.html, which is
-// gitignored. The contract test picks the file up automatically.
+// lock and never calls the AI: it loads page 1 in headless Chrome, opens a fresh
+// browser context carrying the hunter fingerprint (UA, viewport, locale,
+// timezone), sanitises the HTML (scripts, styles, noscript, iframes, inline
+// handlers, emails, phone numbers) and writes
+// server/src/hunter/fixtures/recorded/<id>-<yyyymmdd>.html, which is gitignored.
+// The contract test picks the file up automatically.
 //
 // sanitizeHtml is exported and pure; importing this module from a test must not
 // launch anything. The CLI itself only runs when this file is the entry point.
@@ -23,9 +25,11 @@ const RECORDED_DIR = path.join(
   '..', 'server', 'src', 'hunter', 'fixtures', 'recorded'
 );
 
-// The same hunter-like browser fingerprint the hunter and canary use.
+// The same hunter-like browser fingerprint the hunter and canary use. These are
+// CONTEXT options: chromium.launch() ignores them, so they must go to newContext().
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 const LAUNCH_ARGS = ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox'];
+const LAUNCH_ONLY_OPTIONS = Object.freeze({ args: LAUNCH_ARGS });
 const LAUNCH_CONTEXT = Object.freeze({
   userAgent: USER_AGENT,
   viewport: { width: 1366, height: 768 },
@@ -35,6 +39,9 @@ const LAUNCH_CONTEXT = Object.freeze({
 
 const BLOCK_TAGS = /<(script|style|noscript|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const SELF_CLOSING_BLOCK_TAGS = /<(script|style|noscript|iframe)\b[^>]*\/\s*>/gi;
+// An opening tag that never closes swallows the rest of the document (a browser
+// reads everything after it as that block's body), so drop from it to end of input.
+const UNCLOSED_BLOCK_TAG = /<(script|style|noscript|iframe)\b[^>]*>[\s\S]*$/i;
 const LEFTOVER_BLOCK_TAGS = /<\/?(script|style|noscript|iframe)\b[^>]*>/gi;
 const INLINE_HANDLERS = /\son[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const EMAILS = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
@@ -44,9 +51,10 @@ const digitsIn = (text) => (text.match(/\d/g) || []).length;
 
 /**
  * Removes everything a recorded fixture must never carry: executable/style
- * blocks (including self-closing iframes), inline `on*=` handlers, email
- * addresses and phone-like runs of nine or more digits. Visible text and all
- * other markup are preserved. Pure, and never throws.
+ * blocks (including self-closing iframes and unclosed blocks, whose body runs to
+ * the end of the input), inline `on*=` handlers, email addresses and phone-like
+ * runs of nine or more digits. Visible text and all other markup are preserved.
+ * Pure, and never throws.
  *
  * @param {string} html
  * @returns {string}
@@ -58,6 +66,7 @@ export function sanitizeHtml(html) {
     let out = html
       .replace(BLOCK_TAGS, '')
       .replace(SELF_CLOSING_BLOCK_TAGS, '')
+      .replace(UNCLOSED_BLOCK_TAG, '')
       .replace(LEFTOVER_BLOCK_TAGS, '')
       .replace(INLINE_HANDLERS, '');
     out = out.replace(EMAILS, '[email]');
@@ -159,13 +168,15 @@ async function main(argv) {
   console.log(`Recording ${source.id} page 1 — this visits the LIVE site: ${url}`);
   const { chromium } = await import('playwright');
   let browser = null;
+  let context = null;
   try {
     try {
-      browser = await chromium.launch({ headless: true, channel: 'chrome', args: LAUNCH_ARGS, ...LAUNCH_CONTEXT });
+      browser = await chromium.launch({ headless: true, channel: 'chrome', ...LAUNCH_ONLY_OPTIONS });
     } catch {
-      browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS, ...LAUNCH_CONTEXT });
+      browser = await chromium.launch({ headless: true, ...LAUNCH_ONLY_OPTIONS });
     }
-    const page = await browser.newPage();
+    context = await browser.newContext(LAUNCH_CONTEXT);
+    const page = await context.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
 
@@ -178,6 +189,7 @@ async function main(argv) {
     console.log('The contract test picks it up automatically: npm test --workspace=server');
     return 0;
   } finally {
+    if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
   }
 }

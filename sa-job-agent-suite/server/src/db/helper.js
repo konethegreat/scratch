@@ -979,10 +979,11 @@ export function setApplyState(updates) {
 }
 
 // ── Routines (T1): unattended, recurring Hunter/Tailor runs ───────────────────
-// SAFETY: a routine can only ever be type 'hunt' or 'hunt_and_tailor'. There is
-// deliberately no auto-apply routine — Agent 3 is never invoked unattended, so
-// nothing is ever submitted without the human present. Don't change this without
-// revisiting the whole human-on-the-loop safety model.
+// SAFETY: a routine's type must be one of ROUTINE_TYPES below — 'hunt',
+// 'hunt_and_tailor', 'dream' or 'canary'. There is deliberately no auto-apply
+// routine: Agent 3 is never invoked unattended, so nothing is ever submitted
+// without the human present. Don't change this without revisiting the whole
+// human-on-the-loop safety model.
 // 'dream' = a Dreaming/reflection pass only (no hunting, no applying). Cheap:
 // one LLM call that curates the candidate dossier (see memoryReflect.js).
 // 'canary' = a scheduled source-health check (T10): one page per enabled source,

@@ -100,6 +100,42 @@ test('a canary routine skips when another browser job holds the lock', async () 
   assert.equal(browserLock.browserOwner(), null);
 });
 
+test('a canary routine with nothing tested records skipped, not ok, and releases the lock', async () => {
+  runner.__setCanarySessionForTests(async () => ({}));
+  const routine = canaryRoutine();
+
+  const result = await runner.runRoutine(routine);
+
+  assert.ok(result, 'a skipped canary still returns its summary');
+  assert.equal(result.tested, 0);
+  assert.equal(result.passed, 0);
+  assert.equal(result.note, 'No enabled sources to test.');
+
+  const stored = helper.getRoutine(routine.id);
+  assert.equal(stored.lastStatus, 'skipped', 'zero tested sources is not a success');
+  assert.equal(stored.lastResult.tested, 0);
+  assert.equal(stored.lastResult.passed, 0);
+  assert.equal(stored.lastResult.note, 'No enabled sources to test.');
+  assert.deepEqual(stored.lastResult.canary, {});
+  assert.equal(browserLock.browserOwner(), null, 'the canary lock is released');
+  assert.equal(helper.getHunterState().isRunning, false);
+});
+
+test('a canary routine treats a non-object session result as nothing tested', async () => {
+  runner.__setCanarySessionForTests(async () => null);
+  const routine = canaryRoutine();
+
+  const result = await runner.runRoutine(routine);
+
+  assert.equal(result.tested, 0);
+  assert.equal(result.passed, 0);
+  const stored = helper.getRoutine(routine.id);
+  assert.equal(stored.lastStatus, 'skipped');
+  assert.equal(stored.lastResult.note, 'No enabled sources to test.');
+  assert.deepEqual(stored.lastResult.canary, {});
+  assert.equal(browserLock.browserOwner(), null, 'the canary lock is released');
+});
+
 test('a canary session failure is recorded as error and releases the lock', async () => {
   runner.__setCanarySessionForTests(async () => { throw new Error('canary exploded'); });
   const routine = canaryRoutine();

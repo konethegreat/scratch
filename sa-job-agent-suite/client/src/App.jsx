@@ -42,6 +42,7 @@ import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ErrorCard from './ErrorCard.jsx';
 import RecentErrors from './RecentErrors.jsx';
+import { copyToClipboard } from './clipboard.js';
 import {
   contractFromBody,
   describeUserError,
@@ -748,10 +749,10 @@ export default function App() {
     }
   };
 
-  const copyText = (text, label = 'Copied to clipboard.') => {
+  const copyText = async (text, label = 'Copied to clipboard.') => {
     if (!text) return toasts.error('Nothing to copy yet.');
-    navigator.clipboard.writeText(text);
-    toasts.success(label);
+    if (await copyToClipboard(text)) toasts.success(label);
+    else toasts.error('Copy failed. Select the text and copy it manually.');
   };
 
   const downloadText = (text, filename) => {

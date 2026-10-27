@@ -71,6 +71,20 @@ test('uses navigator.clipboard.writeText when it is available', async () => {
   }
 });
 
+test('returns false when the legacy command reports failure', async () => {
+  stubNavigator(undefined);
+  const { area, documentStub } = stubDocument(false);
+  try {
+    const ok = await copyToClipboard('nope');
+    assert.equal(ok, false);
+    assert.deepEqual(documentStub.execCommandCalls, ['copy']);
+    assert.equal(area.removed, true);
+  } finally {
+    restoreNavigator();
+    restoreDocument();
+  }
+});
+
 test('falls back to document.execCommand when writeText rejects', async () => {
   stubNavigator({ writeText: async () => { throw new Error('denied'); } });
   const { area, documentStub } = stubDocument(true);

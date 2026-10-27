@@ -8,18 +8,19 @@ export async function copyToClipboard(text) {
   } catch {
     // fall through to the legacy path
   }
+  let area = null;
   try {
-    const area = document.createElement('textarea');
+    area = document.createElement('textarea');
     area.value = text;
     area.setAttribute('readonly', '');
     area.style.position = 'fixed';
     area.style.opacity = '0';
     document.body.appendChild(area);
     area.select();
-    const ok = document.execCommand('copy');
-    area.remove();
-    return ok;
+    return document.execCommand('copy');
   } catch {
     return false;
+  } finally {
+    if (area) area.remove();
   }
 }

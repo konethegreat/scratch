@@ -36,6 +36,7 @@
 - **R9 — client sweep scope.** M3a-1 converts every existing error-toasting `catch`/`!res.ok` branch in `App.jsx`, the three initial-load fetchers, and adds the boundary/card/panel. Plain validation notices (e.g. "Nothing to copy yet.") stay simple toasts.
 - **R10 — `/api/health` is not an error endpoint.** It stays `{ status: 'ok', timestamp }`.
 - **R11 — object `details` serialise (post-review amendment).** The first reference implementation stringified `ClaudeRefusalError.details` (an object from the SDK) to `"[object Object]"`, defeating R4. `text()` now JSON-serialises non-string values before scrubbing, and `toUserError` tolerates a `null` context. Two tests were added (object details, null context), so Task 1's suite is 16 tests, not 14.
+- **R12 — the terminal handler logs (post-review amendment).** The three-line `errorHandler` turned every unexpected throw into an untraceable 500 once Task 3 wired it. It now answers through `errorBody`, emits one flat scrubbed `[requestId] message` line for status ≥ 500, and mirrors `X-Request-Id` on both `sendError` and the handler path. Task 2's suite is 14 tests, not 9.
 
 ---
 
@@ -730,8 +731,15 @@ export function errorBody(err, requestId, { success = true } = {}) {
   return { status, body };
 }
 
+function mirrorRequestId(res, requestId) {
+  if (!res.headersSent && typeof res.setHeader === 'function') {
+    res.setHeader(REQUEST_ID_HEADER, requestId);
+  }
+}
+
 export function sendError(res, err, { status, success = true } = {}) {
   const derived = errorBody(err, res.req?.id ?? null, { success });
+  mirrorRequestId(res, derived.body.requestId);
   return res.status(status ?? derived.status).json(derived.body);
 }
 
@@ -748,14 +756,17 @@ export const forbidden = helper(ERROR_CODES.FORBIDDEN);
 /** Terminal middleware: a thrown route error becomes a contract response. */
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
-  return sendError(res, err);
+  const { status, body } = errorBody(err, res.req?.id ?? req?.id ?? null);
+  if (status >= 500) console.error(`[${body.requestId}] ${body.message.replace(/\s+/g, ' ')}`);
+  mirrorRequestId(res, body.requestId);
+  return res.status(status).json(body);
 }
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd sa-job-agent-suite/server && node --test src/httpErrors.test.js`
-Expected: PASS — 9 tests. One test starts a real loopback Express server; it is still offline.
+Expected: PASS — 14 tests. One test starts a real loopback Express server; it is still offline.
 
 - [ ] **Step 5: Commit**
 

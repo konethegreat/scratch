@@ -35,7 +35,7 @@ const FIELDS = [
   { key: 'availabilityDate',     label: 'Available from',             type: 'text',   placeholder: 'e.g. Immediate / 2026-07-01' },
 ];
 
-export default function ApplicationAnswers({ appProfile = {}, onChangeField, notes = '', onChangeNotes, apiBase, toasts, refreshSignal }) {
+export default function ApplicationAnswers({ appProfile = {}, onChangeField, notes = '', onChangeNotes, apiBase, toasts, refreshSignal, onDraftInAsk }) {
   const [bank, setBank] = useState([]);
   const [pending, setPending] = useState([]);
   const [drafts, setDrafts] = useState({}); // pendingId -> answer text
@@ -182,6 +182,16 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
                   <button type="button" className="btn-secondary btn-sm" onClick={() => dismissPending(q.id)}>
                     Dismiss
                   </button>
+                  {typeof onDraftInAsk === 'function' && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      title="Draft this answer from your documents"
+                      onClick={() => onDraftInAsk(q.question)}
+                    >
+                      <Sparkles size={12} /> Draft in Ask
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

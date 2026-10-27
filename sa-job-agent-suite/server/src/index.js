@@ -181,7 +181,10 @@ app.post('/api/profile', (req, res) => {
   } catch (error) {
     // A malformed / Admin key is the caller's mistake, not a server fault. The
     // message is user-facing and never contains the key itself.
-    if (error instanceof InvalidKeyError) return badRequest(res, error.message);
+    if (error instanceof InvalidKeyError) {
+      const code = /admin/i.test(error.message) ? ERROR_CODES.KEY_ADMIN : ERROR_CODES.KEY_INVALID;
+      return sendError(res, new AppError(code, error.message));
+    }
     sendError(res, error);
   }
 });
@@ -413,7 +416,7 @@ app.post('/api/memory/insight', (req, res) => {
       return badRequest(res, 'Insight text is required.');
     }
     const entry = addInsight({ text, category, source: 'manual' });
-    if (!entry) return conflict(res, 'That insight already exists.');
+    if (!entry) return conflict(res, 'That insight already exists.', { retryable: false, hint: 'Open the existing insight instead of adding it again.' });
     res.json({ success: true, entry });
   } catch (error) {
     sendError(res, error);
@@ -464,7 +467,7 @@ app.post('/api/memory/dream', async (req, res) => {
   try {
     const result = await dreamOverMemory(getProfile());
     if (result.skipped === 'no-key') {
-      return badRequest(res, 'No AI provider key is set — add one in Profile & Settings.');
+      return badRequest(res, 'No AI provider key is set — add one in Profile & Settings.', { hint: 'Add your API key in Profile & Settings, then retry.' });
     }
     if (result.skipped === 'disabled') {
       return badRequest(res, 'Dreaming is turned off in Settings.');
@@ -560,7 +563,7 @@ app.post('/api/jobs', (req, res) => {
       addLog(`Manual job added: ${title} at ${company}`, 'system');
       return res.json({ success: true, job });
     }
-    conflict(res, 'A similar job already exists.');
+    conflict(res, 'A similar job already exists.', { retryable: false, hint: 'Find the existing job in your tracker instead of adding it again.' });
   } catch (error) {
     sendError(res, error);
   }
@@ -692,7 +695,7 @@ app.post('/api/jobs/hunter', (req, res) => {
 app.post('/api/jobs/hunter/stop', (req, res) => {
   const state = getHunterState();
   if (!state.isRunning) {
-    return conflict(res, 'Job hunter is not currently running.');
+    return conflict(res, 'Job hunter is not currently running.', { retryable: false, hint: 'Start a job hunt, then stop it if needed.' });
   }
   setHunterState({ stopRequested: true });
   addLog('Stop requested by user — hunter will halt after the current source.', 'system');
@@ -740,7 +743,7 @@ app.post('/api/jobs/tailor-batch', (req, res) => {
       .map((j) => j.id);
   }
   if (!jobIds.length) {
-    return badRequest(res, 'No jobs to tailor. Find some jobs first.');
+    return badRequest(res, 'No jobs to tailor. Find some jobs first.', { hint: 'Run a job hunt, then tailor the jobs you keep.' });
   }
 
   res.json({ success: true, message: `Tailoring ${Math.min(jobIds.length, 10)} job(s) in parallel.`, queued: Math.min(jobIds.length, 10) });
@@ -1054,6 +1057,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.use('/api', (req, res) => notFound(res, 'No such endpoint.'));
 app.use(errorHandler);
 
 // -------------------- Startup --------------------

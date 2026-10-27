@@ -1,24 +1,14 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Copy, ChevronDown } from 'lucide-react';
+import { copyToClipboard } from './clipboard.js';
 import { describeUserError, diagnosticsText } from './errors.js';
-
-async function copyToClipboard(text) {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.style.position = 'fixed';
-  area.style.opacity = '0';
-  document.body.appendChild(area);
-  area.select();
-  document.execCommand('copy');
-  area.remove();
-}
 
 export default function ErrorCard({ error, title = 'Something went wrong', onRetry, onDismiss }) {
   const [copied, setCopied] = useState(false);
   if (!error) return null;
   const copy = async () => {
-    await copyToClipboard(diagnosticsText({ ...error, at: error.at || new Date().toISOString() }));
+    const ok = await copyToClipboard(diagnosticsText({ ...error, at: error.at || new Date().toISOString() }));
+    if (!ok) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

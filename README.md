@@ -117,6 +117,18 @@ server-backed actions (Launch crawler, Tailor all found, Re-check links,
 Optimise CV & letter, Apply) stay clickable — each one answers with a typed
 "not supported in web" error.
 
+### Job feeds and tracker
+
+Job Feeds is a browser-only tab that pulls Remotive, Arbeitnow and Jobicy
+directly into the page, then hands the ones you like to the tracker.
+
+- The three feeds are public and keyless.
+- Jobs are filtered in the browser; no profile data is sent.
+- Up to 300 rows per feed, refreshed at most every 15 minutes unless you press
+  Refresh.
+- Statuses and notes are local; export a backup before clearing site data.
+- The backup file never contains the API key.
+
 **Self-hosting.** `npx serve client/dist` does not apply `_headers`, so the CSP
 and the other security headers are missing. Use a static host that serves that
 file (Cloudflare Pages does), or copy the header block from
@@ -125,8 +137,8 @@ host's own configuration. The web CSP allows no third-party scripts or fonts.
 
 **Where your data lives.** Everything is in this browser's IndexedDB
 (database `sajas-web`). There is no account and nothing is uploaded to us.
-Export/import is not in this increment, so clearing site data means starting
-over.
+Export a backup from Profile & Settings before clearing site data or moving to
+another device.
 
 **Your key.** The Anthropic key is kept in memory only by default: enter it once
 per session, and it is dropped on reload or after the idle timeout you choose

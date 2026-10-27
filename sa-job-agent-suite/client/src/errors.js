@@ -62,9 +62,12 @@ export function describeUserError(info) {
 /** Map any thrown value and put it at the front of the memory-only log. */
 export function recordError(err, context = {}) {
   const entry = { ...toUserError(err, context), at: new Date().toISOString(), where: context.where || null };
-  const [latest] = recent;
-  if (latest && latest.code === entry.code && latest.where === entry.where && latest.message === entry.message) {
-    recent = [{ ...latest, at: entry.at, count: (latest.count || 1) + 1 }, ...recent.slice(1)];
+  const match = recent.findIndex(
+    (e) => e.code === entry.code && e.where === entry.where && e.message === entry.message
+  );
+  if (match !== -1) {
+    const previous = recent[match];
+    recent = [{ ...previous, at: entry.at, count: (previous.count || 1) + 1 }, ...recent.filter((_, i) => i !== match)];
   } else {
     recent = [{ ...entry, count: 1 }, ...recent].slice(0, MAX_RECENT);
   }
@@ -97,6 +100,7 @@ export function diagnosticsText(entry) {
     `at: ${entry.at || new Date().toISOString()}`,
     `where: ${entry.where || 'unknown'}`
   ];
+  if (entry.count > 1) lines.push(`count: ${entry.count}`);
   if (entry.details) lines.push(`details: ${entry.details}`);
   return lines.join('\n');
 }

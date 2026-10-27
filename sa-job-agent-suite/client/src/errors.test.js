@@ -101,6 +101,28 @@ test('the same failure from a different source stays a separate entry', () => {
   assert.equal(entries[1].where, 'jobs');
 });
 
+test('interleaved repeats collapse against the whole buffer', () => {
+  clearRecentErrors();
+  recordError(new Error('down'), { where: 'load jobs' });
+  recordError(new Error('down'), { where: 'load logs' });
+  recordError(new Error('down'), { where: 'load jobs' });
+  const entries = getRecentErrors();
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].where, 'load jobs');
+  assert.equal(entries[0].count, 2);
+  assert.equal(entries[1].where, 'load logs');
+  assert.equal(entries[1].count, 1);
+});
+
+test('diagnosticsText reports the repeat count once', () => {
+  clearRecentErrors();
+  recordError(new Error('down'), { where: 'load jobs' });
+  const entry = recordError(new Error('down'), { where: 'load jobs' });
+  const text = diagnosticsText(entry);
+  assert.match(text, /count: 2/);
+  assert.equal(text.match(/count: /g).length, 1);
+});
+
 test('diagnosticsText contains the contract fields and no raw key', () => {
   clearRecentErrors();
   const key = fakeKey();

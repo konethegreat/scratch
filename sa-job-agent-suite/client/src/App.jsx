@@ -32,12 +32,16 @@ import {
   Home,
   Clock,
   Network,
-  ShieldCheck
+  ShieldCheck,
+  Rss,
+  StickyNote
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
+import JobFeeds from './JobFeeds.jsx';
+import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ErrorCard from './ErrorCard.jsx';
@@ -198,10 +202,13 @@ function SidebarLink({ active, onClick, icon, children }) {
 /* ---------------------------------------------------------------- */
 function StatusBadge({ status }) {
   const map = {
-    found:    { cls: 'badge',          label: 'Discovered' },
-    tailoring:{ cls: 'badge-warning',  label: 'Tailoring...' },
-    tailored: { cls: 'badge-accent',   label: 'Tailored' },
-    applied:  { cls: 'badge-success',  label: 'Applied' }
+    found:        { cls: 'badge',          label: 'Discovered' },
+    tailoring:    { cls: 'badge-warning',  label: 'Tailoring...' },
+    tailored:     { cls: 'badge-accent',   label: 'Tailored' },
+    applied:      { cls: 'badge-success',  label: 'Applied' },
+    interviewing: { cls: 'badge-info',     label: 'Interviewing' },
+    offer:        { cls: 'badge-success',  label: 'Offer' },
+    rejected:     { cls: 'badge-error',    label: 'Rejected' }
   };
   const { cls, label } = map[status] || { cls: 'badge', label: status || 'Unknown' };
   return <span className={`badge ${cls}`}>{label}</span>;
@@ -238,6 +245,17 @@ function LinkBadge({ status }) {
   }
   return null;
 }
+
+// Statuses a user can pick from the tracker row. `tailoring` stays in the badge
+// map (Agent 2 sets it while a run is in flight) but is not offered here.
+const TRACKER_STATUS_OPTIONS = [
+  { value: 'found', label: 'Discovered' },
+  { value: 'tailored', label: 'Tailored' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'interviewing', label: 'Interviewing' },
+  { value: 'offer', label: 'Offer' },
+  { value: 'rejected', label: 'Rejected' }
+];
 
 /* ---------------------------------------------------------------- */
 /* Main App                                                         */
@@ -330,6 +348,8 @@ export default function App() {
   const [jobQuery, setJobQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [visibleJobCount, setVisibleJobCount] = useState(50);
+  const [notesJobId, setNotesJobId] = useState(null);
+  const [notesDraft, setNotesDraft] = useState('');
 
   // Modal state
   const [confirm, setConfirm] = useState({ open: false });
@@ -683,6 +703,24 @@ export default function App() {
       fail(err, 'update job', 'Could not update job.');
     }
   };
+
+  // Inline edits from the tracker table (status select, notes editor). One PATCH
+  // then a fresh GET so the row and the dashboard badges agree with the server.
+  const updateJobFields = useCallback(async (id, patch) => {
+    try {
+      const response = await fetch(`${API_BASE}/jobs/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      });
+      if (!response.ok) throw await readResponseError(response, 'Could not update this job.');
+      await fetchJobs();
+      return true;
+    } catch (error) {
+      fail(error, 'update job', 'Could not update job.');
+      return false;
+    }
+  }, [fetchJobs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDeleteJob = (jobId, title) => {
     setConfirm({
@@ -1063,6 +1101,7 @@ export default function App() {
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
     hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then the 12-source scraper registry (health-aware and paginated) — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
+    feeds:     { title: 'Job Feeds',           subtitle: 'Public job feeds fetched by your browser. Filter them, then add the ones worth tracking. No key needed.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message — you review and send.' },
@@ -1147,6 +1186,9 @@ export default function App() {
           <SidebarLink active={activeTab === 'landing'}   onClick={() => setActiveTab('landing')}   icon={<Home size={16} />}>Home / About</SidebarLink>
           <SidebarLink active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Briefcase size={16} />}>Dashboard</SidebarLink>
           <SidebarLink active={activeTab === 'hunter'}    onClick={() => setActiveTab('hunter')}    icon={<Search size={16} />}>Job Hunter</SidebarLink>
+          {IS_WEB && (
+            <SidebarLink active={activeTab === 'feeds'} onClick={() => setActiveTab('feeds')} icon={<Rss size={16} />}>Job Feeds</SidebarLink>
+          )}
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
           {isTabVisible('copilot', IS_WEB) && (
             <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
@@ -1269,7 +1311,7 @@ export default function App() {
                   <EmptyState
                     icon={<Search size={28} />}
                     title="No jobs yet"
-                    body="Configure your keywords in Profile &amp; Settings, then click Run Hunter."
+                    body={IS_WEB ? 'Open Job Feeds to pull public jobs, or add one manually.' : 'Configure your keywords in Profile & Settings, then click Run Hunter.'}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1339,17 +1381,17 @@ export default function App() {
                 <button className="btn-secondary" onClick={() => setAddJobOpen(true)}>
                   <Plus size={14} /> Add manually
                 </button>
-                {jobs.some((j) => j.status === 'found') && (
+                {!IS_WEB && jobs.some((j) => j.status === 'found') && (
                   <button className="btn-secondary" onClick={triggerBatchTailor} title="Tailor all found jobs concurrently (Agent 2)">
                     <Wand2 size={14} /> Tailor all found
                   </button>
                 )}
-                {jobs.length > 0 && (
+                {!IS_WEB && jobs.length > 0 && (
                   <button className="btn-secondary" onClick={revalidateLinks} disabled={revalidating} title="Re-check saved job links — flags ones that have since expired (never deletes)">
                     {revalidating ? <Loader2 size={14} className="spin" /> : <ShieldCheck size={14} />} Re-check links
                   </button>
                 )}
-                {hunterRunning ? (
+                {!IS_WEB && (hunterRunning ? (
                   <button className="btn-danger" onClick={stopJobHunter} title="Stop after the current source">
                     <Loader2 size={14} className="spin" /> Stop crawler
                   </button>
@@ -1357,7 +1399,7 @@ export default function App() {
                   <button className="btn-primary" onClick={triggerJobHunter}>
                     <Search size={14} /> Launch crawler
                   </button>
-                )}
+                ))}
               </div>
             </div>
 
@@ -1405,6 +1447,9 @@ export default function App() {
                   <option value="found">Discovered</option>
                   <option value="tailored">Tailored</option>
                   <option value="applied">Applied</option>
+                  <option value="interviewing">Interviewing</option>
+                  <option value="offer">Offer</option>
+                  <option value="rejected">Rejected</option>
                 </select>
               </div>
             </div>
@@ -1423,44 +1468,92 @@ export default function App() {
                 </thead>
                 <tbody>
                   {filteredJobs.slice(0, visibleJobCount).map((job) => (
-                    <tr key={job.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{job.title}</div>
-                        <div className="tiny">{job.company}</div>
-                      </td>
-                      <td>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <MapPin size={12} color="var(--text-muted)" /> {job.location}
-                        </span>
-                      </td>
-                      <td><span className="badge badge-info">{job.source || 'Unknown'}</span></td>
-                      <td>
-                        <span style={{ color: job.matchScore >= 80 ? 'var(--color-success)' : 'var(--color-accent)', fontWeight: 700 }}>
-                          {job.matchScore}%
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <StatusBadge status={job.status} />
-                          <LinkBadge status={job.linkStatus} />
-                        </div>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {job.applyUrl && (
-                            <a href={job.applyUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-xs" style={{ textDecoration: 'none' }}>
-                              <ExternalLink size={12} /> Open
-                            </a>
-                          )}
-                          <button className="btn-secondary btn-xs" onClick={() => { setSelectedJob(job); setActiveTab('tailor'); }}>
-                            <Wand2 size={12} /> Tailor
-                          </button>
-                          <button className="btn-danger btn-xs" onClick={() => handleDeleteJob(job.id, job.title)} title="Dismiss">
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                    <React.Fragment key={job.id}>
+                      <tr>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{job.title}</div>
+                          <div className="tiny">{job.company}</div>
+                        </td>
+                        <td>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <MapPin size={12} color="var(--text-muted)" /> {job.location}
+                          </span>
+                        </td>
+                        <td><span className="badge badge-info">{job.source || 'Unknown'}</span></td>
+                        <td>
+                          <span style={{ color: job.matchScore >= 80 ? 'var(--color-success)' : 'var(--color-accent)', fontWeight: 700 }}>
+                            {job.matchScore}%
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <select
+                              value={TRACKER_STATUS_OPTIONS.some((option) => option.value === job.status) ? job.status : 'found'}
+                              onChange={(event) => updateJobFields(job.id, { status: event.target.value })}
+                              style={{ width: 130, fontSize: 12 }}
+                              data-testid="job-status"
+                            >
+                              {TRACKER_STATUS_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                            <LinkBadge status={job.linkStatus} />
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            {job.applyUrl && (
+                              <a href={job.applyUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-xs" style={{ textDecoration: 'none' }}>
+                                <ExternalLink size={12} /> Open
+                              </a>
+                            )}
+                            <button className="btn-secondary btn-xs" onClick={() => { setSelectedJob(job); setActiveTab('tailor'); }}>
+                              <Wand2 size={12} /> Tailor
+                            </button>
+                            <button
+                              className="btn-secondary btn-xs"
+                              title={job.notes ? 'Edit notes' : 'Add a note'}
+                              onClick={() => { setNotesJobId(job.id); setNotesDraft(job.notes || ''); }}
+                            >
+                              <StickyNote size={12} /> {job.notes ? 'Note' : 'Add note'}
+                            </button>
+                            <button className="btn-danger btn-xs" onClick={() => handleDeleteJob(job.id, job.title)} title="Dismiss">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {notesJobId === job.id && (
+                        <tr>
+                          <td colSpan="6" style={{ background: 'var(--bg-surface-2)' }}>
+                            <label htmlFor={`notes-${job.id}`}>Notes</label>
+                            <textarea
+                              id={`notes-${job.id}`}
+                              value={notesDraft}
+                              onChange={(event) => setNotesDraft(event.target.value)}
+                              rows={4}
+                              maxLength={20000}
+                              data-testid="job-notes"
+                            />
+                            <div className="flex-gap" style={{ marginTop: 8 }}>
+                              <button
+                                className="btn-primary btn-xs"
+                                data-testid="save-notes"
+                                onClick={async () => {
+                                  if (await updateJobFields(job.id, { notes: notesDraft })) {
+                                    setNotesJobId(null);
+                                    toasts.success('Notes saved.');
+                                  }
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button className="btn-ghost btn-xs" onClick={() => setNotesJobId(null)}>Cancel</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                   {filteredJobs.length > visibleJobCount && (
                     <tr>
@@ -1476,13 +1569,27 @@ export default function App() {
                   )}
                   {filteredJobs.length === 0 && (
                     <tr><td colSpan="6" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      {jobs.length === 0 ? 'No records harvested yet. Set parameters and start your crawler!' : 'No jobs match your current filter.'}
+                      {jobs.length === 0
+                        ? (IS_WEB
+                          ? 'No records yet. Add a job manually or pull one from Job Feeds.'
+                          : 'No records harvested yet. Set parameters and start your crawler!')
+                        : 'No jobs match your current filter.'}
                     </td></tr>
                   )}
                 </tbody>
               </table>
             </div>
           </div>
+        )}
+
+        {IS_WEB && activeTab === 'feeds' && (
+          <JobFeeds
+            profile={profile}
+            jobs={jobs}
+            toasts={toasts}
+            onJobsChanged={fetchJobs}
+            onProfileSaved={fetchProfile}
+          />
         )}
 
         {/* ============================== TAILOR ============================== */}
@@ -1753,7 +1860,8 @@ export default function App() {
                 { id: 'profile', label: 'Profile & CV',        icon: <FileText size={13} /> },
                 { id: 'search',  label: 'Job Search',          icon: <Search size={13} /> },
                 { id: 'answers', label: 'Application Answers', icon: <Database size={13} /> },
-                { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> }
+                { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> },
+                { id: 'backup',  label: 'Backup',              icon: <ShieldCheck size={13} /> }
               ], IS_WEB)}
             />
 
@@ -2312,6 +2420,10 @@ export default function App() {
                 </div>
               </section>
             </>)}
+
+            {IS_WEB && settingsTab === 'backup' && (
+              <SettingsBackup vault={webRuntime.vault} toasts={toasts} onImported={refreshAll} />
+            )}
 
             </div>
           </div>

@@ -309,9 +309,15 @@ Express server behind this build, so nothing in the web path may assume one.
 - **Core imports.** Client code imports `@sajas/core` subpaths only (`errors`,
   `models`, `secrets`), so the Anthropic SDK stays out of the browser bundle
   until M3a-4.
+- **Job feeds and tracker.** Feed code lives in `packages/core/src/feeds/`
+  (pure) and `client/src/web/feeds.js` (network). The job feeds tab and the
+  backup tab are web-only. `clearFeedCache()` must run on panic wipe. The web
+  port accepts only `status`, `notes`, `applyUrl`, and `description` on job
+  updates.
 - **Merge gate.** `npm run test:web` serves the already-built `client/dist`
-  with the production headers and runs the Playwright canary; the `web` CI job
-  treats it as merge-blocking (run `npm run build:web` first). The canary
+  with the production headers and runs the Playwright canary plus the offline
+  feeds, tracker and backup flow; the `web` CI job treats it as
+  merge-blocking (run `npm run build:web` first). The canary
   asserts the key appears only in the `x-api-key` header to
   `api.anthropic.com`, that no other origin is contacted, that the saved blob is
   ciphertext, and that Forget and panic wipe remove exactly what they claim.

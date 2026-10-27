@@ -112,10 +112,24 @@ The alpha is a browser workbench, not the full suite: your profile, the job
 tracker, candidate memory and settings work and persist in this browser.
 Hunting, tailoring and the apply copilot are not available in the web alpha;
 use the desktop app for those. The Copilot, Referrals, Routines and Logs tabs
-are hidden, but Job Hunter and Document Tailor still appear, and their
-server-backed actions (Launch crawler, Tailor all found, Re-check links,
-Optimise CV & letter, Apply) stay clickable — each one answers with a typed
-"not supported in web" error.
+are hidden, and Job Feeds is available in web mode. Job Hunter and Document
+Tailor still appear, but their crawler controls (Launch crawler, Stop crawler,
+Tailor all found, Re-check links) are hidden. The remaining server-backed
+actions (Optimise CV & letter, Apply) stay clickable, and each answers with a
+typed "not available in the web app" error.
+
+### Job feeds and tracker
+
+Job Feeds is a browser-only tab that pulls Remotive, Arbeitnow and Jobicy
+directly into the page, then hands the ones you like to the tracker.
+
+- The three feeds are public and keyless.
+- Jobs are filtered in the browser; no profile data is sent.
+- The app fetches up to 300 rows per feed and shows the top 100 in the tab.
+  Results refresh at most every 15 minutes unless you press Refresh, and a full
+  page reload fetches them again.
+- Statuses and notes are local; export a backup before clearing site data.
+- The backup file never contains the API key.
 
 **Self-hosting.** `npx serve client/dist` does not apply `_headers`, so the CSP
 and the other security headers are missing. Use a static host that serves that
@@ -125,8 +139,8 @@ host's own configuration. The web CSP allows no third-party scripts or fonts.
 
 **Where your data lives.** Everything is in this browser's IndexedDB
 (database `sajas-web`). There is no account and nothing is uploaded to us.
-Export/import is not in this increment, so clearing site data means starting
-over.
+Export a backup from Profile & Settings before clearing site data or moving to
+another device.
 
 **Your key.** The Anthropic key is kept in memory only by default: enter it once
 per session, and it is dropped on reload or after the idle timeout you choose

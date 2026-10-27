@@ -116,7 +116,7 @@ are hidden, and Job Feeds is available in web mode. Job Hunter and Document
 Tailor still appear, but their crawler controls (Launch crawler, Stop crawler,
 Tailor all found, Re-check links) are hidden. The remaining server-backed
 actions (Optimise CV & letter, Apply) stay clickable, and each answers with a
-typed "not supported in web" error.
+typed "not available in the web app" error.
 
 ### Job feeds and tracker
 

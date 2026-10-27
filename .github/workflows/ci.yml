@@ -115,3 +115,25 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Exercise real copilot and HTTP API on fictional local pages
         run: npm run test:demo
+
+  web:
+    name: Web build and canary-key check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sa-job-agent-suite
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sa-job-agent-suite/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Build the hosted bundle
+        run: npm run build:web
+      - name: Zero-knowledge canary
+        run: npm run test:web

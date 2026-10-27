@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.js",
     "./errors": "./src/errors.js",
+    "./secrets": "./src/secrets.js",
+    "./models": "./src/models.js",
     "./testing": "./src/testing.js"
   },
   "scripts": {

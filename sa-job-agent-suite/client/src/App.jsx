@@ -50,6 +50,11 @@ import {
   recordError
 } from './errors.js';
 import { setSourceError, clearSourceError, firstSourceError } from './loadErrors.js';
+import { IS_WEB } from './web/env.js';
+import { isTabVisible, filterSettingsTabs, SERVER_ONLY_SETTINGS } from './web/mode.js';
+import WebStartup from './web/WebStartup.jsx';
+import WebKeyPanel from './web/WebKeyPanel.jsx';
+import { webRuntime } from './web/runtime.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
@@ -256,6 +261,11 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
 
+  // Web builds gate the whole shell behind onboarding/unlock. Desktop starts ready.
+  const [webReady, setWebReady] = useState(!IS_WEB);
+  const [webKeyTick, setWebKeyTick] = useState(0);
+  const [webForceEnter, setWebForceEnter] = useState(false);
+
   const [profile, setProfile] = useState({
     selectedModel: '',
     anthropicApiKey: '',
@@ -295,6 +305,11 @@ export default function App() {
   // Application Answers / Documents & Data) so it no longer renders as one
   // endless scroll.
   const [settingsTab, setSettingsTab] = useState('ai');
+
+  useEffect(() => {
+    if (!isTabVisible(activeTab, IS_WEB) && activeTab !== 'landing') setActiveTab('dashboard');
+    if (IS_WEB && SERVER_ONLY_SETTINGS.includes(settingsTab)) setSettingsTab('ai');
+  }, [activeTab, settingsTab]);
 
   const [jobs, setJobs] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -443,6 +458,52 @@ export default function App() {
     hunterWasRunningRef.current = hunterRunning;
   }, [hunterRunning]);
 
+  // Web key idle-forget. The saved timeout is loaded once at startup, then a
+  // 15 s check drops the in-memory key. Without an encrypted blob the user is
+  // sent back through onboarding; with one, the unlock screen appears.
+  // "Idle" is measured from real use, not from when the key was set: pointer and
+  // key events on the document reset the clock. The handler is throttled to one
+  // touch per check interval so typing does not rewrite the timer constantly.
+  useEffect(() => {
+    if (!IS_WEB || !webReady) return undefined;
+    let alive = true;
+    let lastTouch = 0;
+    webRuntime.keyStore.loadIdleMinutes().catch(() => {});
+
+    const markActive = () => {
+      if (!webRuntime.keyStore.hasKey()) return;
+      const at = Date.now();
+      if (at - lastTouch < 15_000) return;
+      lastTouch = at;
+      webRuntime.keyStore.touch();
+    };
+    document.addEventListener('pointerdown', markActive, { passive: true });
+    document.addEventListener('keydown', markActive, { passive: true });
+
+    const timer = setInterval(() => {
+      if (!webRuntime.keyStore.maybeForgetIdle()) return;
+      setWebKeyTick((t) => t + 1);
+      setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
+      webRuntime.keyStore.hasSavedKey()
+        .then((saved) => {
+          if (!alive) return;
+          setWebForceEnter(!saved);
+          setWebReady(false);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setWebForceEnter(true);
+          setWebReady(false);
+        });
+    }, 15_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener('pointerdown', markActive);
+      document.removeEventListener('keydown', markActive);
+    };
+  }, [webReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
   // ancestor (including the window), so each 3s log poll yanked the whole
@@ -483,6 +544,7 @@ export default function App() {
         toasts.success('Profile and search parameters updated.');
         setRevealKey(false);
         await fetchProfile();
+        if (IS_WEB) setWebKeyTick((t) => t + 1);
       } else {
         // A rejected key comes back as 400 { error }: show the server's own words.
         fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
@@ -743,6 +805,7 @@ export default function App() {
       toasts.info('Anthropic API key cleared.');
       setRevealKey(false);
       setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
+      if (IS_WEB) setWebKeyTick((t) => t + 1);
       fetchProfile();
     } catch (err) {
       fail(err, 'clear key', 'Could not clear key.');
@@ -1009,11 +1072,28 @@ export default function App() {
     profile:   { title: 'Profile & Settings',  subtitle: 'Anthropic key, search criteria, personal info and base CV.' }
   };
 
-  const showRunHunterButton = !SYNTHETIC_DEMO && ['dashboard', 'hunter'].includes(activeTab);
+  const showRunHunterButton = !SYNTHETIC_DEMO && !IS_WEB && ['dashboard', 'hunter'].includes(activeTab);
 
   /* ----------------------------------------------------------------- */
   /* Render                                                            */
   /* ----------------------------------------------------------------- */
+  // First-run gate and saved-key unlock. All hooks above have already run, so
+  // returning here cannot change hook order.
+  if (IS_WEB && !webReady) {
+    return (
+      <WebStartup
+        runtime={webRuntime}
+        forceEnter={webForceEnter}
+        onReady={() => {
+          setWebReady(true);
+          setWebForceEnter(false);
+          setWebKeyTick((t) => t + 1);
+          fetchProfile();
+        }}
+      />
+    );
+  }
+
   // Immersive personal landing page — the entry screen (no sidebar chrome).
   if (activeTab === 'landing') {
     return (
@@ -1068,11 +1148,19 @@ export default function App() {
           <SidebarLink active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Briefcase size={16} />}>Dashboard</SidebarLink>
           <SidebarLink active={activeTab === 'hunter'}    onClick={() => setActiveTab('hunter')}    icon={<Search size={16} />}>Job Hunter</SidebarLink>
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
-          <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
-          <SidebarLink active={activeTab === 'referrals'} onClick={() => setActiveTab('referrals')} icon={<Network size={16} />}>Direct Outreach</SidebarLink>
-          <SidebarLink active={activeTab === 'routines'}  onClick={() => setActiveTab('routines')}  icon={<Clock size={16} />}>Routines</SidebarLink>
+          {isTabVisible('copilot', IS_WEB) && (
+            <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
+          )}
+          {isTabVisible('referrals', IS_WEB) && (
+            <SidebarLink active={activeTab === 'referrals'} onClick={() => setActiveTab('referrals')} icon={<Network size={16} />}>Direct Outreach</SidebarLink>
+          )}
+          {isTabVisible('routines', IS_WEB) && (
+            <SidebarLink active={activeTab === 'routines'}  onClick={() => setActiveTab('routines')}  icon={<Clock size={16} />}>Routines</SidebarLink>
+          )}
           <SidebarLink active={activeTab === 'memory'}    onClick={() => setActiveTab('memory')}    icon={<Brain size={16} />}>Candidate Memory</SidebarLink>
-          <SidebarLink active={activeTab === 'logs'}      onClick={() => setActiveTab('logs')}      icon={<Terminal size={16} />}>Activity Logs</SidebarLink>
+          {isTabVisible('logs', IS_WEB) && (
+            <SidebarLink active={activeTab === 'logs'}      onClick={() => setActiveTab('logs')}      icon={<Terminal size={16} />}>Activity Logs</SidebarLink>
+          )}
         </nav>
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 'auto' }}>
@@ -1212,7 +1300,9 @@ export default function App() {
               <div className="glass-panel" style={{ padding: 22, display: 'flex', flexDirection: 'column' }}>
                 <div className="flex-between" style={{ marginBottom: 12 }}>
                   <h3 style={{ fontSize: 16 }}>Agent terminal</h3>
-                  <button className="btn-ghost btn-xs" onClick={() => setActiveTab('logs')}>Open full <ChevronRight size={12} /></button>
+                  {!IS_WEB && (
+                    <button type="button" className="btn-ghost btn-xs" onClick={() => setActiveTab('logs')}>Open full <ChevronRight size={12} /></button>
+                  )}
                 </div>
                 <div className="terminal-console" onScroll={handleTerminalScroll} style={{ flex: 1, minHeight: 200, maxHeight: 280 }}>
                   {logs.length === 0 ? (
@@ -1232,7 +1322,9 @@ export default function App() {
         {/* ============================== HUNTER ============================== */}
         {activeTab === 'hunter' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
-            <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
+            {!IS_WEB && (
+              <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
+            )}
             <div className="flex-between" style={{ marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ fontSize: 18 }}>Scraping pipeline</h3>
@@ -1496,7 +1588,7 @@ export default function App() {
         )}
 
         {/* ============================== COPILOT ============================== */}
-        {activeTab === 'copilot' && (
+        {!IS_WEB && activeTab === 'copilot' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
             <h3 style={{ fontSize: 18, marginBottom: 8 }}>Apply Copilot control room</h3>
             <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
@@ -1554,7 +1646,7 @@ export default function App() {
         )}
 
         {/* ============================== DIRECT OUTREACH ============================== */}
-        {activeTab === 'referrals' && (
+        {!IS_WEB && activeTab === 'referrals' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
             <div className="flex-gap" style={{ alignItems: 'center', marginBottom: 8 }}>
               <Network size={18} color="var(--color-accent)" />
@@ -1599,7 +1691,7 @@ export default function App() {
         )}
 
         {/* ============================== ROUTINES ============================== */}
-        {activeTab === 'routines' && (
+        {!IS_WEB && activeTab === 'routines' && (
           <Routines
             apiBase={API_BASE}
             toasts={toasts}
@@ -1613,7 +1705,7 @@ export default function App() {
           <CandidateMemory apiBase={API_BASE} toasts={toasts} refreshSignal={refreshTick} />
         )}
 
-        {activeTab === 'logs' && (
+        {!IS_WEB && activeTab === 'logs' && (
           <div className="glass-panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
               <div>
@@ -1656,23 +1748,25 @@ export default function App() {
             <SettingsSubTabs
               current={settingsTab}
               onChange={setSettingsTab}
-              tabs={[
+              tabs={filterSettingsTabs([
                 { id: 'ai',      label: 'AI & Cost',           icon: <Sparkles size={13} /> },
                 { id: 'profile', label: 'Profile & CV',        icon: <FileText size={13} /> },
                 { id: 'search',  label: 'Job Search',          icon: <Search size={13} /> },
                 { id: 'answers', label: 'Application Answers', icon: <Database size={13} /> },
                 { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> }
-              ]}
+              ], IS_WEB)}
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
             {settingsTab === 'ai' && (<>
               {/* Performance mode — one click sets every cost toggle */}
-              <section>
-                <SectionHeader title="Performance mode" subtitle="One click configures every cost-relevant setting at once. Token Saver protects your API spend; Maximum turns everything on. Tweak any toggle afterwards and the mode honestly reads as Custom." />
-                <PresetCards active={profile.performanceModeActual || 'custom'} busy={applyingPreset} onApply={applyPreset} />
-              </section>
+              {!IS_WEB && (
+                <section>
+                  <SectionHeader title="Performance mode" subtitle="One click configures every cost-relevant setting at once. Token Saver protects your API spend; Maximum turns everything on. Tweak any toggle afterwards and the mode honestly reads as Custom." />
+                  <PresetCards active={profile.performanceModeActual || 'custom'} busy={applyingPreset} onApply={applyPreset} />
+                </section>
+              )}
 
               {/* Usage & budget */}
               <section>
@@ -1688,7 +1782,12 @@ export default function App() {
 
               {/* Anthropic key + model */}
               <section>
-                <SectionHeader title="Anthropic API key" subtitle="SA-JAS runs on Claude. Your key stays on this computer." />
+                <SectionHeader
+                  title="Anthropic API key"
+                  subtitle={IS_WEB
+                    ? 'Your key stays in this browser and is sent only to Anthropic. It never touches our server.'
+                    : 'SA-JAS runs on Claude. Your key stays on this computer.'}
+                />
                 <div className="grid-2">
                   <div>
                     <label>Model</label>
@@ -1705,24 +1804,42 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{ marginTop: 16 }}>
-                  <ApiKeyField
-                    label="Anthropic API key"
-                    hasKey={profile.hasAnthropicKey} revealed={revealKey}
-                    value={profile.anthropicApiKey}
-                    onChange={(v) => setProfile({ ...profile, anthropicApiKey: v })}
-                    onReveal={() => setRevealKey((r) => !r)}
-                    onClear={clearApiKey}
-                    docsUrl="https://console.anthropic.com/"
-                    docsLabel="Open the Anthropic Console"
-                    helper="Use a regular API key from a Workspace with a spend limit."
+                {!IS_WEB && (
+                  <div style={{ marginTop: 16 }}>
+                    <ApiKeyField
+                      label="Anthropic API key"
+                      hasKey={profile.hasAnthropicKey} revealed={revealKey}
+                      value={profile.anthropicApiKey}
+                      onChange={(v) => setProfile({ ...profile, anthropicApiKey: v })}
+                      onReveal={() => setRevealKey((r) => !r)}
+                      onClear={clearApiKey}
+                      docsUrl="https://console.anthropic.com/"
+                      docsLabel="Open the Anthropic Console"
+                      helper="Use a regular API key from a Workspace with a spend limit."
+                    />
+                  </div>
+                )}
+
+                {IS_WEB && (
+                  <WebKeyPanel
+                    runtime={webRuntime}
+                    refreshSignal={webKeyTick}
+                    onAddKey={() => {
+                      setWebForceEnter(true);
+                      setWebReady(false);
+                    }}
+                    onChanged={() => {
+                      setWebKeyTick((t) => t + 1);
+                      fetchProfile();
+                    }}
                   />
-                </div>
+                )}
               </section>
 
               {/* Apply Copilot intelligence (planner / vision / computer-use) */}
-              <section>
-                <SectionHeader title="Apply Copilot intelligence" subtitle="How much AI the copilot uses while walking application forms. Each step up is smarter — and costs more." />
+              {!IS_WEB && (
+                <section>
+                  <SectionHeader title="Apply Copilot intelligence" subtitle="How much AI the copilot uses while walking application forms. Each step up is smarter — and costs more." />
 
                 <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-surface-2)' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: 0 }}>
@@ -1788,7 +1905,8 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              </section>
+                </section>
+              )}
 
               {/* Tailoring & learning engine */}
               <section>

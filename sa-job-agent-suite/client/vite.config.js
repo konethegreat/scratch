@@ -1,16 +1,16 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // Relative base so built assets (images, CSS, JS) resolve under Electron's
   // file:// protocol in the packaged app, not just http:// in dev.
   base: './',
+  define: {
+    // Compile-time switch. `vite build --mode web` is the only way to set it;
+    // the Electron/desktop build leaves it false.
+    __SAJAS_WEB__: JSON.stringify(mode === 'web')
+  },
   plugins: [react()],
-  // Ensure a single React instance. Pre-bundle every React entry point in one
-  // optimize pass so react and react-dom can't end up on mismatched generations
-  // (the cause of the "Invalid hook call / Cannot read useState of null" crash),
-  // and dedupe in case workspace hoisting ever resolves two copies.
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
   },
@@ -21,4 +21,4 @@ export default defineConfig({
     port: 4173,
     strictPort: false
   }
-});
+}));

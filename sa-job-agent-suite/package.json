@@ -13,7 +13,8 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm test --workspaces --if-present && node --test \"evals/*.test.js\" && node --test scripts/hunter-record.test.mjs",
+    "test": "npm test --workspaces --if-present && node --test \"evals/*.test.js\" && node --test scripts/hunter-record.test.mjs && node --test \"scripts/lib/*.test.mjs\"",
+    "test:web": "node scripts/web-canary.mjs",
     "eval": "node evals/run.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "demo": "node scripts/demo.mjs",
@@ -23,6 +24,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "install:all": "npm install",
     "build:client": "npm run build --workspace=client",
+    "build:web": "npm run build:web --workspace=client",
     "test:desktop": "node scripts/desktop-smoke.js",
     "electron:dev": "concurrently -k -n vite,electron -c \"cyan,magenta\" \"npm run dev:client\" \"wait-on http://localhost:4173 && node scripts/start-electron.js\"",
     "electron:start": "node scripts/start-electron.js",

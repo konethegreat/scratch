@@ -284,9 +284,48 @@ Client: http://localhost:4173 | API: http://localhost:5000
 
 ---
 
+## Web mode
+
+`npm run build:web` (from `sa-job-agent-suite/`) is `vite build --mode web`.
+`client/vite.config.js` defines `__SAJAS_WEB__` at compile time; there is no
+Express server behind this build, so nothing in the web path may assume one.
+
+- **One `/api/*` implementation.** `client/src/web/api.js` answers the subset
+  the shell needs from the IndexedDB vault and the in-memory key store, using
+  the M3a-1 error contract. The interception base is
+  `import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api'`
+  (`client/src/web/runtime.js`), and every request under it is answered
+  locally by `client/src/web/install.js`, so web mode must never call the
+  desktop server; the canary asserts that zero requests reach
+  `http://localhost:5000`. Desktop-only routes are listed in `SERVER_ONLY` and
+  must keep returning the typed `NOT_SUPPORTED_IN_WEB` payload — never an
+  empty success or an untyped 404.
+- **Key rules.** The plaintext key lives in a closure in
+  `client/src/web/keyStore.js`; it must never touch `localStorage`,
+  `sessionStorage`, cookies, URLs or logs. The only persistence is the optional
+  encrypted blob in the `keyVault` store (PBKDF2-SHA-256, 600k iterations,
+  AES-GCM, passphrase never stored), and the only request allowed to carry the
+  plaintext key is HTTPS to `api.anthropic.com` in `x-api-key`.
+- **Core imports.** Client code imports `@sajas/core` subpaths only (`errors`,
+  `models`, `secrets`), so the Anthropic SDK stays out of the browser bundle
+  until M3a-4.
+- **Merge gate.** `npm run test:web` serves the already-built `client/dist`
+  with the production headers and runs the Playwright canary; the `web` CI job
+  treats it as merge-blocking (run `npm run build:web` first). The canary
+  asserts the key appears only in the `x-api-key` header to
+  `api.anthropic.com`, that no other origin is contacted, that the saved blob is
+  ciphertext, and that Forget and panic wipe remove exactly what they claim.
+- **CSP.** `client/public/_headers` is web-only: `script-src 'self'` and
+  `font-src 'self'` forbid third-party scripts and fonts, and `connect-src`
+  reserves `remotive.com`, `www.arbeitnow.com` and `jobicy.com` for later feed
+  milestones. Do not add analytics, remote fonts or any other third-party
+  origin to the web build.
+
+---
+
 ## AI layer (Anthropic only)
 
-Claude is the only provider. The Gemini and OpenRouter code paths were deleted, not hidden (`server/src/noLegacyProviders.test.js` fails if a non-test source file names another provider; only `db/migrations.js` may, to handle upgrades). The key is entered via the Profile & Settings UI only and saved to `keys.json`; there is no `.env` fallback. SDK: `@anthropic-ai/sdk` `^1.3.0`.
+Claude is the only provider. The Gemini and OpenRouter code paths were deleted, not hidden (`server/src/noLegacyProviders.test.js` fails if a non-test source file names another provider; only `db/migrations.js` may, to handle upgrades). The key is entered via the Profile & Settings UI only and saved to `keys.json` (desktop only); there is no `.env` fallback. SDK: `@anthropic-ai/sdk` `^1.3.0`.
 
 ### Model registry (`packages/core/src/models.js`)
 

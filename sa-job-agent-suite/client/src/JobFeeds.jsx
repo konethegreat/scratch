@@ -140,7 +140,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="glass-panel" style={{ padding: 20 }}>
+      <div className="panel" style={{ padding: 20 }}>
         <div className="flex-between" style={{ flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h3 style={{ fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -185,7 +185,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
           const failure = errors.find((entry) => entry.source === source.id);
           const count = results.filter((job) => (job.sources || [job.source]).includes(source.id)).length;
           return (
-            <div key={source.id} className="glass-panel" style={{ padding: 16 }} data-testid={`feed-source-${source.id}`}>
+            <div key={source.id} className="panel" style={{ padding: 16 }} data-testid={`feed-source-${source.id}`}>
               <div className="flex-between">
                 <h4 style={{ fontSize: 14 }}>{source.label}</h4>
                 <a href={source.home} target="_blank" rel="noopener noreferrer" className="tiny">Source</a>
@@ -211,7 +211,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
         })}
       </div>
 
-      <div className="glass-panel" style={{ padding: 20 }}>
+      <div className="panel" style={{ padding: 20 }}>
         <h3 style={{ fontSize: 15, marginBottom: 12 }}>
           {visible.length} matching {visible.length === 1 ? 'job' : 'jobs'}
         </h3>

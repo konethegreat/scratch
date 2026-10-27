@@ -4,11 +4,11 @@ import {
 } from 'lucide-react';
 
 /**
- * Routines tab (T1) — unattended, recurring runs.
+ * Routines tab (T1): unattended, recurring runs.
  *
  * A routine runs the Job Hunter on a schedule and can optionally auto-tailor the
  * top matches, so the user wakes up to application-ready packages. Routines
- * NEVER submit applications — they only find and prepare. The human always
+ * NEVER submit applications: they only find and prepare. The human always
  * reviews and applies (Apply Copilot stays a manual, supervised step).
  *
  * Every paid token of work is opt-in: "Find only" routines cost the least;
@@ -173,7 +173,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
     } catch (e) { toasts?.error?.(e.message || 'Network error.'); }
   };
 
-  const STATUS_COLOR = { ok: '#34d399', running: '#fbbf24', error: '#f87171', skipped: '#94a3b8', idle: '#94a3b8' };
+  const STATUS_COLOR = { ok: 'var(--color-success)', running: 'var(--color-warning)', error: 'var(--color-error)', skipped: 'var(--text-muted)', idle: 'var(--text-muted)' };
 
   // "Ready to apply" tray: tailored jobs queued by a routine.
   const ready = (jobs || []).filter((j) => j.status === 'tailored' && j.queuedByRoutine);
@@ -182,14 +182,14 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* Safety / what-this-does banner */}
-      <div className="glass-panel" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <ShieldCheck size={20} color="var(--color-success, #34d399)" style={{ flexShrink: 0, marginTop: 2 }} />
+      <div className="panel" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <ShieldCheck size={20} color="var(--color-success)" style={{ flexShrink: 0, marginTop: 2 }} />
         <div>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Routines find and prepare — they never apply for you.</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Routines find and prepare. They never apply for you.</div>
           <p className="muted" style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
             A routine runs the Job Hunter on your schedule and can auto-tailor the top matches, so you wake up to
-            ready-to-send packages. It will <strong>never open the Apply Copilot or submit an application</strong> —
-            you always review and click apply yourself. Runs happen only while the app is open; a missed daily run
+            ready-to-send packages. It will <strong>never open the Apply Copilot or submit an application</strong>. You
+            always review and click apply yourself. Runs happen only while the app is open; a missed daily run
             catches up the next time you open it.
           </p>
         </div>
@@ -209,7 +209,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Create / edit form */}
       {showForm && (
-        <div className="glass-panel" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="panel" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="flex-between">
             <h4 style={{ fontSize: 15 }}>{editingId ? 'Edit routine' : 'New routine'}</h4>
             <button className="btn-ghost btn-xs" onClick={() => { setShowForm(false); setEditingId(null); }}><X size={14} /></button>
@@ -232,7 +232,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               <span className="hint">
                 {form.type === 'hunt' && 'Just discovers and saves new jobs. No tailoring cost.'}
                 {form.type === 'hunt_and_tailor' && 'Discovers jobs, then writes a tailored CV + cover letter for the top matches.'}
-                {form.type === 'dream' && 'No hunting. Reviews your past application outcomes and curates your Candidate Memory — strengthens what wins interviews, drops noise. One small AI call. Best run nightly.'}
+                {form.type === 'dream' && 'No hunting. Reviews your past application outcomes and curates your Candidate Memory: strengthens what wins interviews, drops noise. One small AI call. Best run nightly.'}
                 {form.type === 'canary' && 'Visits one page per enabled source, records each source’s health on the Hunter board, and never hunts, tailors, applies or calls the AI. Use it to notice a broken board early.'}
               </span>
             </div>
@@ -293,17 +293,17 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Routine list */}
       {routines.length === 0 && !showForm && (
-        <div className="glass-panel" style={{ padding: 32, textAlign: 'center' }}>
+        <div className="panel" style={{ padding: 32, textAlign: 'center' }}>
           <Clock size={28} className="muted" style={{ opacity: 0.6 }} />
           <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>No routines yet. Create one to let SA-JAS hunt while you sleep.</p>
         </div>
       )}
 
       {routines.map((r) => (
-        <div key={r.id} className="glass-panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, opacity: r.enabled ? 1 : 0.6 }}>
+        <div key={r.id} className="panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, opacity: r.enabled ? 1 : 0.6 }}>
           <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Zap size={16} color="var(--color-accent, #818cf8)" />
+              <Zap size={16} color="var(--color-accent)" />
               <div>
                 <div style={{ fontWeight: 700 }}>{r.name}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
@@ -312,11 +312,11 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span className="badge" style={{ background: 'transparent', border: `1px solid ${STATUS_COLOR[r.lastStatus] || '#94a3b8'}`, color: STATUS_COLOR[r.lastStatus] || '#94a3b8' }}>
+              <span className="badge" style={{ background: 'transparent', border: `1px solid ${STATUS_COLOR[r.lastStatus] || 'var(--text-muted)'}`, color: STATUS_COLOR[r.lastStatus] || 'var(--text-muted)' }}>
                 {r.lastStatus === 'running' ? 'Running…' : (r.lastStatus || 'idle')}
               </span>
               <button className="btn-ghost btn-xs" title={r.enabled ? 'Disable' : 'Enable'} onClick={() => toggleEnabled(r)}>
-                <Power size={13} color={r.enabled ? 'var(--color-success, #34d399)' : '#94a3b8'} />
+                <Power size={13} color={r.enabled ? 'var(--color-success)' : 'var(--text-muted)'} />
               </button>
               <button className="btn-ghost btn-xs" title="Edit" onClick={() => openEdit(r)}><Pencil size={13} /></button>
               <button className="btn-ghost btn-xs" title="Delete" onClick={() => remove(r)}><Trash2 size={13} /></button>
@@ -337,7 +337,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Ready-to-apply tray */}
       {ready.length > 0 && (
-        <div className="glass-panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div>
             <h4 style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Send size={15} /> Ready to apply ({ready.length})

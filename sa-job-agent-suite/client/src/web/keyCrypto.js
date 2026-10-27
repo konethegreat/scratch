@@ -63,7 +63,7 @@ export async function decryptSecret(blob, passphrase) {
     return new TextDecoder().decode(plain);
   } catch {
     throw new AppError(ERROR_CODES.VALIDATION, 'That passphrase did not unlock the saved key.', {
-      hint: 'Try again — the saved key cannot be recovered without its passphrase.'
+      hint: 'Try again. The saved key cannot be recovered without its passphrase.'
     });
   }
 }

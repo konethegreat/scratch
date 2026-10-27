@@ -1,120 +1,199 @@
-import { ArrowRight, Sparkles, MapPin, ExternalLink, Rocket } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { ArrowRight, ArrowUpRight, MapPin } from 'lucide-react';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
 
-/**
- * Immersive personal landing / about page — the app's entry screen.
- * Content is drawn from Kone's CV so it's authentic, not placeholder.
- */
-
-const SKILLS = [
-  'React.js', 'Node.js', 'Express', 'Python', 'Java', 'C#',
-  'TypeScript', 'PostgreSQL', 'MongoDB', 'AWS', 'Azure', 'Docker',
-  'REST & GraphQL', 'Git', 'Tailwind CSS',
+const WORK = [
+  {
+    name: 'SA-JAS',
+    kicker: 'South African job agent suite',
+    status: 'You are here',
+    period: 'May to Jun 2026',
+    summary: 'Three AI agents find South African vacancies, tailor an ATS-ready CV and cover letter, and walk a visible browser copilot through each application. The final Submit always stays with you.',
+    stack: 'Electron, React, Express, Playwright, Claude',
+    links: [{ label: 'Source', href: 'https://github.com/konethegreat/scratch' }],
+    app: true
+  },
+  {
+    name: 'ClearCut',
+    kicker: 'Agent-native invoicing',
+    status: 'Alpha, Apache-2.0',
+    period: 'Oct 2026',
+    summary: 'An agent-native invoicing core for South Africa, exposed as a REST API, an MCP server and a Claude plugin. Policy and people approve the work while the VAT rules stay tested code.',
+    stack: 'Rust, PostgreSQL, MCP, TypeScript',
+    links: [{ label: 'Source', href: 'https://github.com/konethegreat/clearcut' }]
+  },
+  {
+    name: 'Vigil',
+    kicker: 'Sovereign operational intelligence',
+    status: 'In development',
+    period: 'Sep 2026',
+    summary: 'A sovereign operational-intelligence platform that models evidence, investigations and missions as a governed ontology. It is designed so no prompt leaves South Africa.',
+    stack: 'Java, Python, Next.js, PostgreSQL, Ollama',
+    links: [{ label: 'Source', href: 'https://github.com/konethegreat/Vigil' }]
+  },
+  {
+    name: 'TimeLex',
+    kicker: 'Autonomous practice management',
+    status: 'Pre-alpha, Apache-2.0',
+    period: 'Oct 2026',
+    summary: 'An open, API-first practice management system that captures work signals and attributes them to the right matter with cited evidence. Small services sit behind REST, MCP and a Claude plugin.',
+    stack: 'Rust, Python, TypeScript, PostgreSQL, MCP',
+    links: [{ label: 'Source', href: 'https://github.com/konethegreat/timelex' }]
+  },
+  {
+    name: 'Diary',
+    kicker: 'Private AI life log',
+    status: 'Public source, noncommercial',
+    period: 'Jun 2026',
+    summary: 'A private PWA that turns daily entries into an AI-coached life log. Ask it questions over local embeddings, with a runtime toggle between the Claude API and Ollama.',
+    stack: 'Python, FastAPI, SQLite, Ollama',
+    links: [{ label: 'Source', href: 'https://github.com/konethegreat/Diary' }]
+  },
+  {
+    name: 'MuniSolve ZA',
+    kicker: 'Municipal fault reporting',
+    status: 'Live',
+    period: 'Feb to Jun 2026',
+    summary: 'Citizens report municipal faults and administrators triage them on a live heat map. A Claude-powered assistant answers citizen questions within a rate limit.',
+    stack: 'React, Node.js, PostgreSQL, Prisma',
+    links: [
+      { label: 'Live', href: 'https://munisolve-za.vercel.app' },
+      { label: 'Source', href: 'https://github.com/konethegreat/munisolve-za' }
+    ]
+  }
 ];
 
-const STATS = [
-  { num: 'Full-Stack', lbl: 'Engineer' },
-  { num: 'IBM', lbl: 'Certified Dev' },
-  { num: '4+', lbl: 'Shipped Projects' },
-  { num: 'SA', lbl: 'South Africa' },
-];
-
-const PROJECTS = [
-  { name: 'SA Job Agent Suite', desc: 'AI agents that find jobs, tailor CVs & cover letters, and auto-apply — the app you’re in.', tag: 'AI · Automation', href: null },
-  { name: 'MuniSolve ZA', desc: 'Municipal reporting web app that streamlines community issue management.', tag: 'Web App', href: 'https://munisolve-za.vercel.app/' },
-  { name: 'Timelex', desc: 'Automated legal time-capture and tracking system.', tag: 'SaaS', href: 'https://timelex-automated-time-tracking.netlify.app/' },
-  { name: 'Server Health Automation', desc: 'Scripts that automate repetitive ops and run system health diagnostics.', tag: 'DevOps', href: 'https://github.com/konethegreat' },
+const PRINCIPLES = [
+  {
+    title: 'Evidence before confidence',
+    body: 'Every agent claim should point at the source behind it. If the system cannot show its work, it says so.'
+  },
+  {
+    title: 'Local first where it matters',
+    body: 'Your key, your data and your machine are the boundary. Nothing leaves them without a reason you can see.'
+  },
+  {
+    title: 'People make the final call',
+    body: 'Agents can search, draft, check and prepare. A person decides what is sent and what is submitted.'
+  }
 ];
 
 export default function Landing({ onEnter }) {
+  const railRef = useRef(null);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return undefined;
+    const update = () => {
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - doc.clientHeight;
+      rail.style.transform = `scaleX(${max > 0 ? Math.min(1, doc.scrollTop / max) : 0})`;
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
+
   return (
     <div className="landing">
-      {/* Top nav */}
-      <div className="landing-nav reveal">
-        <button className="brand-chip" onClick={onEnter} title="Enter the suite">
+      <div className="scroll-rail" aria-hidden="true"><span ref={railRef} /></div>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+
+      <header className="landing-header">
+        <button type="button" className="brand-chip" onClick={() => window.scrollTo(0, 0)} title="Back to top">
           <SAFlag size={26} />
-          <span className="brand-name gradient-text">SA-JAS</span>
+          <span className="brand-name">SA-JAS</span>
         </button>
-        <SocialLinks size="sm" />
-      </div>
+        <nav className="landing-nav" aria-label="Sections">
+          <a href="#work">Work</a>
+          <a href="#approach">Approach</a>
+          <a href="https://konethegreat.github.io" target="_blank" rel="noopener noreferrer">Portfolio</a>
+          <a href="https://k-one-it-solutions-website.erictshivhinda.workers.dev" target="_blank" rel="noopener noreferrer">Client site</a>
+        </nav>
+        <div className="landing-actions">
+          <ThemeToggle />
+          <button type="button" className="btn-secondary" onClick={onEnter}>Open the app</button>
+        </div>
+      </header>
 
-      {/* Hero */}
-      <div className="landing-hero">
-        <div className="hero-content">
-          <div className="hero-eyebrow reveal d1">
-            <Sparkles size={13} /> Built &amp; designed by Kone Tshivhinda
-          </div>
-          <h1 className="hero-title reveal d1">
-            Hi, I’m Kone.<br />
-            I build <span className="gradient-text">intelligent</span> software.
-          </h1>
-          <p className="hero-sub reveal d2">
-            Software Engineer &amp; full-stack developer from South Africa, focused on AI-driven
-            automation, scalable web apps, and clean, dependable systems.
+      <main id="main-content" tabIndex={-1} className="landing-main">
+        <section className="landing-hero reveal" aria-labelledby="hero-title">
+          <span className="eyebrow">AI systems engineer, Johannesburg</span>
+          <h1 id="hero-title">Kone Tshivhinda</h1>
+          <p className="hero-lede">
+            I build AI systems that do real work: job agents, invoicing cores, legal practice tools and civic platforms.
+            Most of it is shaped by South African constraints, with evidence checks and human approval built in.
           </p>
-          <p className="hero-summary reveal d2">
-            This suite is one of my builds: three cooperating AI agents that hunt real SA vacancies,
-            rewrite your CV and cover letter for each role, and walk you through applying — with an
-            evolving memory of you that gets sharper every application.
+          <p className="hero-lede">
+            I work solo across the stack, from Rust and Python services to React interfaces, and I publish the source
+            and the tradeoffs.
           </p>
-
-          <div className="hero-cta-row reveal d3">
-            <button className="btn-primary btn-lg" onClick={onEnter}>
-              <Rocket size={17} /> Enter the Suite <ArrowRight size={16} />
+          <div className="hero-actions">
+            <button type="button" className="btn-primary btn-lg" onClick={onEnter}>
+              Enter the Suite <ArrowRight size={16} aria-hidden="true" />
             </button>
-            <span className="chip"><MapPin size={13} /> Based in South Africa</span>
+            <a className="btn-secondary btn-lg" href="#work">See selected work</a>
           </div>
-
-          <div className="reveal d3" style={{ marginBottom: 26 }}>
-            <SocialLinks size="lg" />
+          <div className="hero-meta">
+            <span className="inline-meta"><MapPin size={14} aria-hidden="true" /> Johannesburg, South Africa</span>
+            <SocialLinks size="sm" />
           </div>
+        </section>
 
-          <div className="stat-row reveal d4">
-            {STATS.map((s) => (
-              <div key={s.lbl}>
-                <div className="stat-num gradient-text">{s.num}</div>
-                <div className="stat-lbl">{s.lbl}</div>
+        <section className="landing-section reveal" id="work" aria-labelledby="work-title">
+          <div className="landing-section-head">
+            <h2 id="work-title">Selected work</h2>
+            <p className="landing-section-sub">Six projects, public where possible.</p>
+          </div>
+          <div className="work-grid">
+            {WORK.map((project) => (
+              <article key={project.name} className="panel work-card">
+                <div className="work-card-top">
+                  <span className="work-meta">{project.period}</span>
+                  <span className="badge badge-accent">{project.status}</span>
+                </div>
+                <div>
+                  <h3>{project.name}</h3>
+                  <p className="work-kicker">{project.kicker}</p>
+                </div>
+                <p>{project.summary}</p>
+                <p className="work-stack">{project.stack}</p>
+                <div className="work-links">
+                  {project.app && (
+                    <button type="button" className="work-link" onClick={onEnter}>
+                      Open the app <ArrowRight size={12} aria-hidden="true" />
+                    </button>
+                  )}
+                  {project.links.map((link) => (
+                    <a key={link.href} className="work-link" href={link.href} target="_blank" rel="noopener noreferrer">
+                      {link.label} <ArrowUpRight size={12} aria-hidden="true" />
+                    </a>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="landing-section reveal" id="approach" aria-labelledby="approach-title">
+          <div className="landing-section-head">
+            <h2 id="approach-title">Approach</h2>
+            <p className="landing-section-sub">How I build.</p>
+          </div>
+          <div className="principles">
+            {PRINCIPLES.map((principle) => (
+              <div key={principle.title} className="panel principle">
+                <h3>{principle.title}</h3>
+                <p>{principle.body}</p>
               </div>
             ))}
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
 
-      {/* Skills */}
-      <section className="landing-section reveal d5">
-        <h3>The <span className="gradient-text">toolkit</span></h3>
-        <p className="muted" style={{ fontSize: 13, marginBottom: 4 }}>Languages, frameworks and platforms I build with.</p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18 }}>
-          {SKILLS.map((s) => <span key={s} className="chip">{s}</span>)}
-        </div>
-      </section>
-
-      {/* Projects */}
-      <section className="landing-section reveal d6">
-        <h3>Selected <span className="gradient-text">work</span></h3>
-        <p className="muted" style={{ fontSize: 13 }}>A few things I’ve shipped.</p>
-        <div className="proj-grid">
-          {PROJECTS.map((p) => (
-            <div key={p.name} className="proj-card">
-              <div className="badge badge-accent" style={{ marginBottom: 10 }}>{p.tag}</div>
-              <h4>{p.name}</h4>
-              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>{p.desc}</p>
-              {p.href && (
-                <a href={p.href} target="_blank" rel="noopener noreferrer"
-                   className="social-pill" style={{ marginTop: 14 }}>
-                  <ExternalLink size={14} /> View
-                </a>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="app-footer" style={{ marginTop: 28 }}>
-        <div className="foot-credit">
-          Designed &amp; built by <b>Kone Tshivhinda</b> · Software Engineer · © {new Date().getFullYear()}
-        </div>
+      <footer className="landing-footer">
+        <span>Designed and built by Kone Tshivhinda. Johannesburg, South Africa. © {new Date().getFullYear()}.</span>
         <SocialLinks size="sm" />
       </footer>
     </div>

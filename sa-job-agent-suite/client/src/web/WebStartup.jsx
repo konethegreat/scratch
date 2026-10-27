@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { KeyRound, Loader2, ShieldCheck, ExternalLink } from 'lucide-react';
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import ErrorCard from '../ErrorCard.jsx';
+import ThemeToggle from '../ThemeToggle.jsx';
 import { recordError } from '../errors.js';
 import { validateAnthropicKey } from './validateKey.js';
 import { MIN_PASSPHRASE } from './keyStore.js';
@@ -109,10 +110,13 @@ export default function WebStartup({ runtime, onReady, forceEnter = false }) {
 
   return (
     <div className="app-bg" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
-      <div className="glass-panel fade-in" style={{ width: '100%', maxWidth: 560, padding: 28 }} data-testid="onboarding">
+      <div className="theme-dock">
+        <ThemeToggle />
+      </div>
+      <div className="panel fade-in" style={{ width: '100%', maxWidth: 560, padding: 28 }} data-testid="onboarding">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <ShieldCheck size={22} color="var(--color-info)" />
-          <h2 style={{ fontSize: 20 }}>SA-JAS for the web</h2>
+          <h1 style={{ fontSize: 20 }}>SA-JAS for the web</h1>
         </div>
         <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
           Your profile, jobs and documents stay in this browser. Your key is sent only to Anthropic.

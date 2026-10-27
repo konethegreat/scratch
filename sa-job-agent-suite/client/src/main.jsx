@@ -10,8 +10,8 @@ import './index.css';
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 
 if (IS_WEB) {
-  // Every API_BASE call is answered in-process by the vault-backed API port —
-  // including its 404/501 error contracts — so nothing reaches the network.
+  // Every API_BASE call is answered in-process by the vault-backed API port,
+  // including its 404/501 error contracts, so nothing reaches the network.
   window.fetch = installWebApi({
     apiBase: WEB_API_BASE,
     handler: webRuntime.api.handle,
@@ -29,19 +29,6 @@ if (IS_WEB) {
     headers.set('X-SAJAS-Client', '1');
     return nativeFetch(input, { ...init, headers });
   };
-
-  // The desktop CSP allows these; the hosted CSP deliberately does not.
-  for (const [href, rel] of [
-    ['https://fonts.googleapis.com', 'preconnect'],
-    ['https://fonts.gstatic.com', 'preconnect'],
-    ['https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;850&display=swap', 'stylesheet']
-  ]) {
-    const link = document.createElement('link');
-    link.rel = rel;
-    link.href = href;
-    if (rel === 'preconnect' && href.includes('gstatic')) link.crossOrigin = 'anonymous';
-    document.head.append(link);
-  }
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

@@ -1,8 +1,8 @@
 import { Linkedin, Github, Award } from 'lucide-react';
 
 /**
- * Inline South African flag (Windows can't render the 🇿🇦 emoji — it shows as
- * "ZA" text, which made the logo read "ZASA-JAS"). This renders everywhere.
+ * Inline South African flag. Windows cannot render the flag emoji, so it shows as
+ * text, which made the logo read incorrectly. This renders everywhere.
  */
 export function SAFlag({ size = 24 }) {
   const w = size * 1.5, h = size;
@@ -22,7 +22,7 @@ export function SAFlag({ size = 24 }) {
 }
 
 /**
- * Kone's public profiles — reused in the app header, footer and landing page.
+ * Kone's public profiles, reused in the app header, footer and landing page.
  * Pass size="lg" for the larger landing-page variant.
  */
 export const SOCIALS = [

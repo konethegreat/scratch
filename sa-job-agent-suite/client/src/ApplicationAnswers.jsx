@@ -7,9 +7,9 @@ import { Trash2, Save, Sparkles, Inbox } from 'lucide-react';
  * Three parts:
  *   1) A structured questionnaire of the questions that recur on SA job sites.
  *      These are mapped DETERMINISTICALLY by Agent 3 (no AI guessing). ID/passport
- *      number is deliberately NOT collected — paste it per-application.
+ *      number is deliberately NOT collected: paste it per-application.
  *   2) The learn-as-you-go answer bank (questions Agent 3 has learned).
- *   3) Pending questions Agent 3 captured but couldn't answer — answer once here
+ *   3) Pending questions Agent 3 captured but couldn't answer: answer once here
  *      and they're remembered for every future application.
  */
 
@@ -69,7 +69,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
         body: JSON.stringify({ answer }),
       });
       if (res.ok) {
-        toasts?.success?.('Saved to your answer bank — it will auto-fill next time.');
+        toasts?.success?.('Saved to your answer bank. It will auto-fill next time.');
         setDrafts((d) => { const n = { ...d }; delete n[q.id]; return n; });
         refresh();
       } else {
@@ -94,20 +94,18 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
     } catch { /* ignore */ }
   };
 
-  const labelStyle = { display: 'block', fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 };
-  const cardStyle = { background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 };
+  const labelStyle = { display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 };
+  const cardStyle = { background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 };
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
         <div className="flex-between" style={{ marginBottom: 4 }}>
           <h4 style={{ fontSize: 14 }}>Standard application answers</h4>
-          <Sparkles size={14} color="var(--color-accent, #fbbf24)" />
+          <Sparkles size={14} color="var(--color-accent)" />
         </div>
         <p className="hint" style={{ marginTop: 0 }}>
-          Answer the questions SA job sites ask most. The Apply Copilot fills these exactly as you
-          set them — demographics and salary are never guessed. Everything is optional and stored
-          locally only. Your ID/passport number is intentionally not saved here — paste it per application.
+          Answer the questions SA job sites ask most. Set them yourself. Demographics and salary are never guessed. Everything is optional and stored locally only. Your ID or passport number is intentionally not saved here. Paste it per application.
         </p>
       </div>
 
@@ -116,7 +114,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
         {FIELDS.map((f) => (
           <div key={f.key}>
             <label style={labelStyle}>
-              {f.label}{f.sensitive ? <span style={{ color: 'var(--color-muted)' }}> · optional</span> : null}
+              {f.label}{f.sensitive ? <span style={{ color: 'var(--text-muted)' }}> · optional</span> : null}
             </label>
             {f.type === 'select' ? (
               <select
@@ -125,7 +123,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
                 style={{ width: '100%', fontSize: 12 }}
               >
                 {f.options.map((o) => (
-                  <option key={o} value={o}>{o === '' ? '— select —' : o}</option>
+                  <option key={o} value={o}>{o === '' ? 'Select an option' : o}</option>
                 ))}
               </select>
             ) : (
@@ -155,9 +153,9 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
 
       {/* Pending questions captured by Agent 3 */}
       {pending.length > 0 && (
-        <div style={{ ...cardStyle, borderColor: 'rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.06)' }}>
+        <div style={{ ...cardStyle, borderColor: 'var(--color-warning)', background: 'var(--bg-surface-2)' }}>
           <div className="flex-between" style={{ marginBottom: 8 }}>
-            <strong style={{ fontSize: 13, color: 'var(--color-accent, #fbbf24)' }}>
+            <strong style={{ fontSize: 13, color: 'var(--color-accent)' }}>
               <Inbox size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
               Questions to answer ({pending.length})
             </strong>
@@ -168,7 +166,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {pending.map((q) => (
               <div key={q.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--color-text, #e2e8f0)' }}>{q.question}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{q.question}</span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input
                     type="text"
@@ -202,8 +200,8 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
             {bank.map((b) => (
               <div key={b.id} className="flex-between" style={{ gap: 8, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, color: 'var(--color-text, #e2e8f0)' }}>{b.question}</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{b.answer}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{b.question}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{b.answer}</div>
                 </div>
                 <button
                   type="button"

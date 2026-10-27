@@ -40,6 +40,14 @@ import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
+import ErrorCard from './ErrorCard.jsx';
+import RecentErrors from './RecentErrors.jsx';
+import {
+  contractFromBody,
+  describeUserError,
+  readResponseError,
+  recordError
+} from './errors.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
@@ -229,6 +237,22 @@ function LinkBadge({ status }) {
 /* ---------------------------------------------------------------- */
 export default function App() {
   const toasts = useToasts();
+  const [loadError, setLoadError] = useState(null);
+  const bootedRef = useRef(false);
+
+  // One path for every user-visible failure: map it, keep it in the memory log,
+  // and toast the cause plus the fix. `input` may be an Error or an HTTP body.
+  const fail = (input, where, fallback) => {
+    const info = recordError(
+      input instanceof Error || (input && typeof input.code === 'string')
+        ? input
+        : contractFromBody(input, undefined, fallback),
+      { where, fallback }
+    );
+    toasts.error(describeUserError(info), info.code);
+    return info;
+  };
+
   const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
 
   const [profile, setProfile] = useState({
@@ -317,6 +341,7 @@ export default function App() {
   const fetchProfile = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/profile`, { cache: 'no-store' });
+      if (!res.ok) throw await readResponseError(res, 'Could not load your profile.');
       const data = await res.json();
       // Don't overwrite local key-edit drafts when polling
       setProfile((p) => ({
@@ -324,28 +349,35 @@ export default function App() {
         ...data,
         anthropicApiKey: revealKey ? p.anthropicApiKey : ''
       }));
+      setLoadError(null);
     } catch (err) {
-      console.error('Error fetching profile:', err);
+      const info = recordError(err, { where: 'load profile' });
+      if (!bootedRef.current) setLoadError(info);
     }
   }, [revealKey]);
 
   const fetchJobs = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/jobs`, { cache: 'no-store' });
+      if (!res.ok) throw await readResponseError(res, 'Could not load jobs.');
       const data = await res.json();
       setJobs(data);
+      setLoadError(null);
     } catch (err) {
-      console.error('Error fetching jobs:', err);
+      const info = recordError(err, { where: 'load jobs' });
+      if (!bootedRef.current) setLoadError(info);
     }
   }, []);
 
   const fetchLogs = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/logs`, { cache: 'no-store' });
+      if (!res.ok) throw await readResponseError(res, 'Could not load the activity log.');
       const data = await res.json();
       setLogs(data);
     } catch (err) {
-      console.error('Error fetching logs:', err);
+      const info = recordError(err, { where: 'load logs' });
+      if (!bootedRef.current) setLoadError(info);
     }
   }, []);
 
@@ -388,11 +420,8 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : []))
       .then((list) => setModels(Array.isArray(list) ? list : []))
       .catch(() => setModels([]));
-    fetchProfile();
-    fetchJobs();
-    fetchLogs();
-    fetchStatus();
-    fetchDocuments();
+    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments()])
+      .finally(() => { bootedRef.current = true; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live polling for active state
@@ -455,10 +484,10 @@ export default function App() {
         await fetchProfile();
       } else {
         // A rejected key comes back as 400 { error }: show the server's own words.
-        toasts.error(data.error || 'Could not save profile.');
+        fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error while saving profile.');
+      fail(err, 'save profile', 'Network error while saving profile.');
     } finally {
       setIsSavingProfile(false);
     }
@@ -473,11 +502,11 @@ export default function App() {
         toasts.info('Job hunter is scraping in the background. Check the Logs tab for live updates.', 'Hunter started');
         setActiveTab('logs');
       } else {
-        toasts.error(data.error || 'Could not start the hunter.');
+        fail(contractFromBody(data, res.status, 'Could not start the hunter.'), 'start hunter');
         setHunterRunning(false);
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error.');
+      fail(err, 'start hunter', 'Network error.');
       setHunterRunning(false);
     }
   };
@@ -489,10 +518,10 @@ export default function App() {
       if (res.ok && data.success) {
         toasts.info('Stop requested. The hunter will wind down after the current source.', 'Stopping hunter');
       } else {
-        toasts.error(data.error || 'Could not stop the hunter.');
+        fail(contractFromBody(data, res.status, 'Could not stop the hunter.'), 'stop hunter');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error.');
+      fail(err, 'stop hunter', 'Network error.');
     }
   };
 
@@ -507,10 +536,10 @@ export default function App() {
       if (res.ok && data.success) {
         toasts.info('Re-checking saved job links in the background. Badges update as it finishes.', 'Re-checking links');
       } else {
-        toasts.error(data.error || 'Could not start the link re-check.');
+        fail(contractFromBody(data, res.status, 'Could not start the link re-check.'), 'revalidate links');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error.');
+      fail(err, 'revalidate links', 'Network error.');
     } finally {
       // It's fire-and-forget server-side; release the button shortly so the user can re-run.
       setTimeout(() => setRevalidating(false), 4000);
@@ -526,10 +555,10 @@ export default function App() {
         toasts.info('Tailoring started. Watch the job status update when complete.', 'Tailor started');
         await fetchJobs();
       } else {
-        toasts.error(data.error || 'Tailoring failed. Check the logs for details.');
+        fail(contractFromBody(data, res.status, 'Tailoring failed. Check the logs for details.'), 'tailor job');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error while tailoring.');
+      fail(err, 'tailor job', 'Network error while tailoring.');
     } finally {
       setTailoringJobId(null);
     }
@@ -548,10 +577,10 @@ export default function App() {
         toasts.info(`Tailoring ${data.queued} job(s) in parallel. Watch statuses update.`, 'Batch tailor started');
         await fetchJobs();
       } else {
-        toasts.error(data.error || 'Batch tailoring failed. Check the logs.');
+        fail(contractFromBody(data, res.status, 'Batch tailoring failed. Check the logs.'), 'batch tailor');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error while batch tailoring.');
+      fail(err, 'batch tailor', 'Network error while batch tailoring.');
     }
   };
 
@@ -564,10 +593,10 @@ export default function App() {
         toasts.info('Apply Copilot opened a browser on the server host. Switch to it to review and submit.', 'Copilot launched');
         setActiveTab('logs');
       } else {
-        toasts.error(data.error || 'Could not launch copilot.');
+        fail(contractFromBody(data, res.status, 'Could not launch copilot.'), 'open copilot');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error.');
+      fail(err, 'open copilot', 'Network error.');
     } finally {
       setTimeout(() => setCopilotJobId(null), 1500);
     }
@@ -588,7 +617,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      toasts.error(err.message || 'Could not update job.');
+      fail(err, 'update job', 'Could not update job.');
     }
   };
 
@@ -607,7 +636,7 @@ export default function App() {
           if (selectedJob && selectedJob.id === jobId) setSelectedJob(null);
           toasts.success('Job dismissed.');
         } catch (err) {
-          toasts.error(err.message || 'Could not delete job.');
+          fail(err, 'delete job', 'Could not delete job.');
         }
       }
     });
@@ -626,10 +655,10 @@ export default function App() {
         setAddJobOpen(false);
         fetchJobs();
       } else {
-        toasts.error(data.error || 'Could not add job.');
+        fail(contractFromBody(data, res.status, 'Could not add job.'), 'add job');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error.');
+      fail(err, 'add job', 'Network error.');
     }
   };
 
@@ -649,7 +678,7 @@ export default function App() {
           fetchJobs();
           toasts.success('All jobs cleared.');
         } catch (err) {
-          toasts.error(err.message || 'Could not clear jobs.');
+          fail(err, 'clear jobs', 'Could not clear jobs.');
         }
       }
     });
@@ -661,7 +690,7 @@ export default function App() {
       fetchLogs();
       toasts.info('Cleared log history.');
     } catch (err) {
-      toasts.error(err.message || 'Could not clear logs.');
+      fail(err, 'clear logs', 'Could not clear logs.');
     }
   };
 
@@ -674,11 +703,11 @@ export default function App() {
         toasts.info('Browser opened with LinkedIn and Indeed sign-in pages. Log in, then close the window — your sessions will be saved for all future scraping runs.', 'Login browser open');
         setActiveTab('logs');
       } else {
-        toasts.error(data.error || 'Could not open browser.');
+        fail(contractFromBody(data, res.status, 'Could not open browser.'), 'browser setup');
         setIsBrowserSetupOpen(false);
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error.');
+      fail(err, 'browser setup', 'Network error.');
       setIsBrowserSetupOpen(false);
     }
     // The browser stays open on the user's desktop; reset state after a delay
@@ -693,10 +722,10 @@ export default function App() {
       if (data.success) {
         setLoginStatuses(data.statuses);
       } else {
-        toasts.error(data.error || 'Could not check login statuses.');
+        fail(contractFromBody(data, res.status, 'Could not check login statuses.'), 'login status');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error while checking logins.');
+      fail(err, 'login status', 'Network error while checking logins.');
     } finally {
       setIsCheckingLogins(false);
     }
@@ -707,7 +736,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/profile/key/anthropic`, { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        toasts.error(data.error || 'Could not clear the key.');
+        fail(contractFromBody(data, res.status, 'Could not clear the key.'), 'clear key');
         return;
       }
       toasts.info('Anthropic API key cleared.');
@@ -715,7 +744,7 @@ export default function App() {
       setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
       fetchProfile();
     } catch (err) {
-      toasts.error(err.message || 'Could not clear key.');
+      fail(err, 'clear key', 'Could not clear key.');
     }
   };
 
@@ -771,10 +800,10 @@ export default function App() {
         toasts.success(`${file.name} saved. Agent 3 will attach it to matching fields.`);
         fetchDocuments();
       } else {
-        toasts.error(data.error || 'Could not save that document.');
+        fail(contractFromBody(data, res.status, 'Could not save that document.'), 'upload document');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error while uploading.');
+      fail(err, 'upload document', 'Network error while uploading.');
     } finally {
       setUploadingDoc(null);
     }
@@ -793,7 +822,7 @@ export default function App() {
           fetchDocuments();
           toasts.info(`${label} removed.`);
         } catch (err) {
-          toasts.error(err.message || 'Could not remove the document.');
+          fail(err, 'delete document', 'Could not remove the document.');
         }
         setConfirm({ open: false });
       }
@@ -822,7 +851,7 @@ export default function App() {
           t.after?.();
           toasts.info(`Cleared ${t.label}.`);
         } catch (err) {
-          toasts.error(err.message || 'Could not clear that data.');
+          fail(err, 'clear data', 'Could not clear that data.');
         }
         setConfirm({ open: false });
       }
@@ -848,7 +877,7 @@ export default function App() {
           setRefreshTick((t) => t + 1);
           toasts.success('All data cleared.');
         } catch (err) {
-          toasts.error(err.message || 'Could not clear all data.');
+          fail(err, 'clear all data', 'Could not clear all data.');
         }
         setConfirm({ open: false });
       }
@@ -874,10 +903,10 @@ export default function App() {
         await fetchProfile();
         setRefreshTick((t) => t + 1);
       } else {
-        toasts.error(data.error || 'Could not apply that mode.');
+        fail(contractFromBody(data, res.status, 'Could not apply that mode.'), 'apply preset');
       }
     } catch (err) {
-      toasts.error(err.message || 'Network error while applying the mode.');
+      fail(err, 'apply preset', 'Network error while applying the mode.');
     } finally {
       setApplyingPreset(null);
     }
@@ -899,10 +928,10 @@ export default function App() {
             toasts.success(`Restored backup from ${data.backedUpAt ? new Date(data.backedUpAt).toLocaleString() : 'earlier'}.`);
             refreshAll();
           } else {
-            toasts.error(data.error || 'No backup available to restore.');
+            fail(contractFromBody(data, res.status, 'No backup available to restore.'), 'restore backup');
           }
         } catch (err) {
-          toasts.error(err.message || 'Could not restore the backup.');
+          fail(err, 'restore backup', 'Could not restore the backup.');
         }
       }
     });
@@ -922,7 +951,7 @@ export default function App() {
           setRefreshTick((t) => t + 1);
           toasts.info('AI usage history cleared.');
         } catch (err) {
-          toasts.error(err.message || 'Could not clear usage.');
+          fail(err, 'clear usage', 'Could not clear usage.');
         }
       }
     });
@@ -1057,6 +1086,15 @@ export default function App() {
 
       {/* Main */}
       <main className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+
+        {loadError && (
+          <ErrorCard
+            title="Could not load the app"
+            error={loadError}
+            onRetry={() => { setLoadError(null); refreshAll(); }}
+            onDismiss={() => setLoadError(null)}
+          />
+        )}
 
         {SYNTHETIC_DEMO && <div role="note" className="glass-panel" style={{ padding: 16, marginBottom: 20, borderColor: '#22d3ee' }}>
           <strong>Synthetic demo · Alex Example / Example Studio</strong>
@@ -1541,6 +1579,7 @@ export default function App() {
                     job={job}
                     apiBase={API_BASE}
                     toasts={toasts}
+                    fail={fail}
                     copyText={copyText}
                     onSaved={fetchJobs}
                   />
@@ -1593,6 +1632,10 @@ export default function App() {
               ))}
               {logs.length === 0 && <div className="terminal-system">System online. Waiting for agent execution…</div>}
               <div ref={terminalEndRef} />
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <RecentErrors />
             </div>
           </div>
         )}
@@ -2631,7 +2674,7 @@ function DocumentBox({ title, tone, text, filename, onCopy, onDownload }) {
 /* ---------------------------------------------------------------- */
 /* Referral Network Bypass — post-application direct outreach        */
 /* ---------------------------------------------------------------- */
-function ReferralPanel({ job, apiBase, toasts, copyText, onSaved }) {
+function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
   const [referral, setReferral] = useState(job.referral || null);
   const [loading, setLoading] = useState(false);
 
@@ -2652,10 +2695,10 @@ function ReferralPanel({ job, apiBase, toasts, copyText, onSaved }) {
         );
         onSaved && onSaved();
       } else {
-        toasts.error(data.error || 'Could not build the outreach channel.');
+        fail(contractFromBody(data, res.status, 'Could not build the outreach channel.'), 'build outreach');
       }
     } catch (e) {
-      toasts.error(e.message);
+      fail(e, 'build outreach', 'Could not build the outreach channel.');
     } finally {
       setLoading(false);
     }

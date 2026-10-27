@@ -17,6 +17,7 @@ export const ERROR_CODES = Object.freeze({
   STORAGE_FULL: 'STORAGE_FULL',
   STORAGE_UNAVAILABLE: 'STORAGE_UNAVAILABLE',
   FEED_FAILED: 'FEED_FAILED',
+  GROUNDING_FAILED: 'GROUNDING_FAILED',
   VALIDATION: 'VALIDATION',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
@@ -103,6 +104,12 @@ const CATALOG = {
     hint: 'Retry this feed; the other feeds still work.',
     retryable: true,
     status: 502
+  },
+  GROUNDING_FAILED: {
+    message: 'The answer cited a source that was not retrieved, so it was not shown.',
+    hint: 'Review the cited sources and try again.',
+    retryable: true,
+    status: 422
   },
   VALIDATION: {
     message: 'Some details were rejected.',

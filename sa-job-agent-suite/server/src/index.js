@@ -73,6 +73,7 @@ import { startScheduler, runRoutineNow } from './agents/routineRunner.js';
 import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
+import { ragStatus, askDocuments, checkDocument } from './rag/service.js';
 import { demoOrigin, installDemo } from './demo.js';
 import { localGuard } from './localGuard.js';
 import { requestContext, sendError, badRequest, notFound, conflict, errorHandler } from './httpErrors.js';
@@ -483,6 +484,34 @@ app.delete('/api/memory', (req, res) => {
   try {
     const mem = clearCandidateMemory();
     res.json({ success: true, memory: mem });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// -------------------- Grounded document questions (Agentic RAG) --------------------
+
+app.get('/api/rag/status', (req, res) => {
+  try {
+    res.json(ragStatus());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/rag/ask', async (req, res) => {
+  try {
+    const { question, purpose } = req.body || {};
+    res.json(await askDocuments({ question, purpose }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/rag/check', async (req, res) => {
+  try {
+    const { jobId, documentKind } = req.body || {};
+    res.json(await checkDocument({ jobId, documentKind }));
   } catch (error) {
     sendError(res, error);
   }

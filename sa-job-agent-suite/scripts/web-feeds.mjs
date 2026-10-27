@@ -23,6 +23,10 @@ const FEEDS = new Map([
 
 const NOTE = 'Phone screen on 12 November.';
 
+// One feed is taken down for the isolation phase, then restored so the retry
+// path and the "every feed returned rows" check can prove recovery too.
+const FAILED_FEED = 'https://jobicy.com/api/v2/remote-jobs';
+
 let step = 'start';
 
 function at(name) {
@@ -117,6 +121,7 @@ async function main() {
   const allowedOrigins = new Set([serverOrigin, ...[...FEEDS.keys()].map((url) => new URL(url).origin)]);
   let browser = null;
   let downloadFile = null;
+  let feedOutage = true;
 
   try {
     browser = await chromium.launch({ headless: true });
@@ -139,6 +144,13 @@ async function main() {
         parsed = null;
       }
       if (parsed && parsed.origin === serverOrigin) return route.continue();
+      if (feedOutage && url === FAILED_FEED) {
+        return route.fulfill({
+          status: 503,
+          headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+          body: JSON.stringify({ error: 'temporarily unavailable' })
+        });
+      }
       const body = payloads.get(url);
       if (body) {
         fulfilledFeeds.add(url);
@@ -172,6 +184,18 @@ async function main() {
       await page.getByTestId(`feed-source-${id}`).waitFor({ timeout: 15_000 });
     }
     await page.getByTestId('feed-row-0').waitFor({ timeout: 15_000 });
+
+    at('one failed feed is isolated');
+    const failedCard = page.getByTestId('feed-source-jobicy');
+    await failedCard.getByText(/HTTP 503/).waitFor({ timeout: 20_000 });
+    assert.ok(await waitForSourceCount(page, 'remotive') >= 1, 'remotive lost its rows when jobicy failed');
+    assert.ok(await waitForSourceCount(page, 'arbeitnow') >= 1, 'arbeitnow lost its rows when jobicy failed');
+    await page.getByTestId('feed-row-0').waitFor({ timeout: 15_000 });
+    await failedCard.getByRole('button', { name: 'Retry this feed' }).click();
+    feedOutage = false;
+    const recovered = await waitForSourceCount(page, 'jobicy');
+    assert.ok(recovered >= 1, `the recovered jobicy card reports ${recovered} jobs`);
+    await failedCard.getByText(/HTTP 503/).waitFor({ state: 'detached', timeout: 15_000 });
 
     at('every feed returned rows');
     for (const id of ['remotive', 'arbeitnow', 'jobicy']) {

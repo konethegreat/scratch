@@ -7,6 +7,7 @@ import { fingerprint } from '@sajas/core/feeds';
 import { STORES } from './vault.js';
 import { limit } from './limits.js';
 import { createUsageLedger } from './usage.js';
+import { createWebTailor } from './tailor.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
@@ -62,7 +63,7 @@ const SERVER_ONLY = [
   /^\/jobs\/hunter(?:\/stop)?$/,
   /^\/jobs\/revalidate$/,
   /^\/jobs\/tailor-batch$/,
-  /^\/jobs\/[^/]+\/(?:tailor|apply|referral)$/,
+  /^\/jobs\/[^/]+\/(?:apply|referral)$/,
   /^\/routines(?:\/.*)?$/,
   /^\/hunter\/sources(?:\/.*)?$/,
   /^\/browser\/(?:setup|login-status)$/,
@@ -74,6 +75,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   const base = new URL(apiBase);
   const basePath = base.pathname.replace(/\/$/, '');
   const usage = createUsageLedger({ vault, now });
+  const tailor = createWebTailor({ vault, keyStore, usage, activity, now, ...(loadAi ? { loadAi } : {}) });
 
   function pathOf(input) {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url;
@@ -324,6 +326,11 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
         await vault.clear(STORES.jobs);
         activity.add('All jobs cleared by user.', 'system');
         return ok({ success: true });
+      }
+      if ((match = path.match(/^\/jobs\/([^/]+)\/tailor$/)) && method === 'POST') {
+        const profile = (await vault.get(STORES.profile, 'current', {})) || {};
+        const result = await tailor.tailorJob(match[1], profile);
+        return ok({ success: true, job: result.job, ...(result.warning ? { warning: result.warning } : {}) });
       }
       if ((match = path.match(/^\/jobs\/([^/]+)$/))) {
         if (method === 'PATCH') return await updateJob(input, init, match[1]);

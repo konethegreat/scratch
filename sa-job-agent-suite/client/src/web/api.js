@@ -116,7 +116,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   async function saveProfile(input, init) {
     const incoming = await bodyOf(input, init);
     if (incoming.anthropicApiKey && String(incoming.anthropicApiKey).trim()) {
-      keyStore.setKey(incoming.anthropicApiKey);
+      throw new AppError(ERROR_CODES.VALIDATION, 'Enter your Anthropic key in the key panel so it can be validated and saved safely.');
     }
     const current = (await vault.get(STORES.profile, 'current', {})) || {};
     const { anthropicApiKey, hasAnthropicKey, ...rest } = incoming;

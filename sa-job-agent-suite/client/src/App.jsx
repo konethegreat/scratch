@@ -1804,19 +1804,21 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{ marginTop: 16 }}>
-                  <ApiKeyField
-                    label="Anthropic API key"
-                    hasKey={profile.hasAnthropicKey} revealed={revealKey}
-                    value={profile.anthropicApiKey}
-                    onChange={(v) => setProfile({ ...profile, anthropicApiKey: v })}
-                    onReveal={() => setRevealKey((r) => !r)}
-                    onClear={clearApiKey}
-                    docsUrl="https://console.anthropic.com/"
-                    docsLabel="Open the Anthropic Console"
-                    helper="Use a regular API key from a Workspace with a spend limit."
-                  />
-                </div>
+                {!IS_WEB && (
+                  <div style={{ marginTop: 16 }}>
+                    <ApiKeyField
+                      label="Anthropic API key"
+                      hasKey={profile.hasAnthropicKey} revealed={revealKey}
+                      value={profile.anthropicApiKey}
+                      onChange={(v) => setProfile({ ...profile, anthropicApiKey: v })}
+                      onReveal={() => setRevealKey((r) => !r)}
+                      onClear={clearApiKey}
+                      docsUrl="https://console.anthropic.com/"
+                      docsLabel="Open the Anthropic Console"
+                      helper="Use a regular API key from a Workspace with a spend limit."
+                    />
+                  </div>
+                )}
 
                 {IS_WEB && (
                   <WebKeyPanel

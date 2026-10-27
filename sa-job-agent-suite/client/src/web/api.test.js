@@ -45,12 +45,13 @@ test('profile starts empty, stores only non-secret fields, and reports hasAnthro
 
   const saved = await call('/profile', {
     method: 'POST',
-    body: { fullName: 'Thandi Mokoena', anthropicApiKey: API_KEY, keywords: 'developer' }
+    body: { fullName: 'Thandi Mokoena', keywords: 'developer' }
   });
   assert.equal(saved.status, 200);
   assert.equal((await json(saved)).success, true);
-  assert.equal(keyStore.getKey(), API_KEY);
+  assert.equal(keyStore.hasKey(), false);
 
+  keyStore.setKey(API_KEY);
   profile = await json(await call('/profile'));
   assert.equal(profile.fullName, 'Thandi Mokoena');
   assert.equal(profile.hasAnthropicKey, true);
@@ -59,22 +60,26 @@ test('profile starts empty, stores only non-secret fields, and reports hasAnthro
   assert.equal(JSON.stringify(await vault.exportAll()).includes(API_KEY), false);
 });
 
-test('an admin or malformed key is rejected and not stored', async () => {
+test('key material is rejected at the profile boundary and leaves the key store untouched', async () => {
   const { call, keyStore } = harness();
-  for (const [value, code] of [[ADMIN_KEY, 'KEY_ADMIN'], ['sk-nope', 'KEY_INVALID']]) {
+  keyStore.setKey(API_KEY);
+  await keyStore.remember('a long passphrase');
+  for (const value of [API_KEY, ADMIN_KEY, 'sk-nope']) {
     const res = await call('/profile', { method: 'POST', body: { anthropicApiKey: value } });
     assert.equal(res.status, 400);
     const body = await json(res);
-    assert.equal(body.code, code);
-    assert.equal(body.error, body.message);
+    assert.equal(body.code, 'VALIDATION');
+    assert.match(body.message, /key panel/);
     assert.equal(JSON.stringify(body).includes(value), false);
   }
-  assert.equal(keyStore.hasKey(), false);
+  assert.equal(keyStore.getKey(), API_KEY);
+  assert.equal(await keyStore.hasSavedKey(), true);
+  assert.equal(await keyStore.unlock('a long passphrase'), API_KEY);
 });
 
 test('DELETE /profile/key/anthropic forgets the key and any saved blob', async () => {
   const { call, keyStore } = harness();
-  await call('/profile', { method: 'POST', body: { anthropicApiKey: API_KEY } });
+  keyStore.setKey(API_KEY);
   await keyStore.remember('a long passphrase');
   const res = await call('/profile/key/anthropic', { method: 'DELETE' });
   assert.equal(res.status, 200);

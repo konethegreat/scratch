@@ -55,7 +55,7 @@ html, body, #root { height: 100%; }
 body {
   background-color: var(--bg-app);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.5;
@@ -96,7 +96,7 @@ body::after {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text-primary);
@@ -532,7 +532,7 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .app-topbar .brand-chip:hover .brand-name { filter: brightness(1.15); }
 .brand-name {
-  font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 17px;
+  font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif; font-weight: 800; font-size: 17px;
   letter-spacing: 0.04em;
 }
 
@@ -611,7 +611,7 @@ input[type=number] { -moz-appearance: textfield; }
   margin-bottom: 22px;
 }
 .hero-title {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif;
   font-size: clamp(38px, 6vw, 76px);
   line-height: 1.02; font-weight: 850; letter-spacing: -0.03em;
   margin-bottom: 18px;
@@ -623,7 +623,7 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* Stat / chip rows */
 .stat-row { display: flex; gap: 26px; flex-wrap: wrap; justify-content: center; }
-.stat-num { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; }
+.stat-num { font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif; font-size: 26px; font-weight: 800; }
 .stat-lbl { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
 
 .chip {

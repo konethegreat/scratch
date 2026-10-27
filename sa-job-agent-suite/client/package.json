@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:web": "vite build --mode web",
     "preview": "vite preview",
-    "test": "node --test src/errors.test.js src/clipboard.test.js src/loadErrors.test.js"
+    "test": "node --test \"src/**/*.test.js\""
   },
   "dependencies": {
     "@sajas/core": "*",

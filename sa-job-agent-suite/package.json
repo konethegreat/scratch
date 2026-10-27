@@ -23,6 +23,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "install:all": "npm install",
     "build:client": "npm run build --workspace=client",
+    "build:web": "npm run build:web --workspace=client",
     "test:desktop": "node scripts/desktop-smoke.js",
     "electron:dev": "concurrently -k -n vite,electron -c \"cyan,magenta\" \"npm run dev:client\" \"wait-on http://localhost:4173 && node scripts/start-electron.js\"",
     "electron:start": "node scripts/start-electron.js",

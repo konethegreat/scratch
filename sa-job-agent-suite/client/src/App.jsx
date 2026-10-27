@@ -50,6 +50,8 @@ import {
   recordError
 } from './errors.js';
 import { setSourceError, clearSourceError, firstSourceError } from './loadErrors.js';
+import { IS_WEB } from './web/env.js';
+import { isTabVisible, filterSettingsTabs, SERVER_ONLY_SETTINGS } from './web/mode.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
@@ -295,6 +297,11 @@ export default function App() {
   // Application Answers / Documents & Data) so it no longer renders as one
   // endless scroll.
   const [settingsTab, setSettingsTab] = useState('ai');
+
+  useEffect(() => {
+    if (!isTabVisible(activeTab, IS_WEB) && activeTab !== 'landing') setActiveTab('dashboard');
+    if (IS_WEB && SERVER_ONLY_SETTINGS.includes(settingsTab)) setSettingsTab('ai');
+  }, [activeTab, settingsTab]);
 
   const [jobs, setJobs] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -1068,11 +1075,19 @@ export default function App() {
           <SidebarLink active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Briefcase size={16} />}>Dashboard</SidebarLink>
           <SidebarLink active={activeTab === 'hunter'}    onClick={() => setActiveTab('hunter')}    icon={<Search size={16} />}>Job Hunter</SidebarLink>
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
-          <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
-          <SidebarLink active={activeTab === 'referrals'} onClick={() => setActiveTab('referrals')} icon={<Network size={16} />}>Direct Outreach</SidebarLink>
-          <SidebarLink active={activeTab === 'routines'}  onClick={() => setActiveTab('routines')}  icon={<Clock size={16} />}>Routines</SidebarLink>
+          {isTabVisible('copilot', IS_WEB) && (
+            <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
+          )}
+          {isTabVisible('referrals', IS_WEB) && (
+            <SidebarLink active={activeTab === 'referrals'} onClick={() => setActiveTab('referrals')} icon={<Network size={16} />}>Direct Outreach</SidebarLink>
+          )}
+          {isTabVisible('routines', IS_WEB) && (
+            <SidebarLink active={activeTab === 'routines'}  onClick={() => setActiveTab('routines')}  icon={<Clock size={16} />}>Routines</SidebarLink>
+          )}
           <SidebarLink active={activeTab === 'memory'}    onClick={() => setActiveTab('memory')}    icon={<Brain size={16} />}>Candidate Memory</SidebarLink>
-          <SidebarLink active={activeTab === 'logs'}      onClick={() => setActiveTab('logs')}      icon={<Terminal size={16} />}>Activity Logs</SidebarLink>
+          {isTabVisible('logs', IS_WEB) && (
+            <SidebarLink active={activeTab === 'logs'}      onClick={() => setActiveTab('logs')}      icon={<Terminal size={16} />}>Activity Logs</SidebarLink>
+          )}
         </nav>
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 'auto' }}>
@@ -1212,7 +1227,9 @@ export default function App() {
               <div className="glass-panel" style={{ padding: 22, display: 'flex', flexDirection: 'column' }}>
                 <div className="flex-between" style={{ marginBottom: 12 }}>
                   <h3 style={{ fontSize: 16 }}>Agent terminal</h3>
-                  <button className="btn-ghost btn-xs" onClick={() => setActiveTab('logs')}>Open full <ChevronRight size={12} /></button>
+                  {!IS_WEB && (
+                    <button type="button" className="btn-ghost btn-xs" onClick={() => setActiveTab('logs')}>Open full <ChevronRight size={12} /></button>
+                  )}
                 </div>
                 <div className="terminal-console" onScroll={handleTerminalScroll} style={{ flex: 1, minHeight: 200, maxHeight: 280 }}>
                   {logs.length === 0 ? (
@@ -1496,7 +1513,7 @@ export default function App() {
         )}
 
         {/* ============================== COPILOT ============================== */}
-        {activeTab === 'copilot' && (
+        {!IS_WEB && activeTab === 'copilot' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
             <h3 style={{ fontSize: 18, marginBottom: 8 }}>Apply Copilot control room</h3>
             <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
@@ -1554,7 +1571,7 @@ export default function App() {
         )}
 
         {/* ============================== DIRECT OUTREACH ============================== */}
-        {activeTab === 'referrals' && (
+        {!IS_WEB && activeTab === 'referrals' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
             <div className="flex-gap" style={{ alignItems: 'center', marginBottom: 8 }}>
               <Network size={18} color="var(--color-accent)" />
@@ -1599,7 +1616,7 @@ export default function App() {
         )}
 
         {/* ============================== ROUTINES ============================== */}
-        {activeTab === 'routines' && (
+        {!IS_WEB && activeTab === 'routines' && (
           <Routines
             apiBase={API_BASE}
             toasts={toasts}
@@ -1613,7 +1630,7 @@ export default function App() {
           <CandidateMemory apiBase={API_BASE} toasts={toasts} refreshSignal={refreshTick} />
         )}
 
-        {activeTab === 'logs' && (
+        {!IS_WEB && activeTab === 'logs' && (
           <div className="glass-panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
               <div>
@@ -1656,13 +1673,13 @@ export default function App() {
             <SettingsSubTabs
               current={settingsTab}
               onChange={setSettingsTab}
-              tabs={[
+              tabs={filterSettingsTabs([
                 { id: 'ai',      label: 'AI & Cost',           icon: <Sparkles size={13} /> },
                 { id: 'profile', label: 'Profile & CV',        icon: <FileText size={13} /> },
                 { id: 'search',  label: 'Job Search',          icon: <Search size={13} /> },
                 { id: 'answers', label: 'Application Answers', icon: <Database size={13} /> },
                 { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> }
-              ]}
+              ], IS_WEB)}
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>

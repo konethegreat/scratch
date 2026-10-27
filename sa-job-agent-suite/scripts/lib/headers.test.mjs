@@ -51,3 +51,17 @@ test('the parser merges wildcard and exact rules', () => {
   assert.deepEqual(headersFor(rules, '/x'), { a: 'one', b: 'two' });
   assert.deepEqual(headersFor(rules, '/y'), { a: 'one' });
 });
+
+test('the parser rejects a header line before any path rule', () => {
+  assert.throws(
+    () => parseHeadersFile('  X-Test: one\n'),
+    { message: 'Header before any path rule:   X-Test: one' }
+  );
+});
+
+test('the parser rejects a malformed header line with no colon', () => {
+  assert.throws(
+    () => parseHeadersFile('/*\n  NoColon\n'),
+    { message: 'Malformed header line: NoColon' }
+  );
+});

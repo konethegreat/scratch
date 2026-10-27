@@ -21,8 +21,23 @@ export async function startStaticServer({ root, port = 0 }) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
-    let file = path.resolve(resolved, `.${decodeURIComponent(url.pathname)}`);
-    if (!file.startsWith(resolved)) { res.writeHead(403).end('Forbidden'); return; }
+    let pathname;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      // A malformed percent-escape throws URIError; answer instead of letting
+      // the rejection escape the async handler with no response written.
+      res.writeHead(400).end('Bad Request');
+      return;
+    }
+    let file = path.resolve(resolved, `.${pathname}`);
+    // `startsWith` would admit sibling prefixes such as `dist2/...`; compare
+    // relative paths instead so only the served root (and below) is reachable.
+    const relative = path.relative(resolved, file);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      res.writeHead(403).end('Forbidden');
+      return;
+    }
     let body;
     try {
       body = await fs.readFile(file);

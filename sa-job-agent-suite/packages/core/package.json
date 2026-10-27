@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.js",
+    "./errors": "./src/errors.js",
     "./testing": "./src/testing.js"
   },
   "scripts": {

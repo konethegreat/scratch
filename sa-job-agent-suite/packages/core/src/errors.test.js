@@ -87,6 +87,18 @@ test('a refusal stays user-readable and is not offered as a retry', () => {
   assert.match(out.hint, /different job|shorter request/i);
 });
 
+test('object details are serialised, not flattened to [object Object]', () => {
+  const info = toUserError(new ClaudeRefusalError('Declined.', { category: 'cyber', reason: 'policy' }));
+  assert.equal(info.details.includes('[object Object]'), false);
+  assert.match(info.details, /cyber/);
+});
+
+test('a null context is treated as an empty one', () => {
+  const info = toUserError(new ClaudeRefusalError('Declined.'), null);
+  assert.equal(info.code, 'UNKNOWN');
+  assert.match(info.requestId, /^local-[a-z0-9]{1,12}$/);
+});
+
 test('connection failures split offline from CORS', () => {
   const failure = new TypeError('Failed to fetch');
   assert.equal(toUserError(failure, { online: false }).code, ERROR_CODES.NETWORK_OFFLINE);

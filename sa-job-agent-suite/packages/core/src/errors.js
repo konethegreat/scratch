@@ -177,7 +177,16 @@ function newRequestId() {
 }
 
 function text(value, fallback = '') {
-  return scrubSecrets(String(value ?? fallback)).trim();
+  const source = typeof value === 'string' || value == null ? value : stringify(value);
+  return scrubSecrets(String(source ?? fallback)).trim();
+}
+
+function stringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function finalize(code, message, opts, context) {
@@ -214,6 +223,7 @@ function offline(context) {
  * normalised with defaults, not wrapped again.
  */
 export function toUserError(err, context = {}) {
+  context = context ?? {};
   if (err instanceof AppError) return finalize(err.code, err.message, err, context);
 
   if (err && typeof err === 'object' && typeof err.code === 'string' && Object.hasOwn(ERROR_CODES, err.code)) {

@@ -122,7 +122,7 @@ Acceptance criteria:
 
 Out of scope: new product features, new data sources, and any change to the key lifecycle.
 
-## Arc 4: Web tailoring and support (shipped 2026-10-27)
+## Arc 4: Web tailoring and support (shipped 2026-10-27 in PR #12)
 
 **Goal:** make the Document Tailor tab work in the hosted app, with honest spend tracking, and give every visitor a support path.
 

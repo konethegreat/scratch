@@ -98,15 +98,23 @@ test('DELETE /profile/key/anthropic forgets the key and any saved blob', async (
   assert.equal((await json(await call('/profile'))).hasAnthropicKey, false);
 });
 
-test('usage has the server shape, a live budget cap, and can be cleared', async () => {
-  const { call } = harness({ profile: { current: { dailyBudgetUSD: 5 } } });
+test('usage starts empty, reflects the ledger, and can be cleared', async () => {
+  const { call, vault } = harness({ profile: { current: { dailyBudgetUSD: 5 } } });
+  const { createUsageLedger } = await import('./usage.js');
+  const ledger = createUsageLedger({ vault });
+  await ledger.record({ model: 'claude-sonnet-5-5', bucket: 'tailor', inputTokens: 1_000_000 });
+
   const usage = await json(await call('/usage'));
-  assert.equal(usage.today.calls, 0);
-  assert.equal(usage.today.estCostUSD, 0);
-  assert.deepEqual(usage.history, []);
+  assert.equal(usage.today.calls, 1);
+  assert.equal(usage.today.estCostUSD, 2);
+  assert.equal(usage.history.length, 1);
   assert.equal(usage.budget.capUSD, 5);
   assert.equal(usage.budget.exceeded, false);
+
   assert.equal((await call('/usage', { method: 'DELETE' })).status, 200);
+  const cleared = await json(await call('/usage'));
+  assert.equal(cleared.today.calls, 0);
+  assert.deepEqual(cleared.history, []);
 });
 
 test('logs read and clear the in-memory activity ring', async () => {

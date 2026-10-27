@@ -6,6 +6,7 @@ import { MODELS } from '@sajas/core/models';
 import { fingerprint } from '@sajas/core/feeds';
 import { STORES } from './vault.js';
 import { limit } from './limits.js';
+import { createUsageLedger } from './usage.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
@@ -51,20 +52,6 @@ function memoryOf(stored) {
   };
 }
 
-function emptyUsage(profile = {}) {
-  const cap = Number(profile.dailyBudgetUSD) || 0;
-  return {
-    today: {
-      date: new Date().toISOString().slice(0, 10),
-      calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
-      webSearches: 0, estCostUSD: 0, byBucket: {}, byTask: {}
-    },
-    history: [],
-    last7CostUSD: 0,
-    budget: { capUSD: cap, spentUSD: 0, exceeded: false }
-  };
-}
-
 // Routes that exist on the desktop server but have no browser equivalent:
 // background agents, the local browser, backups, routines and AI-only features.
 const SERVER_ONLY = [
@@ -83,9 +70,10 @@ const SERVER_ONLY = [
   /^\/health$/
 ];
 
-export function createWebApi({ apiBase, vault, keyStore, activity, now = () => new Date() }) {
+export function createWebApi({ apiBase, vault, keyStore, activity, now = () => new Date(), loadAi } = {}) {
   const base = new URL(apiBase);
   const basePath = base.pathname.replace(/\/$/, '');
+  const usage = createUsageLedger({ vault, now });
 
   function pathOf(input) {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url;
@@ -321,9 +309,14 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if (path === '/logs' && method === 'GET') return ok(activity.list());
       if (path === '/logs/clear' && method === 'POST') { activity.clear(); return ok({ success: true }); }
       if (path === '/usage' && method === 'GET') {
-        return ok(emptyUsage((await vault.get(STORES.profile, 'current', {})) || {}));
+        const profile = (await vault.get(STORES.profile, 'current', {})) || {};
+        return ok(await usage.summary(profile));
       }
-      if (path === '/usage' && method === 'DELETE') return ok({ success: true });
+      if (path === '/usage' && method === 'DELETE') {
+        await usage.clear();
+        activity.add('Usage history cleared by user.', 'system');
+        return ok({ success: true });
+      }
       if (path === '/documents' && method === 'GET') return ok([]);
       if (path === '/jobs' && method === 'GET') return await getJobs();
       if (path === '/jobs' && method === 'POST') return await addJob(input, init);

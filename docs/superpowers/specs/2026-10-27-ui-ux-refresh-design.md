@@ -95,6 +95,7 @@ Light is the default token set. Dark is selected by `[data-theme='dark']`. The a
 | `--text-muted` | `#5f6673` | `#929aab` |
 | `--border` | `#e4e4de` | `#232936` |
 | `--border-strong` | `#c9c9c2` | `#333b4c` |
+| `--overlay` | `rgba(16, 18, 24, 0.35)` | `rgba(0, 0, 0, 0.60)` |
 
 Contrast ratios, computed with the WCAG relative luminance formula:
 
@@ -153,7 +154,7 @@ The aurora drift, gradient shift, floaty, shimmer and hover lift on buttons are 
 - Storage key: `sajas-theme` in `localStorage`.
 - First visit: no key means `system`, which follows `prefers-color-scheme`.
 - A stored choice wins over the OS.
-- If `localStorage` is unavailable, the app follows the OS for the session and explains nothing, because the fallback is correct and a toast would be noise.
+- If `localStorage` is unavailable, the toggle still applies for the session, but the choice is not remembered. No toast is shown, because the fallback is correct and a warning would be noise.
 - A `storage` event applies a change made in another tab.
 - A `matchMedia` change applies immediately while the choice is `system`.
 

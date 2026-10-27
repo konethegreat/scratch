@@ -112,10 +112,11 @@ The alpha is a browser workbench, not the full suite: your profile, the job
 tracker, candidate memory and settings work and persist in this browser.
 Hunting, tailoring and the apply copilot are not available in the web alpha;
 use the desktop app for those. The Copilot, Referrals, Routines and Logs tabs
-are hidden, but Job Hunter and Document Tailor still appear, and their
-server-backed actions (Launch crawler, Tailor all found, Re-check links,
-Optimise CV & letter, Apply) stay clickable — each one answers with a typed
-"not supported in web" error.
+are hidden, and Job Feeds is available in web mode. Job Hunter and Document
+Tailor still appear, but their crawler controls (Launch crawler, Stop crawler,
+Tailor all found, Re-check links) are hidden. The remaining server-backed
+actions (Optimise CV & letter, Apply) stay clickable, and each answers with a
+typed "not supported in web" error.
 
 ### Job feeds and tracker
 

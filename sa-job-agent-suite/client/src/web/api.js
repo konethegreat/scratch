@@ -183,7 +183,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if (!TRACKER_STATUSES.includes(patch.status)) {
         throw new AppError(ERROR_CODES.VALIDATION, 'That is not a status this tracker uses.', {
           retryable: false,
-          hint: 'Use one of: found, tailored, applied, interviewing, offer, rejected.'
+          hint: 'Use one of: found, tailoring, tailored, applied, interviewing, offer, rejected.'
         });
       }
       next.status = patch.status;

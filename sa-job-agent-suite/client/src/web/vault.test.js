@@ -87,3 +87,30 @@ test('the memory adapter isolates stored objects from later mutation', async () 
   value.nested.n = 2;
   assert.deepEqual(await vault.get(STORES.meta, 'app'), { nested: { n: 1 } });
 });
+
+test('export -> wipe -> import keeps record keys and values', async () => {
+  const { vault } = make();
+  const profile = { fullName: 'Thandi', email: 'thandi@example.com' };
+  const job = { title: 'Backend Engineer', company: 'Acme' };
+  const meta = { onboarded: true, theme: 'dark' };
+  await vault.put(STORES.profile, 'current', profile);
+  await vault.put(STORES.jobs, 'job-42', job);
+  await vault.put(STORES.meta, 'app', meta);
+
+  const dump = await vault.exportAll();
+  assert.deepEqual(dump.data.profile, { current: profile });
+  assert.deepEqual(dump.data.jobs, { 'job-42': job });
+  assert.deepEqual(dump.data.meta, { app: meta });
+  assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
+
+  await vault.wipe();
+  assert.equal(await vault.get(STORES.profile, 'current'), undefined);
+  assert.equal(await vault.get(STORES.meta, 'app'), undefined);
+  assert.equal(await vault.get(STORES.jobs, 'job-42'), undefined);
+
+  await vault.importAll(dump);
+  assert.deepEqual(await vault.get(STORES.profile, 'current'), profile);
+  assert.deepEqual(await vault.get(STORES.meta, 'app'), meta);
+  assert.deepEqual(await vault.get(STORES.jobs, 'job-42'), job);
+  assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
+});

@@ -52,6 +52,23 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
     async getAll(store) {
       return run(store, 'readonly', (s) => s.getAll());
     },
+    async entries(store) {
+      return open().then((db) => new Promise((resolve, reject) => {
+        // One readonly transaction: getAllKeys() and getAll() both walk the
+        // store by ascending key order, so the two result arrays align.
+        const tx = db.transaction(store, 'readonly');
+        const objectStore = tx.objectStore(store);
+        const keysRequest = objectStore.getAllKeys();
+        const valuesRequest = objectStore.getAll();
+        tx.oncomplete = () => {
+          const keys = keysRequest.result;
+          const values = valuesRequest.result;
+          resolve(keys.map((key, index) => [key, values[index]]));
+        };
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      }));
+    },
     async clear(store) {
       await run(store, 'readwrite', (s) => s.clear());
     },

@@ -23,6 +23,9 @@ export function createMemoryAdapter(seed = {}) {
     async getAll(name) {
       return [...store(name).values()].map((value) => structuredClone(value));
     },
+    async entries(name) {
+      return [...store(name).entries()].map(([key, value]) => [key, structuredClone(value)]);
+    },
     async clear(name) {
       store(name).clear();
     },

@@ -55,9 +55,9 @@ export function createVault(adapter) {
     async exportAll() {
       const data = {};
       for (const store of EXPORT_STORES) {
-        const entries = await adapter.getAll(store);
-        // Keys are not exposed by the adapter API; exports are value arrays.
-        data[store] = entries;
+        // Keyed maps keep record identity (profile/current, meta/app) intact
+        // across export -> wipe -> import; a value array would lose the keys.
+        data[store] = Object.fromEntries(await adapter.entries(store));
       }
       return {
         app: EXPORT_FORMAT.app,
@@ -79,17 +79,10 @@ export function createVault(adapter) {
       for (const store of EXPORT_STORES) {
         await adapter.clear(store);
         const entries = payload.data[store];
-        if (Array.isArray(entries)) {
-          for (const value of entries) {
-            const key = value && typeof value === 'object' && typeof value.id === 'string' ? value.id : crypto.randomUUID();
-            await adapter.put(store, key, value);
-          }
-        } else if (entries && typeof entries === 'object') {
-          // Keyed maps restore their original keys; exportAll emits value arrays
-          // because the adapter surface does not expose keys.
-          for (const [key, value] of Object.entries(entries)) {
-            await adapter.put(store, key, value);
-          }
+        // One export format only: each store is a keyed map of key -> value.
+        if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
+        for (const [key, value] of Object.entries(entries)) {
+          await adapter.put(store, key, value);
         }
       }
     }

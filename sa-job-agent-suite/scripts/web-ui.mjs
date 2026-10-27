@@ -219,12 +219,25 @@ async function main() {
       const element = document.querySelector('[role="dialog"]');
       return Boolean(element && element.contains(document.activeElement));
     });
+    const focusSignature = () => page.evaluate(() => {
+      const element = document.activeElement;
+      if (!element) return 'none';
+      const label = element.getAttribute('aria-label') || (element.textContent || '').trim().slice(0, 40);
+      return `${element.tagName}:${element.id}:${label}`;
+    });
+    // Focus starts on the first control, so Shift+Tab proves the reverse wrap.
+    const initialFocus = await focusSignature();
+    await page.keyboard.press('Shift+Tab');
+    assert.ok(await focusInsideDialog(), 'focus escaped the dialog on Shift+Tab');
+    assert.notEqual(await focusSignature(), initialFocus, 'Shift+Tab did not move focus');
+    let previousFocus = await focusSignature();
     for (let index = 0; index < 12; index += 1) {
       await page.keyboard.press('Tab');
       assert.ok(await focusInsideDialog(), `focus escaped the dialog on Tab ${index + 1}`);
+      const currentFocus = await focusSignature();
+      assert.notEqual(currentFocus, previousFocus, `focus did not move on Tab ${index + 1}`);
+      previousFocus = currentFocus;
     }
-    await page.keyboard.press('Shift+Tab');
-    assert.ok(await focusInsideDialog(), 'focus escaped the dialog on Shift+Tab');
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'detached' });
     assert.equal(

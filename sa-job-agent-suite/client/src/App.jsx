@@ -2324,16 +2324,14 @@ export default function App() {
                               borderRadius: 20,
                               fontSize: 12,
                               fontWeight: 500,
-                              background: ok
-                                ? 'rgba(34,197,94,0.12)'
-                                : 'rgba(255,255,255,0.05)',
-                              border: `1px solid ${ok ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                              background: ok ? 'transparent' : 'var(--bg-surface-2)',
+                              border: `1px solid ${ok ? 'var(--color-success)' : 'var(--border)'}`,
                               color: ok ? 'var(--color-success)' : 'var(--text-muted)',
                             }}
                           >
                             {ok
                               ? <CheckCircle2 size={12} color="var(--color-success)" />
-                              : <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'inline-block' }} />
+                              : <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--text-muted)', display: 'inline-block' }} />
                             }
                             {label}
                           </span>
@@ -2787,7 +2785,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
   return (
     <div style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-surface-2)' }}>
       {exceeded && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, marginBottom: 12, background: 'var(--bg-surface-2)', border: '1px solid var(--color-error)' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, marginBottom: 12, background: 'transparent', border: '1px solid var(--color-error)' }}>
           <AlertTriangle size={15} color="var(--color-error)" style={{ flexShrink: 0, marginTop: 1 }} />
           <span style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>
             <strong>Daily budget reached.</strong> All AI calls are paused until tomorrow. Raise or clear the cap below to resume today.
@@ -2824,7 +2822,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
       {/* Budget progress */}
       {serverCap > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ height: 8, borderRadius: 6, background: 'var(--bg-surface-2)', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 6, background: 'var(--border-strong)', overflow: 'hidden' }}>
             <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: pct >= 100 ? 'var(--color-error)' : pct >= 75 ? 'var(--color-warning)' : 'var(--color-success)', transition: 'width .4s' }} />
           </div>
           <div className="tiny" style={{ marginTop: 4 }}>{fmtUsd(spent)} of {fmtUsd(serverCap)} daily cap ({Math.round(pct)}%)</div>

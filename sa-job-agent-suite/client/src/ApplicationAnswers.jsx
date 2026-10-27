@@ -94,7 +94,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
     } catch { /* ignore */ }
   };
 
-  const labelStyle = { display: 'block', fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 };
+  const labelStyle = { display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 };
   const cardStyle = { background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 };
 
   return (
@@ -116,7 +116,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
         {FIELDS.map((f) => (
           <div key={f.key}>
             <label style={labelStyle}>
-              {f.label}{f.sensitive ? <span style={{ color: 'var(--color-muted)' }}> · optional</span> : null}
+              {f.label}{f.sensitive ? <span style={{ color: 'var(--text-muted)' }}> · optional</span> : null}
             </label>
             {f.type === 'select' ? (
               <select
@@ -203,7 +203,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
               <div key={b.id} className="flex-between" style={{ gap: 8, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{b.question}</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{b.answer}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{b.answer}</div>
                 </div>
                 <button
                   type="button"

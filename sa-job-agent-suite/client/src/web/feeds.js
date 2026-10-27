@@ -34,6 +34,9 @@ export function createFeedClient(options = {}) {
   const now = config.now || (() => Date.now());
   const sleep = config.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const cache = new Map();
+  // Bumped by clear() so a load that was already in flight cannot repopulate
+  // the cache after a wipe.
+  let cacheGeneration = 0;
 
   async function request(source) {
     let lastError = null;
@@ -55,7 +58,12 @@ export function createFeedClient(options = {}) {
         let raw;
         try {
           raw = await response.json();
-        } catch {
+        } catch (error) {
+          // The timeout can fire between response headers and the body read, so
+          // an abort there is a timeout rather than an unreadable response.
+          if (error?.name === 'AbortError' || controller.signal.aborted) {
+            throw failure(`${source.label} did not respond in time.`, { retryable: true });
+          }
           throw failure(`${source.label} sent a response this app could not read.`, { retryable: false });
         }
         try {
@@ -99,9 +107,11 @@ export function createFeedClient(options = {}) {
     if (!force && entry && now() - entry.at < config.cacheTtlMs) {
       return { source: id, label: source.label, jobs: entry.jobs, fetchedAt: new Date(entry.at).toISOString(), cached: true };
     }
+    const startedGeneration = cacheGeneration;
     const jobs = await request(source);
     const at = now();
-    cache.set(id, { at, jobs });
+    // A clear() during the request means this result must not re-enter the cache.
+    if (startedGeneration === cacheGeneration) cache.set(id, { at, jobs });
     return { source: id, label: source.label, jobs, fetchedAt: new Date(at).toISOString(), cached: false };
   }
 
@@ -120,6 +130,7 @@ export function createFeedClient(options = {}) {
   }
 
   function clear() {
+    cacheGeneration += 1;
     cache.clear();
   }
 

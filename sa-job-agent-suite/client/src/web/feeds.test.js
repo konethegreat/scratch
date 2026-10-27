@@ -76,6 +76,26 @@ test('a timeout is FEED_FAILED', async () => {
   await assert.rejects(() => client.load('remotive'), (err) => err.code === 'FEED_FAILED' && err.retryable === true);
 });
 
+test('a timeout while reading the body is retryable', async () => {
+  let calls = 0;
+  const { client } = makeClient((_url, init) => {
+    calls += 1;
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      })
+    });
+  });
+  await assert.rejects(() => client.load('remotive'), (err) => (
+    err.code === 'FEED_FAILED'
+    && err.retryable === true
+    && /did not respond in time/.test(err.message)
+  ));
+  assert.equal(calls, 2);
+});
+
 test('a malformed payload is not retried', async () => {
   let calls = 0;
   const { client } = makeClient(async () => { calls += 1; return response(200, { nope: true }); });
@@ -114,6 +134,23 @@ test('clear empties the cache', async () => {
   const { client } = makeClient(async () => { calls += 1; return response(200, okBody()); });
   await client.load('remotive');
   client.clear();
+  await client.load('remotive');
+  assert.equal(calls, 2);
+});
+
+test('clear during an in-flight load does not repopulate the cache', async () => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const { client } = makeClient(async () => {
+    calls += 1;
+    await gate;
+    return response(200, okBody());
+  });
+  const pending = client.load('remotive');
+  client.clear();
+  release();
+  await pending;
   await client.load('remotive');
   assert.equal(calls, 2);
 });

@@ -169,6 +169,17 @@ async function main() {
     );
   }
 
+  for (const file of [path.join(client, 'index.html'), path.join(client, 'public/theme-boot.js')]) {
+    const relative = path.relative(root, file);
+    const text = await fs.readFile(file, 'utf8');
+    assert.equal(text.includes('\u2014'), false, `${relative} contains an em dash`);
+    assert.equal(
+      /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{25A0}-\u{27BF}\u{2B00}-\u{2BFF}\u{3030}\u{303D}\u{FE0F}]/u.test(text),
+      false,
+      `${relative} contains an emoji`
+    );
+  }
+
   const html = await fs.readFile(path.join(client, 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)].map((match) => match[1]);
   assert.equal(scripts.length, 2, `index.html must load exactly two scripts, found ${scripts.length}`);

@@ -263,7 +263,7 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
                 </div>
                 <div className="tiny" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
                   <span title={row.lastSuccessAt || undefined}>last worked {relativeTime(row.lastSuccessAt)}</span>
-                  <span>returns ~{row.typicalRaw == null ? 0 : row.typicalRaw}, last run {row.lastRaw == null ? 'Not set' : row.lastRaw}</span>
+                  <span>returns ~{row.typicalRaw == null ? 0 : row.typicalRaw}, last run: {row.lastRaw == null ? 'not set' : row.lastRaw}</span>
                   <span>
                     {pages} page{pages === 1 ? '' : 's'}
                     {row.stopReason ? ` · stopped: ${row.stopReason}` : ''}

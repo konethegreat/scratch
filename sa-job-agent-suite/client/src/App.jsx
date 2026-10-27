@@ -1409,7 +1409,7 @@ export default function App() {
                   </button>
                 )}
                 {!IS_WEB && jobs.length > 0 && (
-                  <button className="btn-secondary" onClick={revalidateLinks} disabled={revalidating} title="Re-check saved job links. Flags ones that have since expired, never deletes">
+                  <button className="btn-secondary" onClick={revalidateLinks} disabled={revalidating} title="Re-check saved job links. Flags ones that have since expired, never deletes.">
                     {revalidating ? <Loader2 size={14} className="spin" /> : <ShieldCheck size={14} />} Re-check links
                   </button>
                 )}
@@ -1430,7 +1430,7 @@ export default function App() {
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Next run:</span>
               <span>engine</span>
               <span className={`badge ${aiSearchOn ? 'badge-success' : 'badge-info'}`}>{aiSearchOn ? 'AI Search (Claude)' : 'Scrapers only'}</span>
-              {aiSearchOn && <span className="badge badge-accent" title="Search thoroughness. Change it in Settings, then Job Search">depth: {profile.searchDepth || 'standard'}</span>}
+              {aiSearchOn && <span className="badge badge-accent" title="Search thoroughness. Change it in Settings, then Job Search.">depth: {profile.searchDepth || 'standard'}</span>}
               {aiSearchOn && !profile.hasAnthropicKey && (
                 <span className="badge badge-error" title="AI search needs an Anthropic key">
                   <AlertTriangle size={11} aria-hidden="true" /> No Anthropic key

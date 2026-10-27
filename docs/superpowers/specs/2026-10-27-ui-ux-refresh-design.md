@@ -1,6 +1,6 @@
 # UI/UX refresh design
 
-**Status:** proposed for review
+**Status:** implemented 2026-10-27
 **Owner:** Kone
 **Created:** 2026-10-27
 **Implements:** Arc 3 of [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md)

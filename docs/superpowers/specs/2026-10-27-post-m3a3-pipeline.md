@@ -17,7 +17,7 @@ A request from 2026-10-27 asked for three things beyond M3a-3: verify the app ag
 |---|---|---|---|
 | 1 | API compliance | Shipped 2026-10-27 (PR #8, `fd4863f`) | All offline tests pass and each changed API assumption cites the docs |
 | 2 | Live-scale hardening and isolation | Shipped 2026-10-27 (PR #9) | Isolation, key-canary, spend-cap and feed-failure tests pass |
-| 3 | UI/UX refresh | Next | Light mode, copy sweep and the new home page pass the acceptance list below |
+| 3 | UI/UX refresh | Shipped 2026-10-27 (PR #<PR_NUMBER>) | Light mode, copy sweep and the new home page pass the acceptance list below |
 
 Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing.
 
@@ -107,10 +107,12 @@ Acceptance criteria:
 - First visit follows the OS theme, the toggle persists, and there is no flash of the wrong theme.
 - Light and dark both meet WCAG AA contrast for body text and controls.
 - A repo check finds zero em dashes in user-facing strings.
-- The home page names only the approved projects and links to the portfolio, client site, CV, and GitHub.
+- The home page names only the approved projects and links to the portfolio, client site, and GitHub. The CV link is deferred by the content ruling in the design spec.
 - The home page makes no request to our origin and contains no key or profile data.
 - Layout works at 360, 768, and 1280 pixels wide, with reduced motion enabled and disabled.
 - The UI is tested in a browser, not only by unit tests.
+
+**Shipped 2026-10-27 in PR #<PR_NUMBER>.** Evidence: `npm run test:web` runs `scripts/check-ui.mjs` (tokens, AA contrast, zero em dashes, zero emoji, script order) and `scripts/web-ui.mjs` (pre-paint boot, first visit, toggle, system follow, keyboard, landing content, skip link, dialog, toast, 360/768/1280, reduced motion, console and network surface).
 
 Out of scope: new product features, new data sources, and any change to the key lifecycle.
 

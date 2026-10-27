@@ -18,7 +18,6 @@ export default function Dialog({ open, labelledBy, onClose, initialFocus, classN
     target?.focus();
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
-        event.stopPropagation();
         closeRef.current();
         return;
       }

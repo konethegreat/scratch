@@ -209,11 +209,26 @@ async function main() {
     const labelledBy = await dialog.getAttribute('aria-labelledby');
     assert.ok(labelledBy, 'the dialog has no aria-labelledby');
     assert.ok((await page.locator(`#${labelledBy}`).innerText()).length > 0, 'the dialog label is empty');
+    await page.waitForFunction(
+      () => document.activeElement?.id === 'add-job-title-input',
+      null,
+      { timeout: 2000 }
+    ).catch(() => {});
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'add-job-title-input');
+    const focusInsideDialog = () => page.evaluate(() => {
+      const element = document.querySelector('[role="dialog"]');
+      return Boolean(element && element.contains(document.activeElement));
+    });
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      assert.ok(await focusInsideDialog(), `focus escaped the dialog on Tab ${index + 1}`);
+    }
+    await page.keyboard.press('Shift+Tab');
+    assert.ok(await focusInsideDialog(), 'focus escaped the dialog on Shift+Tab');
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'detached' });
     assert.equal(
-      await page.evaluate(() => document.activeElement?.textContent?.includes('Add manually')),
+      await addTrigger.evaluate((element) => element === document.activeElement),
       true,
       'focus did not return to the trigger'
     );

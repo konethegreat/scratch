@@ -184,6 +184,11 @@ async function main() {
     await quotaToast.waitFor({ timeout: 5000 });
     const quotaText = await quotaToast.innerText();
     assert.match(quotaText, /clear site data/i, 'the storage error does not explain how to recover');
+    assert.equal(
+      await pageA.locator('.toast.toast-error').last().getAttribute('role'),
+      'alert',
+      'the error toast is not announced as an alert'
+    );
     await delay(500);
     const unchanged = await readJobs(pageA).then((rows) => rows.find((row) => row.title === title));
     assert.equal(unchanged?.status, 'applied', 'the failed write changed the stored status');

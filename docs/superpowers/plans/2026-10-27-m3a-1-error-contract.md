@@ -35,6 +35,7 @@
 - **R8 — demo and guard refusals.** The synthetic demo's 403 and `localGuard`'s 403 both become `FORBIDDEN` with the contract fields.
 - **R9 — client sweep scope.** M3a-1 converts every existing error-toasting `catch`/`!res.ok` branch in `App.jsx`, the three initial-load fetchers, and adds the boundary/card/panel. Plain validation notices (e.g. "Nothing to copy yet.") stay simple toasts.
 - **R10 — `/api/health` is not an error endpoint.** It stays `{ status: 'ok', timestamp }`.
+- **R11 — object `details` serialise (post-review amendment).** The first reference implementation stringified `ClaudeRefusalError.details` (an object from the SDK) to `"[object Object]"`, defeating R4. `text()` now JSON-serialises non-string values before scrubbing, and `toUserError` tolerates a `null` context. Two tests were added (object details, null context), so Task 1's suite is 16 tests, not 14.
 
 ---
 
@@ -421,7 +422,16 @@ function newRequestId() {
 }
 
 function text(value, fallback = '') {
-  return scrubSecrets(String(value ?? fallback)).trim();
+  const source = typeof value === 'string' || value == null ? value : stringify(value);
+  return scrubSecrets(String(source ?? fallback)).trim();
+}
+
+function stringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function finalize(code, message, opts, context) {
@@ -458,6 +468,7 @@ function offline(context) {
  * normalised with defaults, not wrapped again.
  */
 export function toUserError(err, context = {}) {
+  context = context ?? {};
   if (err instanceof AppError) return finalize(err.code, err.message, err, context);
 
   if (err && typeof err === 'object' && typeof err.code === 'string' && Object.hasOwn(ERROR_CODES, err.code)) {
@@ -520,7 +531,7 @@ In `sa-job-agent-suite/packages/core/package.json`, change `exports` to:
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `cd sa-job-agent-suite/packages/core && node --test src/errors.test.js`
-Expected: PASS — 15 tests, 0 failures.
+Expected: PASS — 16 tests, 0 failures (two added by R11).
 
 Then run the whole core suite: `npm test --workspace=@sajas/core`
 Expected: PASS, including the pre-existing `ai`, `secrets`, `costs`, `json`, `models`, `tools` suites.

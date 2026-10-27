@@ -652,3 +652,46 @@ input[type=number] { -moz-appearance: textfield; }
 @media (max-width: 880px) {
   .hero-cta-row, .stat-row, .social-row { justify-content: center; }
 }
+
+.error-card {
+  border: 1px solid rgba(251, 113, 133, 0.35);
+  background: rgba(251, 113, 133, 0.07);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.error-card-head { display: flex; gap: 10px; align-items: flex-start; }
+.error-card-title { font-weight: 700; font-size: 14px; }
+.error-card-code {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-top: 2px;
+}
+.error-card-message { font-size: 13px; margin: 10px 0; line-height: 1.55; }
+.error-card-details summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.error-card-details pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  background: var(--bg-surface-2);
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+.error-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.error-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-surface-2);
+}

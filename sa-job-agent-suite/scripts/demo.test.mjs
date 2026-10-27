@@ -68,8 +68,20 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
         ['POST', `/api/jobs/${DEMO_JOB_ID}/referral`], ['POST', '/api/jobs/other-job/apply']]) {
         // The client header is sent so the refusal is the demo allowlist's, not the local guard's.
         const response = await fetch(runtime.origin + route, { method, headers: { 'X-SAJAS-Client': '1' } });
-        assert.equal(response.status, 403, route);
+        assert.equal(response.status, 403, `${method} ${route}`);
+        const body = await response.json();
+        assert.equal(body.code, 'FORBIDDEN', `${method} ${route} code`);
+        assert.equal(body.retryable, false, `${method} ${route} retryable`);
+        assert.match(body.requestId, /^local-/, `${method} ${route} requestId`);
+        assert.equal(response.headers.get('x-request-id'), body.requestId, `${method} ${route} header`);
       }
+    });
+    await t.test('every response carries an X-Request-Id and errors carry the contract fields', async () => {
+      const ok = await fetch(runtime.origin + '/api/health');
+      assert.equal(ok.status, 200);
+      assert.match(ok.headers.get('x-request-id'), /^local-/);
+      const profile = await json('/api/profile');
+      assert.ok(!('code' in profile), 'success bodies are not error-shaped');
     });
     await t.test('both AI entry points refuse before provider SDK calls', async () => {
       await assert.rejects(callLlm({}, 'synthetic prompt'), /AI calls are disabled/);
@@ -249,7 +261,9 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       const body = JSON.stringify({ fullName: 'Guard Probe' });
       const blocked = await fetch(origin + '/api/profile', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
       assert.equal(blocked.status, 403);
-      assert.deepEqual(await blocked.json(), { error: 'Missing X-SAJAS-Client header' });
+      const blockedBody = await blocked.json();
+      assert.equal(blockedBody.error, 'Missing X-SAJAS-Client header');
+      assert.equal(blockedBody.code, 'FORBIDDEN');
       assert.equal((await (await call('/api/profile')).json()).fullName, before);
       const allowed = await call('/api/profile', { method: 'POST', body });
       assert.equal(allowed.status, 200);
@@ -259,12 +273,16 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
     await t.test('local guard: a foreign Host (DNS rebinding) or Origin is 403 even for GET', async () => {
       const rebinding = await rawRequest('/api/profile', { headers: { Host: 'evil.example' } });
       assert.equal(rebinding.status, 403);
-      assert.deepEqual(JSON.parse(rebinding.body), { error: 'Host not allowed' });
+      const rebindingBody = JSON.parse(rebinding.body);
+      assert.equal(rebindingBody.error, 'Host not allowed');
+      assert.equal(rebindingBody.code, 'FORBIDDEN');
       const rebindingPort = await rawRequest('/api/health', { headers: { Host: '127.0.0.1.evil.example:' + port } });
       assert.equal(rebindingPort.status, 403);
       const foreign = await call('/api/profile', { headers: { Origin: 'https://evil.example' } });
       assert.equal(foreign.status, 403);
-      assert.deepEqual(await foreign.json(), { error: 'Origin not allowed' });
+      const foreignBody = await foreign.json();
+      assert.equal(foreignBody.error, 'Origin not allowed');
+      assert.equal(foreignBody.code, 'FORBIDDEN');
       const viteOrigin = await call('/api/profile', { headers: { Origin: 'http://localhost:4173' } });
       assert.equal(viteOrigin.status, 200);
     });
@@ -275,7 +293,9 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
       assert.equal(head.status, 404);
       const noHeader = await fetch(origin + '/api/browser/login-status', { method: 'POST' });
       assert.equal(noHeader.status, 403);
-      assert.deepEqual(await noHeader.json(), { error: 'Missing X-SAJAS-Client header' });
+      const noHeaderBody = await noHeader.json();
+      assert.equal(noHeaderBody.error, 'Missing X-SAJAS-Client header');
+      assert.equal(noHeaderBody.code, 'FORBIDDEN');
     });
     await t.test('CORS preflight: the custom header is reflected for localhost, a foreign Origin gets no CORS headers', async () => {
       const preflight = await fetch(origin + '/api/profile', { method: 'OPTIONS', headers: {
@@ -385,20 +405,28 @@ test('Anthropic-only profile routes, models endpoint and startup key purge', { t
     await t.test('PATCH /api/hunter/sources/:id answers 404 for an unknown source', async () => {
       const response = await call('/api/hunter/sources/not-a-source', { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
       assert.equal(response.status, 404);
-      assert.deepEqual(await response.json(), { error: 'Unknown source.' });
+      const unknownSourceBody = await response.json();
+      assert.equal(unknownSourceBody.error, 'Unknown source.');
+      assert.equal(unknownSourceBody.code, 'NOT_FOUND');
     });
     await t.test('POST /api/hunter/sources/test needs the client header and validates ids before any browser work', async () => {
       const noHeader = await fetch(origin + '/api/hunter/sources/test', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
       });
       assert.equal(noHeader.status, 403);
-      assert.deepEqual(await noHeader.json(), { error: 'Missing X-SAJAS-Client header' });
+      const guardBody = await noHeader.json();
+      assert.equal(guardBody.error, 'Missing X-SAJAS-Client header');
+      assert.equal(guardBody.code, 'FORBIDDEN');
       const notArray = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: 'pnet' }) });
       assert.equal(notArray.status, 400);
-      assert.deepEqual(await notArray.json(), { error: 'ids must be an array of source ids.' });
+      const notArrayBody = await notArray.json();
+      assert.equal(notArrayBody.error, 'ids must be an array of source ids.');
+      assert.equal(notArrayBody.code, 'VALIDATION');
       const unknown = await call('/api/hunter/sources/test', { method: 'POST', body: JSON.stringify({ ids: ['pnet', 'nope'] }) });
       assert.equal(unknown.status, 404);
-      assert.deepEqual(await unknown.json(), { error: 'Unknown source: nope.' });
+      const unknownBody = await unknown.json();
+      assert.equal(unknownBody.error, 'Unknown source: nope.');
+      assert.equal(unknownBody.code, 'NOT_FOUND');
       const board = await (await call('/api/hunter/sources')).json();
       assert.equal(board.browserBusy, null, 'validation happens before the lock is taken');
       assert.equal(board.testing, false);

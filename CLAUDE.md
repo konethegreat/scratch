@@ -175,6 +175,46 @@ If Agent 2 fails before saving any CV, status reverts to `found`. If it fails af
 
 ---
 
+## Error contract (M3a-1)
+
+Every failure — the desktop API, the core AI layer, and the client — uses one
+shape:
+
+```js
+{ error, message, code, hint, retryable, requestId, details? }
+```
+
+`error` is the legacy alias and equals `message`. `requestId` is `local-…`:
+the server generates it in `server/src/httpErrors.js` and returns the same value
+in `X-Request-Id`; the client generates one when it maps a local failure.
+
+Codes: `KEY_INVALID`, `KEY_ADMIN`, `AUTH_REJECTED`, `RATE_LIMITED`,
+`OVERLOADED`, `BUDGET_EXCEEDED`, `NETWORK_OFFLINE`, `CORS_BLOCKED`,
+`STORAGE_FULL`, `STORAGE_UNAVAILABLE`, `FEED_FAILED`, `VALIDATION`,
+`NOT_FOUND`, `CONFLICT`, `FORBIDDEN`, `NOT_SUPPORTED_IN_WEB`, `UNKNOWN`.
+
+- `packages/core/src/errors.js` owns `ERROR_CODES`, `AppError`, the catalog of
+  user-facing messages/hints/statuses, `statusForCode` and `toUserError`. It
+  maps SDK statuses (401/403/429/529/5xx), key errors, connection failures
+  (offline vs CORS), storage errors, budget refusals and already-shaped bodies.
+  Import it in the browser via the `@sajas/core/errors` subpath — never the
+  package root, which pulls in the SDK.
+- `server/src/httpErrors.js` owns `requestContext`, `sendError`, the
+  `badRequest`/`notFound`/`conflict`/`forbidden` helpers and the terminal
+  `errorHandler`. Every route failure goes through it; do not hand-write
+  `res.status(...).json({ error })` in a route again.
+- `client/src/errors.js` parses responses (`readResponseError`,
+  `contractFromBody`), keeps the last 20 failures in memory and builds
+  copyable diagnostics. `ErrorCard` shows cause, hint, Retry when the code is
+  retryable and the view supplies a retry handler, Details only when the payload
+  carries `details`, and Copy diagnostics; `ErrorBoundary` catches render
+  crashes; the Activity Logs tab lists recent errors.
+- Messages, hints and details are scrubbed with `scrubSecrets` before they
+  leave the core, the server or the client. Server `details` never contains a
+  stack trace.
+
+---
+
 ## API endpoints (Express on port 5000)
 
 | Method | Path | Notes |

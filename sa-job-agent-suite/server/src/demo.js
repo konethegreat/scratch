@@ -1,4 +1,6 @@
 // These pages are local, fictional fixtures, never employer portals.
+import { forbidden } from './httpErrors.js';
+
 export const DEMO_JOB_ID = 'synthetic-software-engineer';
 export const DEMO_QUESTION = 'Which fictional project would you like to discuss?';
 
@@ -67,6 +69,6 @@ export function installDemo(app) {
     if (req.method === 'GET' && reads.has(fullPath)) return next();
     if (req.method === 'POST' && (fullPath === `/api/jobs/${DEMO_JOB_ID}/apply` ||
         /^\/api\/application\/pending\/[^/]+\/resolve$/.test(fullPath))) return next();
-    res.status(403).json({ error: 'Synthetic demo: live searches, AI calls, profile changes and other actions are disabled. Use the fictional copilot and answer manager.' });
+    forbidden(res, 'Synthetic demo: live searches, AI calls, profile changes and other actions are disabled. Use the fictional copilot and answer manager.');
   });
 }

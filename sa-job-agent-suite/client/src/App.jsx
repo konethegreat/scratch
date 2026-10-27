@@ -32,12 +32,14 @@ import {
   Home,
   Clock,
   Network,
-  ShieldCheck
+  ShieldCheck,
+  Rss
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
+import JobFeeds from './JobFeeds.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ErrorCard from './ErrorCard.jsx';
@@ -1063,6 +1065,7 @@ export default function App() {
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
     hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then the 12-source scraper registry (health-aware and paginated) — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
+    feeds:     { title: 'Job Feeds',           subtitle: 'Public job feeds fetched by your browser. Filter them, then add the ones worth tracking. No key needed.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message — you review and send.' },
@@ -1147,6 +1150,9 @@ export default function App() {
           <SidebarLink active={activeTab === 'landing'}   onClick={() => setActiveTab('landing')}   icon={<Home size={16} />}>Home / About</SidebarLink>
           <SidebarLink active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Briefcase size={16} />}>Dashboard</SidebarLink>
           <SidebarLink active={activeTab === 'hunter'}    onClick={() => setActiveTab('hunter')}    icon={<Search size={16} />}>Job Hunter</SidebarLink>
+          {IS_WEB && (
+            <SidebarLink active={activeTab === 'feeds'} onClick={() => setActiveTab('feeds')} icon={<Rss size={16} />}>Job Feeds</SidebarLink>
+          )}
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
           {isTabVisible('copilot', IS_WEB) && (
             <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
@@ -1269,7 +1275,7 @@ export default function App() {
                   <EmptyState
                     icon={<Search size={28} />}
                     title="No jobs yet"
-                    body="Configure your keywords in Profile &amp; Settings, then click Run Hunter."
+                    body={IS_WEB ? 'Open Job Feeds to pull public jobs, or add one manually.' : 'Configure your keywords in Profile & Settings, then click Run Hunter.'}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1483,6 +1489,16 @@ export default function App() {
               </table>
             </div>
           </div>
+        )}
+
+        {IS_WEB && activeTab === 'feeds' && (
+          <JobFeeds
+            profile={profile}
+            jobs={jobs}
+            toasts={toasts}
+            onJobsChanged={fetchJobs}
+            onProfileSaved={fetchProfile}
+          />
         )}
 
         {/* ============================== TAILOR ============================== */}

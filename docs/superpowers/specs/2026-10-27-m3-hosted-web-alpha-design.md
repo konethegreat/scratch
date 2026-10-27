@@ -1,6 +1,8 @@
 # M3 — Hosted Web Alpha (zero-knowledge BYOK) — Design
 
-Status: approved for implementation; M3a-1 (error contract) and M3a-2 (web shell, IndexedDB vault, key lifecycle) are complete. Supersedes nothing; implements milestone **M3** of
+Status: design approved; implemented incrementally. M3a-1 (error contract) and
+M3a-2 (web shell, IndexedDB vault, key lifecycle) are implemented and pending
+merge. Supersedes nothing; implements milestone **M3** of
 `docs/superpowers/specs/2026-10-24-sa-jas-v2-master-plan.md`.
 
 ## 1. Context

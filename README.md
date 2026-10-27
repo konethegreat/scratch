@@ -111,7 +111,11 @@ npm run build:web && npm run test:web  # build, then run the local canary check
 The alpha is a browser workbench, not the full suite: your profile, the job
 tracker, candidate memory and settings work and persist in this browser.
 Hunting, tailoring and the apply copilot are not available in the web alpha;
-use the desktop app for those. The tabs for server-side features are hidden.
+use the desktop app for those. The Copilot, Referrals, Routines and Logs tabs
+are hidden, but Job Hunter and Document Tailor still appear, and their
+server-backed actions (Launch crawler, Tailor all found, Re-check links,
+Optimise CV & letter, Apply) stay clickable — each one answers with a typed
+"not supported in web" error.
 
 **Self-hosting.** `npx serve client/dist` does not apply `_headers`, so the CSP
 and the other security headers are missing. Use a static host that serves that
@@ -134,11 +138,14 @@ that carries it is the HTTPS `x-api-key` header to `api.anthropic.com` (the key
 check in this increment; AI calls are a later milestone). Revoke it any time in
 the [Anthropic Console](https://console.anthropic.com/settings/keys).
 
-**Panic wipe** in Profile & Settings deletes the key, the encrypted blob, every
-job, your profile and the dossier from this browser. It cannot be undone.
+**Panic wipe** in Profile & Settings clears all seven stores in this browser's
+`sajas-web` database — the key, the encrypted blob, every job, your profile,
+the dossier, answers, usage and meta. It cannot be undone.
 
-**Deployment.** The alpha is hosted on Cloudflare Pages as project `sajas`:
-build command `npm run build:web`, output directory `client/dist`.
+**Deployment.** The alpha deploys to Cloudflare Pages as project `sajas`: the
+build command is `npm run build:web`, run in `sa-job-agent-suite/` (that is
+where the script lives; the repository root has no `package.json`), and the
+output directory is `client/dist`.
 
 **Browsers.** Current Chromium, Firefox and Safari with WebCrypto and
 IndexedDB. Private/incognito windows may block or discard storage, so the key
@@ -281,7 +288,7 @@ Served from `http://localhost:5000`.
 PORT=5000
 ```
 
-API keys are **never** put in `.env`. Enter them in Profile & Settings → saved to `keys.json` (separate from `db.json`, gitignored, and never bundled in the packaged app). In packaged Electron, `db.json`, `keys.json`, and `browser-profile/` live under the OS user-data directory.
+API keys are **never** put in `.env`. Enter them in Profile & Settings → saved to `keys.json` (desktop only; separate from `db.json`, gitignored, and never bundled in the packaged app). In packaged Electron, `db.json`, `keys.json`, and `browser-profile/` live under the OS user-data directory.
 
 Key Agent 3 flags (Profile & Settings):
 - **Smart page understanding (planner)** — default ON. One cheap text call per ambiguous page; capped per session.
@@ -295,7 +302,7 @@ SA-JAS talks to one provider: Anthropic. You bring your own key, so you control 
 
 1. In the [Anthropic Console](https://console.anthropic.com), create a **Workspace** just for SA-JAS and set a **spend limit** on it.
 2. Create an **API key in that Workspace** (a standard key starting `sk-ant-api`; Admin keys are refused).
-3. Paste it into Profile & Settings → AI & Cost. It is stored only in `keys.json` on your machine; delete it any time with the key's remove button.
+3. Paste it into Profile & Settings → AI & Cost. It is stored only in `keys.json` on your machine (desktop only); delete it any time with the key's remove button.
 
 | Model | Used for (default) | Price per million tokens (in / out) |
 |-------|--------------------|--------------------------------------|

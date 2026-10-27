@@ -686,6 +686,10 @@ async function readJobs(page) {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+    if (!db.objectStoreNames.contains('jobs')) {
+      db.close();
+      return [];
+    }
     const rows = await new Promise((resolve, reject) => {
       const tx = db.transaction('jobs', 'readonly');
       const request = tx.objectStore('jobs').getAll();

@@ -21,7 +21,7 @@ A second request on the same day chose the next four capabilities, in order: web
 | 2 | Live-scale hardening and isolation | Shipped 2026-10-27 (PR #9) | Isolation, key-canary, spend-cap and feed-failure tests pass |
 | 3 | UI/UX refresh | Shipped 2026-10-27 (PR #11) | Light mode, copy sweep and the new home page pass the acceptance list below |
 | 4 | Web tailoring and support | Shipped 2026-10-27 (PR #12, `aff14da`) | A visitor tailors CV and letter in the browser, spend is tracked and capped, and support is reachable |
-| 5 | Agentic RAG over candidate documents | In progress ([design](2026-10-27-agentic-rag-design.md)) | Answers cite retrieved passages, refuse when unsupported, and pass the grounding eval |
+| 5 | Agentic RAG over candidate documents | Shipped 2026-10-28 (PR #13, `c9aa0a3`) | Answers cite retrieved passages, refuse when unsupported, and pass the grounding eval |
 | 6 | Real-browser auto-apply | Planned | A feasibility gate picks the delivery form, then the chosen form passes an end-to-end apply rehearsal |
 | 7 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
 

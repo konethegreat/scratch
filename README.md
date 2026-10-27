@@ -124,8 +124,9 @@ directly into the page, then hands the ones you like to the tracker.
 
 - The three feeds are public and keyless.
 - Jobs are filtered in the browser; no profile data is sent.
-- Up to 300 rows per feed, refreshed at most every 15 minutes unless you press
-  Refresh.
+- The app fetches up to 300 rows per feed and shows the top 100 in the tab.
+  Results refresh at most every 15 minutes unless you press Refresh, and a full
+  page reload fetches them again.
 - Statuses and notes are local; export a backup before clearing site data.
 - The backup file never contains the API key.
 

@@ -73,6 +73,22 @@ async function waitForStoredJob(page, title, check, label) {
   assert.fail(`${label}: the vault never stored the expected record (last seen: ${JSON.stringify(last)})`);
 }
 
+// The source cards render unconditionally, so read the per-source job count
+// the tab shows: it only appears after that feed answered and its rows survived
+// the normalizer. An errored or empty feed never produces a positive count.
+async function waitForSourceCount(page, id) {
+  const card = page.getByTestId(`feed-source-${id}`);
+  const deadline = Date.now() + 15_000;
+  let last = '';
+  while (Date.now() < deadline) {
+    last = (await card.innerText()).replace(/\s+/g, ' ').trim();
+    const match = last.match(/(\d+) jobs/);
+    if (match) return Number(match[1]);
+    await delay(100);
+  }
+  assert.fail(`the ${id} card never reported a job count (last seen: ${JSON.stringify(last)})`);
+}
+
 async function enterSuite(page) {
   const enter = page.getByRole('button', { name: /Enter the Suite/i });
   await enter.waitFor({ timeout: 20_000 });
@@ -110,6 +126,9 @@ async function main() {
 
     const aborted = [];
     const offOrigin = [];
+    // Cards render whether or not a feed answered, so record which feed payloads
+    // were actually served and assert that below.
+    const fulfilledFeeds = new Set();
     await page.route('**/*', async (route) => {
       const request = route.request();
       const url = request.url();
@@ -122,6 +141,7 @@ async function main() {
       if (parsed && parsed.origin === serverOrigin) return route.continue();
       const body = payloads.get(url);
       if (body) {
+        fulfilledFeeds.add(url);
         // The page is on a different origin from every feed, so the mocked
         // response carries the CORS header a real feed would send.
         return route.fulfill({
@@ -152,6 +172,17 @@ async function main() {
       await page.getByTestId(`feed-source-${id}`).waitFor({ timeout: 15_000 });
     }
     await page.getByTestId('feed-row-0').waitFor({ timeout: 15_000 });
+
+    at('every feed returned rows');
+    for (const id of ['remotive', 'arbeitnow', 'jobicy']) {
+      const count = await waitForSourceCount(page, id);
+      assert.ok(count >= 1, `the ${id} card reports ${count} jobs; that feed contributed nothing`);
+    }
+    assert.deepEqual(
+      [...fulfilledFeeds].sort(),
+      [...FEEDS.keys()].sort(),
+      `the run did not request exactly the three feeds (served: ${[...fulfilledFeeds].join(', ')})`
+    );
 
     const firstRow = page.getByTestId('feed-row-0');
     const title = (await firstRow.locator('td').first().locator('div').first().innerText()).trim();

@@ -49,6 +49,7 @@ import {
   readResponseError,
   recordError
 } from './errors.js';
+import { setSourceError, clearSourceError, firstSourceError } from './loadErrors.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
@@ -238,8 +239,7 @@ function LinkBadge({ status }) {
 /* ---------------------------------------------------------------- */
 export default function App() {
   const toasts = useToasts();
-  const [loadError, setLoadError] = useState(null);
-  const bootedRef = useRef(false);
+  const [loadErrors, setLoadErrors] = useState({});
 
   // One path for every user-visible failure: map it, keep it in the memory log,
   // and toast the cause plus the fix. `input` may be an Error or an HTTP body.
@@ -350,10 +350,10 @@ export default function App() {
         ...data,
         anthropicApiKey: revealKey ? p.anthropicApiKey : ''
       }));
-      setLoadError(null);
+      setLoadErrors((s) => clearSourceError(s, 'profile'));
     } catch (err) {
       const info = recordError(err, { where: 'load profile' });
-      if (!bootedRef.current) setLoadError(info);
+      setLoadErrors((s) => setSourceError(s, 'profile', info));
     }
   }, [revealKey]);
 
@@ -363,10 +363,10 @@ export default function App() {
       if (!res.ok) throw await readResponseError(res, 'Could not load jobs.');
       const data = await res.json();
       setJobs(data);
-      setLoadError(null);
+      setLoadErrors((s) => clearSourceError(s, 'jobs'));
     } catch (err) {
       const info = recordError(err, { where: 'load jobs' });
-      if (!bootedRef.current) setLoadError(info);
+      setLoadErrors((s) => setSourceError(s, 'jobs', info));
     }
   }, []);
 
@@ -376,9 +376,10 @@ export default function App() {
       if (!res.ok) throw await readResponseError(res, 'Could not load the activity log.');
       const data = await res.json();
       setLogs(data);
+      setLoadErrors((s) => clearSourceError(s, 'logs'));
     } catch (err) {
       const info = recordError(err, { where: 'load logs' });
-      if (!bootedRef.current) setLoadError(info);
+      setLoadErrors((s) => setSourceError(s, 'logs', info));
     }
   }, []);
 
@@ -421,8 +422,7 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : []))
       .then((list) => setModels(Array.isArray(list) ? list : []))
       .catch(() => setModels([]));
-    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments()])
-      .finally(() => { bootedRef.current = true; });
+    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments()]);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live polling for active state
@@ -500,7 +500,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/jobs/hunter`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
-        toasts.info('Job hunter is scraping in the background. Check the Logs tab for live updates.', 'Hunter started');
+        toasts.info('Job hunter is scraping in the background. Check Activity Logs for live updates.', 'Hunter started');
         setActiveTab('logs');
       } else {
         fail(contractFromBody(data, res.status, 'Could not start the hunter.'), 'start hunter');
@@ -1088,12 +1088,12 @@ export default function App() {
       {/* Main */}
       <main className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
-        {loadError && (
+        {firstSourceError(loadErrors) && (
           <ErrorCard
             title="Could not load the app"
-            error={loadError}
-            onRetry={() => { setLoadError(null); refreshAll(); }}
-            onDismiss={() => setLoadError(null)}
+            error={firstSourceError(loadErrors)}
+            onRetry={() => refreshAll()}
+            onDismiss={() => setLoadErrors({})}
           />
         )}
 

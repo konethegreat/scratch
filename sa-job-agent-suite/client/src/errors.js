@@ -21,6 +21,7 @@ function emit() {
  */
 function codeForStatus(status) {
   if (status === 400 || status === 422) return ERROR_CODES.VALIDATION;
+  if (status === 401) return ERROR_CODES.AUTH_REJECTED;
   if (status === 403) return ERROR_CODES.FORBIDDEN;
   if (status === 404) return ERROR_CODES.NOT_FOUND;
   if (status === 409) return ERROR_CODES.CONFLICT;
@@ -30,7 +31,7 @@ function codeForStatus(status) {
 
 export function contractFromBody(body, status, fallback) {
   const source = body && typeof body === 'object' ? body : {};
-  if (source.code && ERROR_CODES[source.code]) {
+  if (source.code && Object.hasOwn(ERROR_CODES, source.code)) {
     return toUserError({
       code: source.code,
       message: source.message || source.error,
@@ -60,14 +61,15 @@ export function describeUserError(info) {
 
 /** Map any thrown value and put it at the front of the memory-only log. */
 export function recordError(err, context = {}) {
-  const entry = {
-    ...toUserError(err, context),
-    at: new Date().toISOString(),
-    where: context.where || null
-  };
-  recent = [entry, ...recent].slice(0, MAX_RECENT);
+  const entry = { ...toUserError(err, context), at: new Date().toISOString(), where: context.where || null };
+  const [latest] = recent;
+  if (latest && latest.code === entry.code && latest.where === entry.where && latest.message === entry.message) {
+    recent = [{ ...latest, at: entry.at, count: (latest.count || 1) + 1 }, ...recent.slice(1)];
+  } else {
+    recent = [{ ...entry, count: 1 }, ...recent].slice(0, MAX_RECENT);
+  }
   emit();
-  return entry;
+  return recent[0];
 }
 
 export function getRecentErrors() {

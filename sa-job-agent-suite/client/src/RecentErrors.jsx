@@ -43,7 +43,7 @@ export default function RecentErrors() {
               <div className="flex-between" style={{ gap: 8, flexWrap: 'wrap' }}>
                 <span className="badge badge-error">{entry.code}</span>
                 <span className="tiny muted">
-                  {entry.at}{entry.where ? ` · ${entry.where}` : ''}
+                  {entry.at}{entry.where ? ` · ${entry.where}` : ''}{entry.count > 1 ? ` ×${entry.count}` : ''}
                 </span>
               </div>
               <p style={{ margin: '6px 0 0', fontSize: 12 }}>{entry.message}</p>

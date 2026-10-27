@@ -41,6 +41,18 @@ test('contractFromBody uses the caller fallback for an empty body', () => {
   assert.equal(info.retryable, true);
 });
 
+test('contractFromBody ignores an inherited property name as a code', () => {
+  const info = contractFromBody({ code: 'constructor', error: 'Job not found.' }, 404, 'fallback');
+  assert.equal(info.code, 'NOT_FOUND');
+  assert.equal(info.message, 'Job not found.');
+});
+
+test('contractFromBody maps a legacy 401 body to AUTH_REJECTED', () => {
+  const info = contractFromBody({ error: 'Unauthorized.' }, 401, 'fallback');
+  assert.equal(info.code, 'AUTH_REJECTED');
+  assert.equal(info.retryable, false);
+});
+
 test('describeUserError adds the hint once', () => {
   assert.equal(describeUserError({ message: 'Nope.', hint: 'Fix it.' }), 'Nope. Fix it.');
   assert.equal(describeUserError({ message: 'Nope.', hint: '' }), 'Nope.');
@@ -65,6 +77,28 @@ test('subscribers see new entries and stop after unsubscribing', () => {
   unsubscribe();
   recordError(new Error('two'));
   assert.deepEqual(seen, [1]);
+});
+
+test('recording the same failure twice bumps one entry instead of duplicating it', () => {
+  clearRecentErrors();
+  const body = { code: 'FEED_FAILED', message: 'A job feed did not respond.' };
+  recordError(body, { where: 'jobs' });
+  const second = recordError(body, { where: 'jobs' });
+  const entries = getRecentErrors();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].count, 2);
+  assert.equal(second.count, 2);
+});
+
+test('the same failure from a different source stays a separate entry', () => {
+  clearRecentErrors();
+  const body = { code: 'FEED_FAILED', message: 'A job feed did not respond.' };
+  recordError(body, { where: 'jobs' });
+  recordError(body, { where: 'logs' });
+  const entries = getRecentErrors();
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].where, 'logs');
+  assert.equal(entries[1].where, 'jobs');
 });
 
 test('diagnosticsText contains the contract fields and no raw key', () => {

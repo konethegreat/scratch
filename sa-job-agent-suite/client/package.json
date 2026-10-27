@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/errors.test.js src/clipboard.test.js"
+    "test": "node --test src/errors.test.js src/clipboard.test.js src/loadErrors.test.js"
   },
   "dependencies": {
     "@sajas/core": "*",

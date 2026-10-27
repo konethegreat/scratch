@@ -461,15 +461,29 @@ export default function App() {
   // Web key idle-forget. The saved timeout is loaded once at startup, then a
   // 15 s check drops the in-memory key. Without an encrypted blob the user is
   // sent back through onboarding; with one, the unlock screen appears.
+  // "Idle" is measured from real use, not from when the key was set: pointer and
+  // key events on the document reset the clock. The handler is throttled to one
+  // touch per check interval so typing does not rewrite the timer constantly.
   useEffect(() => {
-    if (!IS_WEB) return undefined;
+    if (!IS_WEB || !webReady) return undefined;
     let alive = true;
+    let lastTouch = 0;
     webRuntime.keyStore.loadIdleMinutes().catch(() => {});
+
+    const markActive = () => {
+      if (!webRuntime.keyStore.hasKey()) return;
+      const at = Date.now();
+      if (at - lastTouch < 15_000) return;
+      lastTouch = at;
+      webRuntime.keyStore.touch();
+    };
+    document.addEventListener('pointerdown', markActive, { passive: true });
+    document.addEventListener('keydown', markActive, { passive: true });
+
     const timer = setInterval(() => {
       if (!webRuntime.keyStore.maybeForgetIdle()) return;
       setWebKeyTick((t) => t + 1);
       setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
-      toasts.info('The API key was forgotten after inactivity. Add it again when you need AI features.', 'Key forgotten');
       webRuntime.keyStore.hasSavedKey()
         .then((saved) => {
           if (!alive) return;
@@ -485,8 +499,10 @@ export default function App() {
     return () => {
       alive = false;
       clearInterval(timer);
+      document.removeEventListener('pointerdown', markActive);
+      document.removeEventListener('keydown', markActive);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [webReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable

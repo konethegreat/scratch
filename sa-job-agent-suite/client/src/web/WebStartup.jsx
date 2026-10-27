@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { KeyRound, Loader2, ShieldCheck, ExternalLink } from 'lucide-react';
+import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import ErrorCard from '../ErrorCard.jsx';
 import { recordError } from '../errors.js';
 import { validateAnthropicKey } from './validateKey.js';
@@ -62,9 +63,11 @@ export default function WebStartup({ runtime, onReady, forceEnter = false }) {
       // the key they just pasted.
       if (remember) {
         if (passphrase.length < MIN_PASSPHRASE) {
-          throw new Error(`Use a passphrase of at least ${MIN_PASSPHRASE} characters.`);
+          throw new AppError(ERROR_CODES.VALIDATION, `Use a passphrase of at least ${MIN_PASSPHRASE} characters.`);
         }
-        if (passphrase !== confirm) throw new Error('The passphrases do not match.');
+        if (passphrase !== confirm) {
+          throw new AppError(ERROR_CODES.VALIDATION, 'The passphrases do not match.');
+        }
       }
       await validateAnthropicKey(key);
       runtime.keyStore.setKey(key);

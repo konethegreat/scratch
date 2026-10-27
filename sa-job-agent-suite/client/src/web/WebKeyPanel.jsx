@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { KeyRound, Loader2, ShieldOff, ShieldCheck, ExternalLink } from 'lucide-react';
+import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import ErrorCard from '../ErrorCard.jsx';
 import { recordError } from '../errors.js';
 import { IDLE_OPTIONS, MIN_PASSPHRASE } from './keyStore.js';
@@ -41,8 +42,12 @@ export default function WebKeyPanel({ runtime, refreshSignal = 0, onChanged }) {
     setError(null);
     setBusy(true);
     try {
-      if (passphrase.length < MIN_PASSPHRASE) throw new Error(`Use a passphrase of at least ${MIN_PASSPHRASE} characters.`);
-      if (passphrase !== confirm) throw new Error('The passphrases do not match.');
+      if (passphrase.length < MIN_PASSPHRASE) {
+        throw new AppError(ERROR_CODES.VALIDATION, `Use a passphrase of at least ${MIN_PASSPHRASE} characters.`);
+      }
+      if (passphrase !== confirm) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'The passphrases do not match.');
+      }
       await runtime.keyStore.remember(passphrase);
       setPassphrase('');
       setConfirm('');

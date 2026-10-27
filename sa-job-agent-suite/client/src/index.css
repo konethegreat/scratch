@@ -760,6 +760,7 @@ input[type=number] { -moz-appearance: textfield; }
 .landing-section {
   padding: clamp(40px, 7vh, 80px) 0;
   border-top: 1px solid var(--border);
+  scroll-margin-top: 84px;
 }
 
 .landing-section-head {
@@ -796,9 +797,9 @@ input[type=number] { -moz-appearance: textfield; }
   color: var(--text-muted);
 }
 .work-card h3 { font-size: 18px; }
-.work-kicker { font-size: 12px; color: var(--text-muted); }
-.work-card p { font-size: 13px; color: var(--text-secondary); }
-.work-stack { font-size: 11.5px; color: var(--text-muted); }
+.work-card > p { font-size: 13px; color: var(--text-secondary); }
+.work-card p.work-kicker { font-size: 12px; color: var(--text-muted); }
+.work-card p.work-stack { font-size: 11.5px; color: var(--text-muted); }
 .work-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 6px; }
 
 .work-link {
@@ -837,7 +838,15 @@ input[type=number] { -moz-appearance: textfield; }
 }
 
 @media (max-width: 800px) {
-  .landing-nav { display: none; }
+  .landing-header { flex-wrap: wrap; }
+  .landing-nav {
+    order: 3;
+    width: 100%;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .landing-nav a { white-space: nowrap; }
   .principles { grid-template-columns: 1fr; }
 }
 

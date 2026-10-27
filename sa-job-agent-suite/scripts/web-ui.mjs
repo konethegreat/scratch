@@ -4,7 +4,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { chromium } from 'playwright';
 import { startStaticServer } from './lib/staticServer.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -16,8 +15,6 @@ const TOP_LINKS = [
   'https://k-one-it-solutions-website.erictshivhinda.workers.dev',
   'https://github.com/konethegreat'
 ];
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function assertBuiltDist() {
   try {
@@ -103,6 +100,7 @@ async function main() {
         `the ${name} card heading is missing or duplicated`
       );
     }
+    assert.equal(await page.locator('.work-card').count(), 6, 'the landing page must show exactly six project cards');
     assert.equal(await page.getByText('Server Health Monitor', { exact: false }).count(), 0, 'excluded project on the landing page');
     assert.equal(await page.getByText('Mostoeneng', { exact: false }).count(), 0, 'excluded client work on the landing page');
     for (const href of TOP_LINKS) {
@@ -172,7 +170,9 @@ async function main() {
     // 8. Responsive layout on the dashboard and the landing page.
     for (const width of [360, 768, 1280]) {
       await page.setViewportSize({ width, height: 900 });
-      await delay(150);
+      await page.evaluate(() => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      }));
       const overflow = await page.evaluate(() =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth
       );
@@ -182,11 +182,18 @@ async function main() {
     await page.getByRole('button', { name: /Enter the Suite/i }).waitFor();
     for (const width of [360, 768, 1280]) {
       await page.setViewportSize({ width, height: 900 });
-      await delay(150);
+      await page.evaluate(() => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      }));
       const overflow = await page.evaluate(() =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth
       );
       assert.ok(overflow <= 1, `the landing page overflows horizontally at ${width}px by ${overflow}px`);
+      assert.ok(await page.locator('.landing-nav').isVisible(), `the landing nav is hidden at ${width}px`);
+      assert.ok(
+        await page.locator('a[href="https://konethegreat.github.io"]').isVisible(),
+        `the portfolio link is unreachable at ${width}px`
+      );
     }
 
     // 9. Reduced motion.

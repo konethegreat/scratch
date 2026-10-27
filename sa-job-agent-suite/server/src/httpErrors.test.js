@@ -146,6 +146,37 @@ test('errorHandler does not log a 4xx', () => {
   assert.equal(captured.length, 0);
 });
 
+test('errorHandler mirrors a synthesised id when no request id is present', () => {
+  const res = fakeRes();
+  res.req = {};
+  const captured = [];
+  const originalError = console.error;
+  console.error = (line) => { captured.push(line); };
+  try {
+    errorHandler(new Error('boom'), {}, res, () => {});
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.headers['X-Request-Id'], res.body.requestId);
+  assert.match(res.body.requestId, /^local-/);
+});
+
+test('errorHandler flattens newlines out of the 5xx log line', () => {
+  const res = fakeRes();
+  res.req = { id: 'local-flat123456' };
+  const captured = [];
+  const originalError = console.error;
+  console.error = (line) => { captured.push(line); };
+  try {
+    errorHandler(new Error('boom\n    at fake frame'), res.req, res, () => {});
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(captured.length, 1);
+  assert.ok(!captured[0].includes('\n'));
+});
+
 test('errorHandler answers a thrown route error with the contract', async () => {
   const app = express();
   app.use(requestContext);

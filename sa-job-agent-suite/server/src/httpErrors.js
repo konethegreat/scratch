@@ -22,11 +22,15 @@ export function errorBody(err, requestId, { success = true } = {}) {
   return { status, body };
 }
 
+function mirrorRequestId(res, requestId) {
+  if (!res.headersSent && typeof res.setHeader === 'function') {
+    res.setHeader(REQUEST_ID_HEADER, requestId);
+  }
+}
+
 export function sendError(res, err, { status, success = true } = {}) {
   const derived = errorBody(err, res.req?.id ?? null, { success });
-  if (!res.headersSent && typeof res.setHeader === 'function') {
-    res.setHeader(REQUEST_ID_HEADER, derived.body.requestId);
-  }
+  mirrorRequestId(res, derived.body.requestId);
   return res.status(status ?? derived.status).json(derived.body);
 }
 
@@ -44,6 +48,7 @@ export const forbidden = helper(ERROR_CODES.FORBIDDEN);
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
   const { status, body } = errorBody(err, res.req?.id ?? req?.id ?? null);
-  if (status >= 500) console.error(`[${body.requestId}] ${body.message}`);
+  if (status >= 500) console.error(`[${body.requestId}] ${body.message.replace(/\s+/g, ' ')}`);
+  mirrorRequestId(res, body.requestId);
   return res.status(status).json(body);
 }

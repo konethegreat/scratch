@@ -58,7 +58,7 @@ The corpus is small (one CV, a few letters, saved answers, memory, job descripti
 | `job-description` | `job.description` | Job description: `<title>` at `<company>` |
 | `answer` | each saved answer | Saved answer: `<question>` |
 | `insight` | insights grouped by category | Candidate insights: `<category>` |
-| `employer` | one document per employer | Employer notes: `<company>` |
+| `employer` | one document per employer | Employer notes: `<company>` (text starts with `Company: <company>`, then the notes) |
 | `application` | application history | Application history |
 
 Rules:
@@ -77,7 +77,7 @@ Rules:
 - Split on blank lines into blocks. Keep list runs and table runs together.
 - Merge small blocks up to `maxChars`. Split a block that exceeds `maxChars` on sentence or line boundaries.
 - Preserve headings, list markers, and table rows in the chunk text.
-- Drop chunks shorter than `minChars`, unless they are the only chunk in the document.
+- Drop chunks shorter than `minChars`, unless they are the only chunk in the document or they contain list or table rows. Structural content is never dropped for being short.
 - Each chunk is `{ id, docId, docKind, docTitle, section, index, version, text, tag }`.
 - `version = hashText(doc.text)` using a deterministic FNV-1a hash.
 - `id = <docId>::<version>::<index>`.

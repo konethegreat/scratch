@@ -52,6 +52,9 @@ import {
 import { setSourceError, clearSourceError, firstSourceError } from './loadErrors.js';
 import { IS_WEB } from './web/env.js';
 import { isTabVisible, filterSettingsTabs, SERVER_ONLY_SETTINGS } from './web/mode.js';
+import WebStartup from './web/WebStartup.jsx';
+import WebKeyPanel from './web/WebKeyPanel.jsx';
+import { webRuntime } from './web/runtime.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
@@ -258,6 +261,11 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
 
+  // Web builds gate the whole shell behind onboarding/unlock. Desktop starts ready.
+  const [webReady, setWebReady] = useState(!IS_WEB);
+  const [webKeyTick, setWebKeyTick] = useState(0);
+  const [webForceEnter, setWebForceEnter] = useState(false);
+
   const [profile, setProfile] = useState({
     selectedModel: '',
     anthropicApiKey: '',
@@ -450,6 +458,36 @@ export default function App() {
     hunterWasRunningRef.current = hunterRunning;
   }, [hunterRunning]);
 
+  // Web key idle-forget. The saved timeout is loaded once at startup, then a
+  // 15 s check drops the in-memory key. Without an encrypted blob the user is
+  // sent back through onboarding; with one, the unlock screen appears.
+  useEffect(() => {
+    if (!IS_WEB) return undefined;
+    let alive = true;
+    webRuntime.keyStore.loadIdleMinutes().catch(() => {});
+    const timer = setInterval(() => {
+      if (!webRuntime.keyStore.maybeForgetIdle()) return;
+      setWebKeyTick((t) => t + 1);
+      setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
+      toasts.info('The API key was forgotten after inactivity. Add it again when you need AI features.', 'Key forgotten');
+      webRuntime.keyStore.hasSavedKey()
+        .then((saved) => {
+          if (!alive) return;
+          setWebForceEnter(!saved);
+          setWebReady(false);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setWebForceEnter(true);
+          setWebReady(false);
+        });
+    }, 15_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
   // ancestor (including the window), so each 3s log poll yanked the whole
@@ -490,6 +528,7 @@ export default function App() {
         toasts.success('Profile and search parameters updated.');
         setRevealKey(false);
         await fetchProfile();
+        if (IS_WEB) setWebKeyTick((t) => t + 1);
       } else {
         // A rejected key comes back as 400 { error }: show the server's own words.
         fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
@@ -750,6 +789,7 @@ export default function App() {
       toasts.info('Anthropic API key cleared.');
       setRevealKey(false);
       setProfile((p) => ({ ...p, hasAnthropicKey: false, anthropicApiKey: '' }));
+      if (IS_WEB) setWebKeyTick((t) => t + 1);
       fetchProfile();
     } catch (err) {
       fail(err, 'clear key', 'Could not clear key.');
@@ -1016,11 +1056,28 @@ export default function App() {
     profile:   { title: 'Profile & Settings',  subtitle: 'Anthropic key, search criteria, personal info and base CV.' }
   };
 
-  const showRunHunterButton = !SYNTHETIC_DEMO && ['dashboard', 'hunter'].includes(activeTab);
+  const showRunHunterButton = !SYNTHETIC_DEMO && !IS_WEB && ['dashboard', 'hunter'].includes(activeTab);
 
   /* ----------------------------------------------------------------- */
   /* Render                                                            */
   /* ----------------------------------------------------------------- */
+  // First-run gate and saved-key unlock. All hooks above have already run, so
+  // returning here cannot change hook order.
+  if (IS_WEB && !webReady) {
+    return (
+      <WebStartup
+        runtime={webRuntime}
+        forceEnter={webForceEnter}
+        onReady={() => {
+          setWebReady(true);
+          setWebForceEnter(false);
+          setWebKeyTick((t) => t + 1);
+          fetchProfile();
+        }}
+      />
+    );
+  }
+
   // Immersive personal landing page — the entry screen (no sidebar chrome).
   if (activeTab === 'landing') {
     return (
@@ -1249,7 +1306,9 @@ export default function App() {
         {/* ============================== HUNTER ============================== */}
         {activeTab === 'hunter' && (
           <div className="glass-panel fade-in" style={{ padding: 24 }}>
-            <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
+            {!IS_WEB && (
+              <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
+            )}
             <div className="flex-between" style={{ marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ fontSize: 18 }}>Scraping pipeline</h3>
@@ -1686,10 +1745,12 @@ export default function App() {
 
             {settingsTab === 'ai' && (<>
               {/* Performance mode — one click sets every cost toggle */}
-              <section>
-                <SectionHeader title="Performance mode" subtitle="One click configures every cost-relevant setting at once. Token Saver protects your API spend; Maximum turns everything on. Tweak any toggle afterwards and the mode honestly reads as Custom." />
-                <PresetCards active={profile.performanceModeActual || 'custom'} busy={applyingPreset} onApply={applyPreset} />
-              </section>
+              {!IS_WEB && (
+                <section>
+                  <SectionHeader title="Performance mode" subtitle="One click configures every cost-relevant setting at once. Token Saver protects your API spend; Maximum turns everything on. Tweak any toggle afterwards and the mode honestly reads as Custom." />
+                  <PresetCards active={profile.performanceModeActual || 'custom'} busy={applyingPreset} onApply={applyPreset} />
+                </section>
+              )}
 
               {/* Usage & budget */}
               <section>
@@ -1705,7 +1766,12 @@ export default function App() {
 
               {/* Anthropic key + model */}
               <section>
-                <SectionHeader title="Anthropic API key" subtitle="SA-JAS runs on Claude. Your key stays on this computer." />
+                <SectionHeader
+                  title="Anthropic API key"
+                  subtitle={IS_WEB
+                    ? 'Your key stays in this browser and is sent only to Anthropic. It never touches our server.'
+                    : 'SA-JAS runs on Claude. Your key stays on this computer.'}
+                />
                 <div className="grid-2">
                   <div>
                     <label>Model</label>
@@ -1735,11 +1801,23 @@ export default function App() {
                     helper="Use a regular API key from a Workspace with a spend limit."
                   />
                 </div>
+
+                {IS_WEB && (
+                  <WebKeyPanel
+                    runtime={webRuntime}
+                    refreshSignal={webKeyTick}
+                    onChanged={() => {
+                      setWebKeyTick((t) => t + 1);
+                      fetchProfile();
+                    }}
+                  />
+                )}
               </section>
 
               {/* Apply Copilot intelligence (planner / vision / computer-use) */}
-              <section>
-                <SectionHeader title="Apply Copilot intelligence" subtitle="How much AI the copilot uses while walking application forms. Each step up is smarter — and costs more." />
+              {!IS_WEB && (
+                <section>
+                  <SectionHeader title="Apply Copilot intelligence" subtitle="How much AI the copilot uses while walking application forms. Each step up is smarter — and costs more." />
 
                 <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-surface-2)' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: 0 }}>
@@ -1805,7 +1883,8 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              </section>
+                </section>
+              )}
 
               {/* Tailoring & learning engine */}
               <section>

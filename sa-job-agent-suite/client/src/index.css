@@ -52,6 +52,9 @@
 
 html, body, #root { height: 100%; }
 
+/* Full-page surface for the web onboarding/unlock gate */
+.app-bg { background: var(--bg-app); }
+
 body {
   background-color: var(--bg-app);
   color: var(--text-primary);

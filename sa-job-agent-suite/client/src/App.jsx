@@ -1568,7 +1568,11 @@ export default function App() {
                   )}
                   {filteredJobs.length === 0 && (
                     <tr><td colSpan="6" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      {jobs.length === 0 ? 'No records harvested yet. Set parameters and start your crawler!' : 'No jobs match your current filter.'}
+                      {jobs.length === 0
+                        ? (IS_WEB
+                          ? 'No records yet. Add a job manually or pull one from Job Feeds.'
+                          : 'No records harvested yet. Set parameters and start your crawler!')
+                        : 'No jobs match your current filter.'}
                     </td></tr>
                   )}
                 </tbody>

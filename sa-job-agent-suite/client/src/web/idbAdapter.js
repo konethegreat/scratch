@@ -1,12 +1,19 @@
 // IndexedDB adapter for the hosted app. One database, one object store per data
-// area, created on the first open. Raw IndexedDB errors are rejected as-is; the
-// shared toUserError mapper translates them (e.g. QuotaExceededError ->
-// STORAGE_FULL).
+// area, created on the first open. Quota failures are translated here because
+// the desktop recovery hint (delete documents) does not fit the web app, where
+// documents are never stored locally.
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import { VAULT_STORES } from './vault.js';
 
 const DB_NAME = 'sajas-web';
 const DB_VERSION = 1;
+
+export function toStorageError(error) {
+  if (error?.name !== 'QuotaExceededError') return error;
+  return new AppError(ERROR_CODES.STORAGE_FULL, 'Your browser storage is full, so this change was not saved.', {
+    hint: 'Export a backup from Profile & Settings, then delete jobs you no longer need, or clear site data for this page.'
+  });
+}
 
 export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAME, version = DB_VERSION } = {}) {
   let opening = null;
@@ -25,7 +32,7 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
         }
       };
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => reject(toStorageError(request.error));
       request.onblocked = () => reject(new AppError(ERROR_CODES.STORAGE_UNAVAILABLE, 'Close other SA-JAS tabs, then reload.'));
     });
     return opening;
@@ -33,14 +40,23 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
 
   function run(store, mode, action) {
     return open().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction(store, mode);
-      const request = action(tx.objectStore(store));
+      let tx;
+      let request;
+      try {
+        tx = db.transaction(store, mode);
+        request = action(tx.objectStore(store));
+      } catch (error) {
+        // A store can throw before any request exists, for example when the
+        // browser rejects a write at the transaction boundary.
+        reject(toStorageError(error));
+        return;
+      }
       let settled = false;
       let result;
       const fail = (error) => {
         if (settled) return;
         settled = true;
-        reject(error);
+        reject(toStorageError(error));
       };
       // A request success only means the request was processed; the write is
       // not durable until the transaction commits.
@@ -84,8 +100,8 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
           const values = valuesRequest.result;
           resolve(keys.map((key, index) => [key, values[index]]));
         };
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
+        tx.onerror = () => reject(toStorageError(tx.error));
+        tx.onabort = () => reject(toStorageError(tx.error));
       }));
     },
     async clear(store) {

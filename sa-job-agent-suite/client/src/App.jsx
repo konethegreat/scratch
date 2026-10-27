@@ -49,6 +49,7 @@ import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+import Dialog from './Dialog.jsx';
 import ErrorCard from './ErrorCard.jsx';
 import RecentErrors from './RecentErrors.jsx';
 import { copyToClipboard } from './clipboard.js';
@@ -97,18 +98,25 @@ function useToasts() {
 function ToastStack({ toasts, onClose }) {
   return (
     <div className="toast-stack">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast toast-${t.type}`}>
-          <span className="toast-icon">
-            {t.type === 'success' && <CheckCircle2 size={16} color="var(--color-success)" />}
-            {t.type === 'error'   && <AlertTriangle size={16} color="var(--color-error)" />}
-            {t.type === 'info'    && <Info size={16} color="var(--color-info)" />}
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`toast toast-${toast.type}`}
+          role={toast.type === 'error' ? 'alert' : 'status'}
+          aria-atomic="true"
+        >
+          <span className="toast-icon" aria-hidden="true">
+            {toast.type === 'success' && <CheckCircle2 size={16} color="var(--color-success)" />}
+            {toast.type === 'error'   && <AlertTriangle size={16} color="var(--color-error)" />}
+            {toast.type === 'info'    && <Info size={16} color="var(--color-info)" />}
           </span>
           <div className="toast-body">
-            <div className="toast-title">{t.title}</div>
-            <div className="toast-msg">{t.msg}</div>
+            <div className="toast-title">{toast.title}</div>
+            <div className="toast-msg">{toast.msg}</div>
           </div>
-          <button className="toast-close" onClick={() => onClose(t.id)}><X size={14} /></button>
+          <button type="button" className="toast-close" onClick={() => onClose(toast.id)} aria-label="Dismiss notification">
+            <X size={14} aria-hidden="true" />
+          </button>
         </div>
       ))}
     </div>
@@ -119,18 +127,15 @@ function ToastStack({ toasts, onClose }) {
 /* Confirm modal                                                    */
 /* ---------------------------------------------------------------- */
 function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', danger = false, onConfirm, onCancel }) {
-  if (!open) return null;
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-card fade-in" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ fontSize: '18px', marginBottom: '8px' }}>{title}</h3>
-        <p className="muted" style={{ fontSize: '13px', marginBottom: '20px' }}>{message}</p>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-          <button className="btn-ghost" onClick={onCancel}>Cancel</button>
-          <button className={danger ? 'btn-danger' : 'btn-primary'} onClick={onConfirm}>{confirmLabel}</button>
-        </div>
+    <Dialog open={open} labelledBy="confirm-title" onClose={onCancel}>
+      <h3 id="confirm-title" style={{ fontSize: '18px', marginBottom: '8px' }}>{title}</h3>
+      <p className="muted" style={{ fontSize: '13px', marginBottom: '20px' }}>{message}</p>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+        <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
+        <button type="button" className={danger ? 'btn-danger' : 'btn-primary'} onClick={onConfirm}>{confirmLabel}</button>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -139,55 +144,56 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', danger =
 /* ---------------------------------------------------------------- */
 function AddJobModal({ open, onClose, onSubmit }) {
   const [form, setForm] = useState({ title: '', company: '', location: '', applyUrl: '', description: '' });
-  if (!open) return null;
-  const submit = (e) => {
-    e.preventDefault();
+  const titleRef = useRef(null);
+  const submit = (event) => {
+    event.preventDefault();
     if (!form.title || !form.company) return;
     onSubmit(form);
     setForm({ title: '', company: '', location: '', applyUrl: '', description: '' });
   };
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card fade-in" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex-between" style={{ marginBottom: 16 }}>
-          <h3 style={{ fontSize: '18px' }}>Add a job manually</h3>
-          <button className="btn-ghost btn-xs" onClick={onClose}><X size={14} /></button>
-        </div>
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <label>Job title *</label>
-            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-          </div>
-          <div className="grid-2">
-            <div>
-              <label>Company *</label>
-              <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} required />
-            </div>
-            <div>
-              <label>Location</label>
-              <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="e.g. Cape Town" />
-            </div>
-          </div>
-          <div>
-            <label>Apply URL</label>
-            <input value={form.applyUrl} onChange={(e) => setForm({ ...form, applyUrl: e.target.value })} placeholder="https://..." />
-          </div>
-          <div>
-            <label>Description / requirements</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              style={{ minHeight: 140, fontSize: 12 }}
-              placeholder="Paste the job description so the tailor agent has context to work with."
-            />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
-            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary"><Plus size={14} /> Add job</button>
-          </div>
-        </form>
+    <Dialog open={open} labelledBy="add-job-title" onClose={onClose} initialFocus={titleRef} className="modal-card-wide">
+      <div className="flex-between" style={{ marginBottom: 16 }}>
+        <h3 id="add-job-title" style={{ fontSize: '18px' }}>Add a job manually</h3>
+        <button type="button" className="btn-ghost btn-xs" onClick={onClose} aria-label="Close dialog">
+          <X size={14} aria-hidden="true" />
+        </button>
       </div>
-    </div>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <label htmlFor="add-job-title-input">Job title *</label>
+          <input id="add-job-title-input" ref={titleRef} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
+        </div>
+        <div className="grid-2">
+          <div>
+            <label htmlFor="add-job-company-input">Company *</label>
+            <input id="add-job-company-input" value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} required />
+          </div>
+          <div>
+            <label htmlFor="add-job-location-input">Location</label>
+            <input id="add-job-location-input" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="e.g. Cape Town" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="add-job-url-input">Apply URL</label>
+          <input id="add-job-url-input" value={form.applyUrl} onChange={(event) => setForm({ ...form, applyUrl: event.target.value })} placeholder="https://..." />
+        </div>
+        <div>
+          <label htmlFor="add-job-description-input">Description and requirements</label>
+          <textarea
+            id="add-job-description-input"
+            value={form.description}
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
+            style={{ minHeight: 140, fontSize: 12 }}
+            placeholder="Paste the job description so the tailor agent has context to work with."
+          />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn-primary"><Plus size={14} aria-hidden="true" /> Add job</button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

@@ -196,6 +196,39 @@ async function main() {
       );
     }
 
+    // 8b. Dialog semantics, focus restoration and a named close action.
+    await page.getByRole('button', { name: /Enter the Suite/i }).click();
+    await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Job Hunter' }).click();
+    await page.getByRole('heading', { name: 'Scraping pipeline', exact: true }).waitFor();
+    const addTrigger = page.getByRole('button', { name: 'Add manually' });
+    await addTrigger.click();
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor({ timeout: 10_000 });
+    assert.equal(await dialog.getAttribute('aria-modal'), 'true');
+    const labelledBy = await dialog.getAttribute('aria-labelledby');
+    assert.ok(labelledBy, 'the dialog has no aria-labelledby');
+    assert.ok((await page.locator(`#${labelledBy}`).innerText()).length > 0, 'the dialog label is empty');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'add-job-title-input');
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.textContent?.includes('Add manually')),
+      true,
+      'focus did not return to the trigger'
+    );
+
+    // 8c. Toast live role and a named dismiss button.
+    await addTrigger.click();
+    await page.locator('#add-job-title-input').fill('Backend engineer');
+    await page.locator('#add-job-company-input').fill('Example Studio');
+    await page.getByRole('button', { name: 'Add job', exact: true }).click();
+    const toast = page.locator('.toast.toast-success').last();
+    await toast.waitFor({ timeout: 10_000 });
+    assert.equal(await toast.getAttribute('role'), 'status');
+    assert.equal(await toast.getAttribute('aria-atomic'), 'true');
+    assert.equal(await toast.getByRole('button', { name: 'Dismiss notification' }).count(), 1);
+
     // 9. Reduced motion.
     {
       const reduced = await browser.newContext({ colorScheme: 'light', reducedMotion: 'reduce' });

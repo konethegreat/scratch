@@ -111,19 +111,31 @@ async function main() {
     page.on('console', (msg) => consoleLines.push(msg.text()));
     page.on('pageerror', (err) => consoleLines.push(String(err)));
 
-    await page.route('https://api.anthropic.com/**', async (route) => {
-      const cors = {
-        'access-control-allow-origin': '*',
-        'access-control-allow-headers': 'x-api-key,anthropic-version,anthropic-dangerous-direct-browser-access,content-type',
-        'access-control-allow-methods': 'GET,POST,OPTIONS'
-      };
-      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        headers: cors,
-        body: JSON.stringify({ data: [], has_more: false })
-      });
+    // One router for every request: Anthropic is answered locally, the static
+    // bundle is served by the local server, and anything else is blocked so a
+    // regression can never reach the live network during this test.
+    const blocked = [];
+    const serverOrigin = new URL(server.url).origin;
+    await page.route('**/*', async (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      if (url.origin === 'https://api.anthropic.com') {
+        const cors = {
+          'access-control-allow-origin': '*',
+          'access-control-allow-headers': 'x-api-key,anthropic-version,anthropic-dangerous-direct-browser-access,content-type',
+          'access-control-allow-methods': 'GET,POST,OPTIONS'
+        };
+        if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          headers: cors,
+          body: JSON.stringify({ data: [], has_more: false })
+        });
+      }
+      if (url.origin === serverOrigin) return route.continue();
+      blocked.push(req.url());
+      return route.abort('blockedbyclient');
     });
 
     try {
@@ -204,6 +216,7 @@ async function main() {
       assert.deepEqual(localApiHits.map((req) => req.url), [], 'web mode called the desktop API origin');
 
       // No live network at all: only the local server and Anthropic are allowed.
+      assert.deepEqual(blocked, [], 'the web build tried to reach an origin the canary blocked');
       assert.deepEqual(
         requests.filter((req) => offOrigin(req.url)).map((req) => req.url),
         [],
@@ -290,6 +303,7 @@ async function main() {
       );
 
       // The reload after the wipe must not have changed the network surface.
+      assert.deepEqual(blocked, [], 'the web build tried to reach an origin the canary blocked');
       assert.deepEqual(
         requests.filter((req) => offOrigin(req.url)).map((req) => req.url),
         [],

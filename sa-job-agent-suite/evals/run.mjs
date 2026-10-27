@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { callClaude, makeClient, taskConfig, priceFor, estimateCostUSD, extractJson, normalizeKeyInput, scrubSecrets } from '@sajas/core';
 import { fakeClient } from '@sajas/core/testing';
-import { buildTailorPrompts } from '../server/src/agents/tailorPrompts.js';
+import { buildTailorPrompts } from '@sajas/core/tailor';
 import { buildPlanPrompt, normalizePlan, PLAN_SCHEMA } from '../server/src/agents/pageBrain.js';
 import { checkTailoredCv, checkPlan } from './checks.js';
 

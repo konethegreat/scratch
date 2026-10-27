@@ -31,8 +31,14 @@ export const ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
 
 // Retries belong to callClaude: the SDK retries every 429, including a spend
 // cap, which is permanent. maxRetries: 0 keeps the SDK out of the decision.
-export function makeClient({ apiKey, timeout } = {}) {
-  return new Anthropic({ apiKey, baseURL: ANTHROPIC_BASE_URL, maxRetries: 0, ...(timeout ? { timeout } : {}) });
+export function makeClient({ apiKey, timeout, allowBrowser = false } = {}) {
+  return new Anthropic({
+    apiKey,
+    baseURL: ANTHROPIC_BASE_URL,
+    maxRetries: 0,
+    ...(allowBrowser ? { dangerouslyAllowBrowser: true } : {}),
+    ...(timeout ? { timeout } : {})
+  });
 }
 
 function checkedKey(raw) {

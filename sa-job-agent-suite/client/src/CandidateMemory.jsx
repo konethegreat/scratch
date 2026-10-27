@@ -21,8 +21,8 @@ const OUTCOME_LABEL = {
   applied: 'Applied', interview: 'Interview', offer: 'Offer', rejected: 'Rejected', no_response: 'No response'
 };
 const CAT_COLOR = {
-  preference: '#60a5fa', strength: '#34d399', achievement: '#fbbf24',
-  style: '#c084fc', constraint: '#f87171', other: '#94a3b8'
+  preference: 'var(--color-info)', strength: 'var(--color-success)', achievement: 'var(--color-warning)',
+  style: 'var(--color-accent)', constraint: 'var(--color-error)', other: 'var(--text-muted)'
 };
 
 export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
@@ -124,7 +124,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
     } catch { /* ignore */ }
   };
 
-  const cardStyle = { background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 };
+  const cardStyle = { background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 };
   const { insights, employers, applications } = mem;
   const isEmpty = !insights.length && !employers.length && !applications.length;
 
@@ -154,7 +154,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
 
       {isEmpty && (
         <div style={{ ...cardStyle, textAlign: 'center', padding: 32 }}>
-          <Sparkles size={22} color="var(--color-accent, #fbbf24)" />
+          <Sparkles size={22} color="var(--color-accent)" />
           <p style={{ fontSize: 13, marginTop: 8 }}>Your dossier is empty.</p>
           <p className="hint" style={{ marginTop: 2 }}>
             It fills automatically as you apply (when AI reflection is on), or add an insight below to seed it.
@@ -193,7 +193,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
                     fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
                     color: CAT_COLOR[i.category] || CAT_COLOR.other, marginRight: 8
                   }}>{i.category}</span>
-                  <span style={{ color: 'var(--color-text, #e2e8f0)' }}>{i.text}</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{i.text}</span>
                   {i.source === 'reflection' && <span className="hint" style={{ marginLeft: 6 }}>· auto-learned</span>}
                 </div>
                 <button type="button" className="btn-secondary btn-sm" title="Delete insight" onClick={() => deleteInsight(i.id)}>
@@ -215,7 +215,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {employers.slice().reverse().map((e) => (
               <div key={e.id}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
                   {e.company} <span className="hint">· {e.applications || 0} application{(e.applications || 0) === 1 ? '' : 's'}</span>
                 </div>
                 {(e.notes || []).map((n, idx) => (
@@ -238,7 +238,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
             {applications.slice().reverse().map((a) => (
               <div key={a.id} className="flex-between" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
-                  <div style={{ fontSize: 12, color: 'var(--color-text, #e2e8f0)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>
                     {a.title || 'Role'}{a.company ? ` @ ${a.company}` : ''}
                   </div>
                   <div className="hint">

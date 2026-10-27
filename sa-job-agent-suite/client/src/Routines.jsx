@@ -173,7 +173,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
     } catch (e) { toasts?.error?.(e.message || 'Network error.'); }
   };
 
-  const STATUS_COLOR = { ok: '#34d399', running: '#fbbf24', error: '#f87171', skipped: '#94a3b8', idle: '#94a3b8' };
+  const STATUS_COLOR = { ok: 'var(--color-success)', running: 'var(--color-warning)', error: 'var(--color-error)', skipped: 'var(--text-muted)', idle: 'var(--text-muted)' };
 
   // "Ready to apply" tray: tailored jobs queued by a routine.
   const ready = (jobs || []).filter((j) => j.status === 'tailored' && j.queuedByRoutine);
@@ -183,7 +183,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Safety / what-this-does banner */}
       <div className="panel" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <ShieldCheck size={20} color="var(--color-success, #34d399)" style={{ flexShrink: 0, marginTop: 2 }} />
+        <ShieldCheck size={20} color="var(--color-success)" style={{ flexShrink: 0, marginTop: 2 }} />
         <div>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Routines find and prepare — they never apply for you.</div>
           <p className="muted" style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
@@ -303,7 +303,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
         <div key={r.id} className="panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, opacity: r.enabled ? 1 : 0.6 }}>
           <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Zap size={16} color="var(--color-accent, #818cf8)" />
+              <Zap size={16} color="var(--color-accent)" />
               <div>
                 <div style={{ fontWeight: 700 }}>{r.name}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
@@ -312,11 +312,11 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span className="badge" style={{ background: 'transparent', border: `1px solid ${STATUS_COLOR[r.lastStatus] || '#94a3b8'}`, color: STATUS_COLOR[r.lastStatus] || '#94a3b8' }}>
+              <span className="badge" style={{ background: 'transparent', border: `1px solid ${STATUS_COLOR[r.lastStatus] || 'var(--text-muted)'}`, color: STATUS_COLOR[r.lastStatus] || 'var(--text-muted)' }}>
                 {r.lastStatus === 'running' ? 'Running…' : (r.lastStatus || 'idle')}
               </span>
               <button className="btn-ghost btn-xs" title={r.enabled ? 'Disable' : 'Enable'} onClick={() => toggleEnabled(r)}>
-                <Power size={13} color={r.enabled ? 'var(--color-success, #34d399)' : '#94a3b8'} />
+                <Power size={13} color={r.enabled ? 'var(--color-success)' : 'var(--text-muted)'} />
               </button>
               <button className="btn-ghost btn-xs" title="Edit" onClick={() => openEdit(r)}><Pencil size={13} /></button>
               <button className="btn-ghost btn-xs" title="Delete" onClick={() => remove(r)}><Trash2 size={13} /></button>

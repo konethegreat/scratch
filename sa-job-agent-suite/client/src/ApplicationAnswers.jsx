@@ -95,14 +95,14 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
   };
 
   const labelStyle = { display: 'block', fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 };
-  const cardStyle = { background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 };
+  const cardStyle = { background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 };
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
         <div className="flex-between" style={{ marginBottom: 4 }}>
           <h4 style={{ fontSize: 14 }}>Standard application answers</h4>
-          <Sparkles size={14} color="var(--color-accent, #fbbf24)" />
+          <Sparkles size={14} color="var(--color-accent)" />
         </div>
         <p className="hint" style={{ marginTop: 0 }}>
           Answer the questions SA job sites ask most. The Apply Copilot fills these exactly as you
@@ -155,9 +155,9 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
 
       {/* Pending questions captured by Agent 3 */}
       {pending.length > 0 && (
-        <div style={{ ...cardStyle, borderColor: 'rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.06)' }}>
+        <div style={{ ...cardStyle, borderColor: 'var(--color-warning)', background: 'var(--bg-surface-2)' }}>
           <div className="flex-between" style={{ marginBottom: 8 }}>
-            <strong style={{ fontSize: 13, color: 'var(--color-accent, #fbbf24)' }}>
+            <strong style={{ fontSize: 13, color: 'var(--color-accent)' }}>
               <Inbox size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
               Questions to answer ({pending.length})
             </strong>
@@ -168,7 +168,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {pending.map((q) => (
               <div key={q.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--color-text, #e2e8f0)' }}>{q.question}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{q.question}</span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input
                     type="text"
@@ -202,7 +202,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
             {bank.map((b) => (
               <div key={b.id} className="flex-between" style={{ gap: 8, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, color: 'var(--color-text, #e2e8f0)' }}>{b.question}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{b.question}</div>
                   <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{b.answer}</div>
                 </div>
                 <button

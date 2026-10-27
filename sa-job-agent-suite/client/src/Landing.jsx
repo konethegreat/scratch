@@ -33,7 +33,7 @@ export default function Landing({ onEnter }) {
       <div className="landing-nav reveal">
         <button className="brand-chip" onClick={onEnter} title="Enter the suite">
           <SAFlag size={26} />
-          <span className="brand-name gradient-text">SA-JAS</span>
+          <span className="brand-name">SA-JAS</span>
         </button>
         <SocialLinks size="sm" />
       </div>
@@ -46,7 +46,7 @@ export default function Landing({ onEnter }) {
           </div>
           <h1 className="hero-title reveal d1">
             Hi, I’m Kone.<br />
-            I build <span className="gradient-text">intelligent</span> software.
+            I build intelligent software.
           </h1>
           <p className="hero-sub reveal d2">
             Software Engineer &amp; full-stack developer from South Africa, focused on AI-driven
@@ -72,7 +72,7 @@ export default function Landing({ onEnter }) {
           <div className="stat-row reveal d4">
             {STATS.map((s) => (
               <div key={s.lbl}>
-                <div className="stat-num gradient-text">{s.num}</div>
+                <div className="stat-num">{s.num}</div>
                 <div className="stat-lbl">{s.lbl}</div>
               </div>
             ))}
@@ -82,7 +82,7 @@ export default function Landing({ onEnter }) {
 
       {/* Skills */}
       <section className="landing-section reveal d5">
-        <h3>The <span className="gradient-text">toolkit</span></h3>
+        <h3>The toolkit</h3>
         <p className="muted" style={{ fontSize: 13, marginBottom: 4 }}>Languages, frameworks and platforms I build with.</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18 }}>
           {SKILLS.map((s) => <span key={s} className="chip">{s}</span>)}
@@ -91,7 +91,7 @@ export default function Landing({ onEnter }) {
 
       {/* Projects */}
       <section className="landing-section reveal d6">
-        <h3>Selected <span className="gradient-text">work</span></h3>
+        <h3>Selected work</h3>
         <p className="muted" style={{ fontSize: 13 }}>A few things I’ve shipped.</p>
         <div className="proj-grid">
           {PROJECTS.map((p) => (

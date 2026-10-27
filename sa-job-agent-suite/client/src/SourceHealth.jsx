@@ -196,8 +196,8 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
           role="alert"
           style={{
             display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10, padding: '8px 10px',
-            borderRadius: 8, background: 'rgba(251,113,133,0.10)', border: '1px solid rgba(251,113,133,0.32)',
-            color: '#fda4af', fontSize: 12
+            borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--color-error)',
+            color: 'var(--color-error)', fontSize: 12
           }}
         >
           <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />

@@ -34,7 +34,11 @@ import {
   Network,
   ShieldCheck,
   Rss,
-  StickyNote
+  StickyNote,
+  Coins,
+  Scale,
+  Rocket,
+  RotateCw
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
 import CandidateMemory from './CandidateMemory.jsx';
@@ -44,6 +48,7 @@ import JobFeeds from './JobFeeds.jsx';
 import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
 import ErrorCard from './ErrorCard.jsx';
 import RecentErrors from './RecentErrors.jsx';
 import { copyToClipboard } from './clipboard.js';
@@ -191,7 +196,12 @@ function AddJobModal({ open, onClose, onSubmit }) {
 /* ---------------------------------------------------------------- */
 function SidebarLink({ active, onClick, icon, children }) {
   return (
-    <button className={`sidebar-link ${active ? 'active' : ''}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`sidebar-link ${active ? 'active' : ''}`}
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+    >
       {icon} <span>{children}</span>
     </button>
   );
@@ -1146,6 +1156,8 @@ export default function App() {
   return (
     <div className="app-shell" style={{ display: 'flex', minHeight: '100vh' }}>
 
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+
       <ToastStack toasts={toasts.toasts} onClose={toasts.remove} />
       <ConfirmModal
         open={confirm.open}
@@ -1165,8 +1177,8 @@ export default function App() {
           width: 260, padding: 20, display: 'flex', flexDirection: 'column',
           borderTopRightRadius: 0, borderBottomRightRadius: 0,
           borderTop: 'none', borderLeft: 'none', borderBottom: 'none',
-          background: '#0F172A', border: 'none', borderRadius: 0,
-        boxShadow: '1px 0 0 0 #1E293B', position: 'sticky', top: 0, alignSelf: 'flex-start',
+          background: 'var(--bg-sidebar)', border: 'none', borderRadius: 0,
+        boxShadow: '1px 0 0 0 var(--border)', position: 'sticky', top: 0, alignSelf: 'flex-start',
           height: '100vh'
         }}
       >
@@ -1177,12 +1189,12 @@ export default function App() {
         >
           <SAFlag size={28} />
           <div>
-            <h2 className="gradient-text" style={{ fontSize: 18, fontWeight: 850, letterSpacing: '0.05em' }}>SA-JAS</h2>
+            <h2 className="brand-name" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em' }}>SA-JAS</h2>
             <p style={{ fontSize: 10, color: 'var(--text-secondary)' }}>JOB AGENT SUITE</p>
           </div>
         </button>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+        <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
           <SidebarLink active={activeTab === 'landing'}   onClick={() => setActiveTab('landing')}   icon={<Home size={16} />}>Home / About</SidebarLink>
           <SidebarLink active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Briefcase size={16} />}>Dashboard</SidebarLink>
           <SidebarLink active={activeTab === 'hunter'}    onClick={() => setActiveTab('hunter')}    icon={<Search size={16} />}>Job Hunter</SidebarLink>
@@ -1205,18 +1217,19 @@ export default function App() {
           )}
         </nav>
 
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 'auto' }}>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 'auto' }}>
           <SidebarLink active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<Settings size={16} />}>Profile &amp; Settings</SidebarLink>
           <div className="tiny" style={{ marginTop: 12, textAlign: 'center' }}>
-            <span style={{ color: hunterRunning ? 'var(--color-accent)' : 'var(--text-muted)' }}>
-              {hunterRunning ? '● Hunter active' : '○ Hunter idle'}
+            <span className={`status-dot${hunterRunning ? ' active' : ''}`} aria-hidden="true" />
+            <span style={{ color: hunterRunning ? 'var(--color-success)' : 'var(--text-muted)' }}>
+              {hunterRunning ? 'Hunter active' : 'Hunter idle'}
             </span>
           </div>
         </div>
       </aside>
 
       {/* Main */}
-      <main className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <main id="main-content" tabIndex={-1} className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
         {firstSourceError(loadErrors) && (
           <ErrorCard
@@ -1227,7 +1240,7 @@ export default function App() {
           />
         )}
 
-        {SYNTHETIC_DEMO && <div role="note" className="panel" style={{ padding: 16, marginBottom: 20, borderColor: '#22d3ee' }}>
+        {SYNTHETIC_DEMO && <div role="note" className="panel" style={{ padding: 16, marginBottom: 20, borderColor: 'var(--color-info)' }}>
           <strong>Synthetic demo · Alex Example / Example Studio</strong>
           <p className="muted" style={{ marginTop: 6 }}>Fictional vacancy, score and handwritten documents. Use Apply Copilot, then answer its missing question in Settings. Live searches, AI calls and profile changes are disabled. Submissions stay in the local fixture.</p>
         </div>}
@@ -1236,10 +1249,13 @@ export default function App() {
         <div className="app-topbar">
           <button className="brand-chip" onClick={() => setActiveTab('landing')} title="Back to home">
             <SAFlag size={20} />
-            <span className="brand-name gradient-text">SA-JAS</span>
+            <span className="brand-name">SA-JAS</span>
             <span className="tiny" style={{ marginLeft: 4 }}>by Kone Tshivhinda</span>
           </button>
-          <SocialLinks size="sm" />
+          <div className="flex-gap">
+            <ThemeToggle />
+            <SocialLinks size="sm" />
+          </div>
         </div>
 
         {/* Header */}
@@ -1409,7 +1425,11 @@ export default function App() {
               <span>engine</span>
               <span className={`badge ${aiSearchOn ? 'badge-success' : 'badge-info'}`}>{aiSearchOn ? 'AI Search (Claude)' : 'Scrapers only'}</span>
               {aiSearchOn && <span className="badge badge-accent" title="Search thoroughness — change in Settings → Job Search">depth: {profile.searchDepth || 'standard'}</span>}
-              {aiSearchOn && !profile.hasAnthropicKey && <span className="badge" style={{ background: '#FEF2F2', color: '#DC2626', borderColor: '#FECACA' }} title="AI search needs an Anthropic key">⚠ no Anthropic key</span>}
+              {aiSearchOn && !profile.hasAnthropicKey && (
+                <span className="badge badge-error" title="AI search needs an Anthropic key">
+                  <AlertTriangle size={11} aria-hidden="true" /> No Anthropic key
+                </span>
+              )}
               <span>·</span>
               <span>searching <strong>{Math.min(keywordCount, Number(profile.maxKeywords) || 3)}</strong> of {keywordCount} keyword{keywordCount === 1 ? '' : 's'} ×</span>
               <strong>{Math.min(locationCount, Number(profile.maxLocations) || 2)}</strong>
@@ -1605,7 +1625,7 @@ export default function App() {
                   onClick={() => setSelectedJob(job)}
                   style={{
                     textAlign: 'left',
-                    background: selectedJob?.id === job.id ? '#FFFBEB' : 'transparent',
+                    background: selectedJob?.id === job.id ? 'var(--color-accent-soft)' : 'transparent',
                     border: '1px solid',
                     borderColor: selectedJob?.id === job.id ? 'var(--color-accent)' : 'var(--border)',
                     color: selectedJob?.id === job.id ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -2308,11 +2328,11 @@ export default function App() {
                                 ? 'rgba(34,197,94,0.12)'
                                 : 'rgba(255,255,255,0.05)',
                               border: `1px solid ${ok ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.1)'}`,
-                              color: ok ? '#4ade80' : 'var(--color-muted)',
+                              color: ok ? 'var(--color-success)' : 'var(--text-muted)',
                             }}
                           >
                             {ok
-                              ? <CheckCircle2 size={12} color="#4ade80" />
+                              ? <CheckCircle2 size={12} color="var(--color-success)" />
                               : <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'inline-block' }} />
                             }
                             {label}
@@ -2406,8 +2426,8 @@ export default function App() {
 
               {/* Danger zone — wipe stored data. Profile, API keys and uploaded
                   documents are preserved. */}
-              <section className="panel" style={{ padding: 20, borderLeft: '3px solid #DC2626' }}>
-                <h3 style={{ fontSize: 16, marginBottom: 4, color: '#DC2626' }}>Danger zone</h3>
+              <section className="panel" style={{ padding: 20, borderLeft: '3px solid var(--color-error)' }}>
+                <h3 style={{ fontSize: 16, marginBottom: 4, color: 'var(--color-error)' }}>Danger zone</h3>
                 <p className="hint" style={{ marginBottom: 16 }}>
                   Permanently delete stored data. Your profile, API keys and uploaded documents are kept (remove documents individually above). A backup snapshot is taken automatically before each clear.
                 </p>
@@ -2445,14 +2465,14 @@ export default function App() {
 /* Subcomponents                                                    */
 /* ---------------------------------------------------------------- */
 function KpiCard({ color, icon, value, label }) {
-  const palette = {
-    info:    { bg: '#F0F9FF', fg: 'var(--color-info)' },
-    accent:  { bg: '#FFFBEB', fg: '#B45309' },
-    success: { bg: '#ECFDF5', fg: 'var(--color-success)' }
+  const foreground = {
+    info: 'var(--color-info)',
+    accent: 'var(--color-accent)',
+    success: 'var(--color-success)'
   }[color];
   return (
     <div className="panel" style={{ padding: 22, display: 'flex', alignItems: 'center', gap: 16 }}>
-      <div style={{ background: palette.bg, color: palette.fg, padding: 12, borderRadius: 12 }}>{icon}</div>
+      <div style={{ background: 'var(--bg-surface-2)', color: foreground, padding: 12, borderRadius: 12 }}>{icon}</div>
       <div>
         <h3 style={{ fontSize: 24, fontWeight: 700 }}>{value}</h3>
         <p className="tiny" style={{ marginTop: 2 }}>{label}</p>
@@ -2467,7 +2487,7 @@ function SetupChecklist({ checks, complete, warnings, onFix }) {
   if (items.length === 0) return null;
 
   const heading = !complete ? 'Finish setup to start hunting' : 'Heads up';
-  const tone = !complete ? 'var(--color-accent)' : '#B45309';
+  const tone = !complete ? 'var(--color-accent)' : 'var(--color-warning)';
 
   return (
     <div className="panel" style={{ padding: 18, borderLeft: `3px solid ${tone}` }}>
@@ -2481,8 +2501,8 @@ function SetupChecklist({ checks, complete, warnings, onFix }) {
             {c.ok
               ? <CheckCircle2 size={16} color="var(--color-success)" style={{ flexShrink: 0, marginTop: 1 }} />
               : (c.warn
-                  ? <AlertTriangle size={16} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />
-                  : <X size={16} color="#DC2626" style={{ flexShrink: 0, marginTop: 1 }} />)}
+                  ? <AlertTriangle size={16} color="var(--color-warning)" style={{ flexShrink: 0, marginTop: 1 }} />
+                  : <X size={16} color="var(--color-error)" style={{ flexShrink: 0, marginTop: 1 }} />)}
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: c.ok ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{c.label}</div>
               {!c.ok && <div className="tiny" style={{ marginTop: 1 }}>{c.hint}</div>}
@@ -2508,7 +2528,7 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
   const perSource = result.perSource || {};
   const sources = Object.entries(perSource);
   const zero = saved === 0;
-  const tone = zero ? '#B45309' : 'var(--color-success)';
+  const tone = zero ? 'var(--color-warning)' : 'var(--color-success)';
   const ls = result.linkStats || null;
   const hasLinkStats = ls && (ls.live || ls.unverified || ls.noLink || ls.dead || ls.repaired);
 
@@ -2546,14 +2566,14 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
           {ls.live > 0 && <span className="badge badge-success" title="Verified live before saving"><ShieldCheck size={10} /> {ls.live} live</span>}
           {ls.unverified > 0 && <span className="badge badge-warning" title="Couldn't confirm (bot-blocked/timeout) — kept anyway">{ls.unverified} unverified</span>}
           {ls.noLink > 0 && <span className="badge badge-info" title="Kept as leads — no direct apply link">{ls.noLink} lead{ls.noLink === 1 ? '' : 's'}</span>}
-          {ls.repaired > 0 && <span className="badge badge-accent" title="Missing links found via AI grounded search">↻ {ls.repaired} repaired</span>}
+          {ls.repaired > 0 && <span className="badge badge-accent" title="Missing links found via AI grounded search"><RotateCw size={10} aria-hidden="true" /> {ls.repaired} repaired</span>}
           {ls.dead > 0 && <span className="badge badge-error" title="Confirmed-dead links dropped (never saved)">{ls.dead} dead dropped</span>}
         </div>
       )}
 
       {diagnosis && (
         <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-          <AlertTriangle size={15} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />
+          <AlertTriangle size={15} color="var(--color-warning)" style={{ flexShrink: 0, marginTop: 1 }} />
           <span>{diagnosis}</span>
         </div>
       )}
@@ -2601,7 +2621,7 @@ function ApiKeyField({ label, hasKey, revealed, value, onChange, onReveal, onCle
           <KeyRound size={12} /> {label}
           {hasKey && !revealed && <span className="badge badge-success" style={{ marginLeft: 6 }}>Saved</span>}
         </span>
-        {docsUrl && <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="tiny" style={{ color: 'var(--color-info)' }}>{docsLabel} &#8599;</a>}
+        {docsUrl && <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="tiny" style={{ color: 'var(--color-info)' }}>{docsLabel} <ExternalLink size={11} aria-hidden="true" /></a>}
       </label>
 
       {hasKey && !revealed ? (
@@ -2660,16 +2680,16 @@ function SettingsSubTabs({ current, onChange, tabs }) {
 function PresetCards({ active, busy, onApply }) {
   const cards = [
     {
-      id: 'saver', title: 'Token Saver', emoji: '🪙', note: 'Cheapest',
-      points: ['AI search on Haiku · light depth', 'Optional AI features all off', 'Caching on · tailor 1 at a time']
+      id: 'saver', title: 'Token Saver', Icon: Coins, note: 'Cheapest',
+      points: ['AI search on Haiku, light depth', 'Optional AI features all off', 'Caching on, tailor one at a time']
     },
     {
-      id: 'balanced', title: 'Balanced', emoji: '⚖️', note: 'Recommended',
-      points: ['Standard search depth', 'Planner + memory + dreaming on', 'Vision / computer-use / research off']
+      id: 'balanced', title: 'Balanced', Icon: Scale, note: 'Recommended',
+      points: ['Standard search depth', 'Planner, memory and dreaming on', 'Vision, computer-use and research off']
     },
     {
-      id: 'max', title: 'Maximum', emoji: '🚀', note: 'Most capable',
-      points: ['Deep 2-round search on Sonnet', 'Link repair + company research on', 'Vision + computer-use finisher on']
+      id: 'max', title: 'Maximum', Icon: Rocket, note: 'Most capable',
+      points: ['Deep two-round search on Sonnet', 'Link repair and company research on', 'Vision and computer-use finisher on']
     }
   ];
   return (
@@ -2688,12 +2708,14 @@ function PresetCards({ active, busy, onApply }) {
                 textAlign: 'left', padding: 16, cursor: 'pointer', fontFamily: 'inherit',
                 border: '2px solid', borderRadius: 12,
                 borderColor: isActive ? 'var(--color-accent)' : 'var(--border)',
-                background: isActive ? 'rgba(245,158,11,0.07)' : 'var(--bg-surface-2)',
+                background: isActive ? 'var(--color-accent-soft)' : 'var(--bg-surface-2)',
                 opacity: busy && busy !== c.id ? 0.6 : 1
               }}
             >
               <div className="flex-between" style={{ marginBottom: 8 }}>
-                <span style={{ fontSize: 15, fontWeight: 700 }}>{c.emoji} {c.title}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <c.Icon size={16} aria-hidden="true" /> {c.title}
+                </span>
                 {busy === c.id
                   ? <Loader2 size={14} className="spin" />
                   : isActive
@@ -2765,8 +2787,8 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
   return (
     <div style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-surface-2)' }}>
       {exceeded && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, marginBottom: 12, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
-          <AlertTriangle size={15} color="#DC2626" style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, marginBottom: 12, background: 'var(--bg-surface-2)', border: '1px solid var(--color-error)' }}>
+          <AlertTriangle size={15} color="var(--color-error)" style={{ flexShrink: 0, marginTop: 1 }} />
           <span style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>
             <strong>Daily budget reached.</strong> All AI calls are paused until tomorrow. Raise or clear the cap below to resume today.
           </span>
@@ -2776,7 +2798,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
       {/* Headline stats */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: exceeded ? '#DC2626' : 'var(--text-primary)' }}>{fmtUsd(spent)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: exceeded ? 'var(--color-error)' : 'var(--text-primary)' }}>{fmtUsd(spent)}</div>
           <div className="tiny">est. spend today</div>
         </div>
         <div>
@@ -2802,8 +2824,8 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
       {/* Budget progress */}
       {serverCap > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: pct >= 100 ? '#DC2626' : pct >= 75 ? '#B45309' : 'var(--color-success)', transition: 'width .4s' }} />
+          <div style={{ height: 8, borderRadius: 6, background: 'var(--bg-surface-2)', overflow: 'hidden' }}>
+            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: pct >= 100 ? 'var(--color-error)' : pct >= 75 ? 'var(--color-warning)' : 'var(--color-success)', transition: 'width .4s' }} />
           </div>
           <div className="tiny" style={{ marginTop: 4 }}>{fmtUsd(spent)} of {fmtUsd(serverCap)} daily cap ({Math.round(pct)}%)</div>
         </div>

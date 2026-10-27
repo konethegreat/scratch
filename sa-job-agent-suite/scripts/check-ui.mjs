@@ -129,6 +129,29 @@ async function main() {
     );
   }
 
+  const jsxFiles = [];
+  for (const entry of await fs.readdir(path.join(client, 'src'), { recursive: true, withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.jsx')) {
+      jsxFiles.push(path.join(entry.parentPath, entry.name));
+    }
+  }
+  for (const file of jsxFiles) {
+    const relative = path.relative(root, file);
+    const text = await fs.readFile(file, 'utf8');
+    assert.equal(
+      /gradient-text|glass-panel|glass-card-interactive|aurora|backdrop-filter/.test(text),
+      false,
+      `${relative} still contains a forbidden class or style`
+    );
+    if (!relative.endsWith('SocialLinks.jsx')) {
+      assert.equal(
+        /#[0-9a-f]{3,8}\b/i.test(text),
+        false,
+        `${relative} still contains a hard-coded colour`
+      );
+    }
+  }
+
   const html = await fs.readFile(path.join(client, 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)].map((match) => match[1]);
   assert.equal(scripts.length, 2, `index.html must load exactly two scripts, found ${scripts.length}`);

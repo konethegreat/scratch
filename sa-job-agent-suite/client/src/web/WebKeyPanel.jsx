@@ -7,7 +7,7 @@ import { IDLE_OPTIONS, MIN_PASSPHRASE } from './keyStore.js';
 
 const CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
 
-export default function WebKeyPanel({ runtime, refreshSignal = 0, onChanged }) {
+export default function WebKeyPanel({ runtime, refreshSignal = 0, onChanged, onAddKey }) {
   const [status, setStatus] = useState({ loaded: false, saved: false });
   const [idle, setIdle] = useState(30);
   const [rememberOpen, setRememberOpen] = useState(false);
@@ -112,6 +112,11 @@ export default function WebKeyPanel({ runtime, refreshSignal = 0, onChanged }) {
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          {!status.loaded && onAddKey && (
+            <button type="button" className="btn-primary btn-sm" onClick={onAddKey} data-testid="add-key">
+              <KeyRound size={12} /> Add a key
+            </button>
+          )}
           {status.loaded && !status.saved && (
             <button type="button" className="btn-secondary btn-sm" onClick={() => setRememberOpen((v) => !v)} data-testid="remember-open">
               <KeyRound size={12} /> Remember encrypted

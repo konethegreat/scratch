@@ -373,6 +373,8 @@ async function main() {
         return rows;
       });
       assert.deepEqual(afterForget, [], 'the saved key blob survived Forget');
+      // Settings must offer a way back to key entry once nothing is loaded.
+      await page.getByTestId('add-key').waitFor({ timeout: 15_000 });
 
       // Panic wipe must clear every store and return to onboarding.
       await page.getByTestId('panic-wipe').click();

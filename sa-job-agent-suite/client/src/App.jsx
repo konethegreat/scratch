@@ -1824,6 +1824,10 @@ export default function App() {
                   <WebKeyPanel
                     runtime={webRuntime}
                     refreshSignal={webKeyTick}
+                    onAddKey={() => {
+                      setWebForceEnter(true);
+                      setWebReady(false);
+                    }}
                     onChanged={() => {
                       setWebKeyTick((t) => t + 1);
                       fetchProfile();

@@ -129,7 +129,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
   const isEmpty = !insights.length && !employers.length && !applications.length;
 
   return (
-    <div className="glass-panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h3 style={{ fontSize: 18 }}><Brain size={18} style={{ verticalAlign: -3, marginRight: 6 }} />Candidate Memory</h3>

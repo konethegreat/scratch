@@ -1160,7 +1160,7 @@ export default function App() {
 
       {/* Sidebar */}
       <aside
-        className="glass-panel app-sidebar"
+        className="panel app-sidebar"
         style={{
           width: 260, padding: 20, display: 'flex', flexDirection: 'column',
           borderTopRightRadius: 0, borderBottomRightRadius: 0,
@@ -1227,7 +1227,7 @@ export default function App() {
           />
         )}
 
-        {SYNTHETIC_DEMO && <div role="note" className="glass-panel" style={{ padding: 16, marginBottom: 20, borderColor: '#22d3ee' }}>
+        {SYNTHETIC_DEMO && <div role="note" className="panel" style={{ padding: 16, marginBottom: 20, borderColor: '#22d3ee' }}>
           <strong>Synthetic demo · Alex Example / Example Studio</strong>
           <p className="muted" style={{ marginTop: 6 }}>Fictional vacancy, score and handwritten documents. Use Apply Copilot, then answer its missing question in Settings. Live searches, AI calls and profile changes are disabled. Submissions stay in the local fixture.</p>
         </div>}
@@ -1299,7 +1299,7 @@ export default function App() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 20 }} className="dashboard-row">
               {/* Top matches */}
-              <div className="glass-panel" style={{ padding: 22 }}>
+              <div className="panel" style={{ padding: 22 }}>
                 <div className="flex-between" style={{ marginBottom: 14 }}>
                   <h3 style={{ fontSize: 16 }}>Top opportunities</h3>
                   <button className="btn-ghost btn-xs" onClick={() => setActiveTab('hunter')}>
@@ -1318,7 +1318,7 @@ export default function App() {
                     {jobs.slice(0, 5).map((job) => (
                       <div
                         key={job.id}
-                        className="glass-panel glass-card-interactive"
+                        className="panel panel-interactive"
                         style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                         onClick={() => { setSelectedJob(job); setActiveTab('tailor'); }}
                       >
@@ -1339,7 +1339,7 @@ export default function App() {
               </div>
 
               {/* Terminal */}
-              <div className="glass-panel" style={{ padding: 22, display: 'flex', flexDirection: 'column' }}>
+              <div className="panel" style={{ padding: 22, display: 'flex', flexDirection: 'column' }}>
                 <div className="flex-between" style={{ marginBottom: 12 }}>
                   <h3 style={{ fontSize: 16 }}>Agent terminal</h3>
                   {!IS_WEB && (
@@ -1363,7 +1363,7 @@ export default function App() {
 
         {/* ============================== HUNTER ============================== */}
         {activeTab === 'hunter' && (
-          <div className="glass-panel fade-in" style={{ padding: 24 }}>
+          <div className="panel fade-in" style={{ padding: 24 }}>
             {!IS_WEB && (
               <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
             )}
@@ -1596,7 +1596,7 @@ export default function App() {
         {activeTab === 'tailor' && (
           <div style={{ display: 'grid', gridTemplateColumns: selectedJob ? '260px 1fr' : '1fr', gap: 20 }} className="fade-in tailor-grid">
             {/* Picker */}
-            <div className="glass-panel" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'start', position: 'sticky', top: 20, maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+            <div className="panel" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'start', position: 'sticky', top: 20, maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
               <h4 style={{ fontSize: 13, marginBottom: 6, color: 'var(--color-accent)' }}>Select an opportunity</h4>
               {jobs.length === 0 && <p className="tiny">No jobs found. Run the hunter first.</p>}
               {jobs.map((job) => (
@@ -1623,7 +1623,7 @@ export default function App() {
             </div>
 
             {selectedJob ? (
-              <div className="glass-panel" style={{ padding: 24 }}>
+              <div className="panel" style={{ padding: 24 }}>
                 <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 16, marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
                   <div>
                     <h3 style={{ fontSize: 18 }}>{selectedJob.title}</h3>
@@ -1647,7 +1647,7 @@ export default function App() {
                 </div>
 
                 {selectedJob.description && (
-                  <details className="glass-panel" style={{ padding: 14, marginBottom: 18, background: 'var(--bg-surface-2)', border: '1px solid var(--border)' }}>
+                  <details className="panel" style={{ padding: 14, marginBottom: 18, background: 'var(--bg-surface-2)', border: '1px solid var(--border)' }}>
                     <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>Job description</summary>
                     <p style={{ marginTop: 10, fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
                       {selectedJob.description}
@@ -1683,7 +1683,7 @@ export default function App() {
                 )}
               </div>
             ) : (
-              <div className="glass-panel" style={{ padding: 48, textAlign: 'center' }}>
+              <div className="panel" style={{ padding: 48, textAlign: 'center' }}>
                 <EmptyState
                   icon={<FileText size={36} color="var(--text-muted)" />}
                   title="Pick a job to tailor"
@@ -1696,7 +1696,7 @@ export default function App() {
 
         {/* ============================== COPILOT ============================== */}
         {!IS_WEB && activeTab === 'copilot' && (
-          <div className="glass-panel fade-in" style={{ padding: 24 }}>
+          <div className="panel fade-in" style={{ padding: 24 }}>
             <h3 style={{ fontSize: 18, marginBottom: 8 }}>Apply Copilot control room</h3>
             <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
               Launches a visible Chromium browser on the server host with a floating HUD. It pre-fills your contact details,
@@ -1705,7 +1705,7 @@ export default function App() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {jobs.filter((j) => j.status === 'tailored' || j.status === 'applied').map((job) => (
-                <div key={job.id} className="glass-panel" style={{ padding: 18 }}>
+                <div key={job.id} className="panel" style={{ padding: 18 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                     <div>
                       <h4 style={{ fontSize: 15, fontWeight: 600 }}>{job.title}</h4>
@@ -1754,7 +1754,7 @@ export default function App() {
 
         {/* ============================== DIRECT OUTREACH ============================== */}
         {!IS_WEB && activeTab === 'referrals' && (
-          <div className="glass-panel fade-in" style={{ padding: 24 }}>
+          <div className="panel fade-in" style={{ padding: 24 }}>
             <div className="flex-gap" style={{ alignItems: 'center', marginBottom: 8 }}>
               <Network size={18} color="var(--color-accent)" />
               <h3 style={{ fontSize: 18 }}>Direct Outreach Channel</h3>
@@ -1767,7 +1767,7 @@ export default function App() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {jobs.filter((j) => j.status === 'applied').map((job) => (
-                <div key={job.id} className="glass-panel" style={{ padding: 18 }}>
+                <div key={job.id} className="panel" style={{ padding: 18 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                     <div>
                       <h4 style={{ fontSize: 15, fontWeight: 600 }}>{job.title}</h4>
@@ -1813,7 +1813,7 @@ export default function App() {
         )}
 
         {!IS_WEB && activeTab === 'logs' && (
-          <div className="glass-panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <h3 style={{ fontSize: 18 }}>Real-time agent console</h3>
@@ -1842,7 +1842,7 @@ export default function App() {
 
         {/* ============================== PROFILE ============================== */}
         {activeTab === 'profile' && (
-          <div className="glass-panel fade-in" style={{ padding: 24 }}>
+          <div className="panel fade-in" style={{ padding: 24 }}>
             <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 12, marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
               <h3 style={{ fontSize: 18 }}>System configuration</h3>
               <button type="button" className="btn-primary btn-sm" onClick={handleSaveProfile} disabled={isSavingProfile}>
@@ -2347,7 +2347,7 @@ export default function App() {
               {/* Supporting documents — reusable PDFs Agent 3 attaches to matching
                   upload fields (ID, matric, degree, academic record). Managed via
                   their own endpoints, so they save instantly (no form submit). */}
-              <section className="glass-panel" style={{ padding: 20 }}>
+              <section className="panel" style={{ padding: 20 }}>
                 <h3 style={{ fontSize: 16, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <FileText size={16} /> Supporting documents
                 </h3>
@@ -2392,7 +2392,7 @@ export default function App() {
               </section>
 
               {/* Backup safety net */}
-              <section className="glass-panel" style={{ padding: 20, borderLeft: '3px solid var(--color-info)' }}>
+              <section className="panel" style={{ padding: 20, borderLeft: '3px solid var(--color-info)' }}>
                 <h3 style={{ fontSize: 16, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <ShieldCheck size={16} /> Backup &amp; restore
                 </h3>
@@ -2406,7 +2406,7 @@ export default function App() {
 
               {/* Danger zone — wipe stored data. Profile, API keys and uploaded
                   documents are preserved. */}
-              <section className="glass-panel" style={{ padding: 20, borderLeft: '3px solid #DC2626' }}>
+              <section className="panel" style={{ padding: 20, borderLeft: '3px solid #DC2626' }}>
                 <h3 style={{ fontSize: 16, marginBottom: 4, color: '#DC2626' }}>Danger zone</h3>
                 <p className="hint" style={{ marginBottom: 16 }}>
                   Permanently delete stored data. Your profile, API keys and uploaded documents are kept (remove documents individually above). A backup snapshot is taken automatically before each clear.
@@ -2451,7 +2451,7 @@ function KpiCard({ color, icon, value, label }) {
     success: { bg: '#ECFDF5', fg: 'var(--color-success)' }
   }[color];
   return (
-    <div className="glass-panel" style={{ padding: 22, display: 'flex', alignItems: 'center', gap: 16 }}>
+    <div className="panel" style={{ padding: 22, display: 'flex', alignItems: 'center', gap: 16 }}>
       <div style={{ background: palette.bg, color: palette.fg, padding: 12, borderRadius: 12 }}>{icon}</div>
       <div>
         <h3 style={{ fontSize: 24, fontWeight: 700 }}>{value}</h3>
@@ -2470,7 +2470,7 @@ function SetupChecklist({ checks, complete, warnings, onFix }) {
   const tone = !complete ? 'var(--color-accent)' : '#B45309';
 
   return (
-    <div className="glass-panel" style={{ padding: 18, borderLeft: `3px solid ${tone}` }}>
+    <div className="panel" style={{ padding: 18, borderLeft: `3px solid ${tone}` }}>
       <div className="flex-between" style={{ marginBottom: 12 }}>
         <h3 style={{ fontSize: 15 }}>{heading}</h3>
         <button className="btn-secondary btn-xs" onClick={onFix}>Open Settings <ChevronRight size={12} /></button>
@@ -2497,7 +2497,7 @@ function SetupChecklist({ checks, complete, warnings, onFix }) {
 function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) {
   if (!result) {
     return running
-      ? <div className="glass-panel" style={{ padding: 14, fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      ? <div className="panel" style={{ padding: 14, fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Loader2 size={14} className="spin" /> Hunter is running — results will appear here when it finishes.
         </div>
       : null;
@@ -2524,7 +2524,7 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
   }
 
   return (
-    <div className="glass-panel" style={{ padding: 16, borderLeft: `3px solid ${tone}` }}>
+    <div className="panel" style={{ padding: 16, borderLeft: `3px solid ${tone}` }}>
       <div className="flex-between" style={{ flexWrap: 'wrap', gap: 8, marginBottom: sources.length || zero ? 10 : 0 }}>
         <h3 style={{ fontSize: 15 }}>
           Last run{result.stopped ? ' (stopped early)' : ''}: <span style={{ color: tone }}>{saved} saved</span> · {found} found
@@ -2563,7 +2563,7 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
 
 function ChipCard({ label, items, color, icon }) {
   return (
-    <div className="glass-panel" style={{ padding: 14, background: 'var(--bg-surface-2)' }}>
+    <div className="panel" style={{ padding: 14, background: 'var(--bg-surface-2)' }}>
       <h4 style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600 }}>{label}</h4>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {items.length === 0 ? <span className="tiny">None set - configure in Profile & Settings.</span> : items.map((it, i) => (
@@ -2683,7 +2683,7 @@ function PresetCards({ active, busy, onApply }) {
               type="button"
               onClick={() => onApply(c.id)}
               disabled={Boolean(busy)}
-              className="glass-panel"
+              className="panel"
               style={{
                 textAlign: 'left', padding: 16, cursor: 'pointer', fontFamily: 'inherit',
                 border: '2px solid', borderRadius: 12,
@@ -2880,7 +2880,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
 function DocumentBox({ title, tone, text, filename, onCopy, onDownload }) {
   const color = tone === 'accent' ? 'var(--color-accent)' : 'var(--color-info)';
   return (
-    <div className="glass-panel" style={{ padding: 16, background: 'var(--bg-surface-2)' }}>
+    <div className="panel" style={{ padding: 16, background: 'var(--bg-surface-2)' }}>
       <div className="flex-between" style={{ marginBottom: 10 }}>
         <h4 style={{ fontSize: 14, color }}>{title}</h4>
         <div className="flex-gap">
@@ -2975,7 +2975,7 @@ function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
       {referral && (
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Contact card */}
-          <div className="glass-panel" style={{ padding: 12, background: 'var(--bg-surface-2)' }}>
+          <div className="panel" style={{ padding: 12, background: 'var(--bg-surface-2)' }}>
             {hasName ? (
               <>
                 <div className="flex-between" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -3024,7 +3024,7 @@ function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
           </div>
 
           {/* Outreach message */}
-          <div className="glass-panel" style={{ padding: 12, background: 'var(--bg-surface-2)' }}>
+          <div className="panel" style={{ padding: 12, background: 'var(--bg-surface-2)' }}>
             <div className="flex-between" style={{ marginBottom: 8 }}>
               <h4 style={{ fontSize: 13, color: 'var(--color-accent)' }}>Outreach message</h4>
               <button

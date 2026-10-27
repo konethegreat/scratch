@@ -182,7 +182,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* Safety / what-this-does banner */}
-      <div className="glass-panel" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+      <div className="panel" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <ShieldCheck size={20} color="var(--color-success, #34d399)" style={{ flexShrink: 0, marginTop: 2 }} />
         <div>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Routines find and prepare — they never apply for you.</div>
@@ -209,7 +209,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Create / edit form */}
       {showForm && (
-        <div className="glass-panel" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="panel" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="flex-between">
             <h4 style={{ fontSize: 15 }}>{editingId ? 'Edit routine' : 'New routine'}</h4>
             <button className="btn-ghost btn-xs" onClick={() => { setShowForm(false); setEditingId(null); }}><X size={14} /></button>
@@ -293,14 +293,14 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Routine list */}
       {routines.length === 0 && !showForm && (
-        <div className="glass-panel" style={{ padding: 32, textAlign: 'center' }}>
+        <div className="panel" style={{ padding: 32, textAlign: 'center' }}>
           <Clock size={28} className="muted" style={{ opacity: 0.6 }} />
           <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>No routines yet. Create one to let SA-JAS hunt while you sleep.</p>
         </div>
       )}
 
       {routines.map((r) => (
-        <div key={r.id} className="glass-panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, opacity: r.enabled ? 1 : 0.6 }}>
+        <div key={r.id} className="panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, opacity: r.enabled ? 1 : 0.6 }}>
           <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Zap size={16} color="var(--color-accent, #818cf8)" />
@@ -337,7 +337,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
 
       {/* Ready-to-apply tray */}
       {ready.length > 0 && (
-        <div className="glass-panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="panel" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div>
             <h4 style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Send size={15} /> Ready to apply ({ready.length})

@@ -20,7 +20,7 @@ export async function validateAnthropicKey(raw, { fetchImpl = globalThis.fetch, 
       method: 'GET',
       headers: {
         'x-api-key': key,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2026-10-21',
         'anthropic-dangerous-direct-browser-access': 'true'
       }
     });
@@ -50,6 +50,9 @@ export async function validateAnthropicKey(raw, { fetchImpl = globalThis.fetch, 
   }
   if (res.status >= 500) {
     throw new AppError(ERROR_CODES.OVERLOADED, 'Anthropic is temporarily unavailable. Try again in a moment.');
+  }
+  if (res.status === 403) {
+    throw new AppError(ERROR_CODES.KEY_PERMISSION, 'This key is valid but is not allowed to list models. Check its permissions in the Anthropic Console.');
   }
   throw new AppError(ERROR_CODES.AUTH_REJECTED, 'Anthropic rejected this key. Check that it is a standard API key, not an admin key.');
 }

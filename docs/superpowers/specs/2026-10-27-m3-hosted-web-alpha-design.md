@@ -159,10 +159,11 @@ shape:
 
 ```js
 {
-  code: 'KEY_INVALID' | 'KEY_ADMIN' | 'AUTH_REJECTED' | 'RATE_LIMITED' |
-        'OVERLOADED' | 'BUDGET_EXCEEDED' | 'NETWORK_OFFLINE' | 'CORS_BLOCKED' |
-        'STORAGE_FULL' | 'STORAGE_UNAVAILABLE' | 'FEED_FAILED' | 'VALIDATION' |
-        'NOT_SUPPORTED_IN_WEB' | 'UNKNOWN',
+  code: 'KEY_INVALID' | 'KEY_ADMIN' | 'AUTH_REJECTED' | 'KEY_PERMISSION' |
+        'SPEND_CAP' | 'RATE_LIMITED' | 'OVERLOADED' | 'BUDGET_EXCEEDED' |
+        'NETWORK_OFFLINE' | 'CORS_BLOCKED' | 'STORAGE_FULL' |
+        'STORAGE_UNAVAILABLE' | 'FEED_FAILED' | 'VALIDATION' | 'NOT_FOUND' |
+        'CONFLICT' | 'FORBIDDEN' | 'NOT_SUPPORTED_IN_WEB' | 'UNKNOWN',
   message: 'Short plain-language cause.',
   hint: 'What the user should do next.',
   retryable: true | false,

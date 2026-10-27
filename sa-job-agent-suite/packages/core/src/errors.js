@@ -7,7 +7,9 @@ export const ERROR_CODES = Object.freeze({
   KEY_INVALID: 'KEY_INVALID',
   KEY_ADMIN: 'KEY_ADMIN',
   AUTH_REJECTED: 'AUTH_REJECTED',
+  KEY_PERMISSION: 'KEY_PERMISSION',
   RATE_LIMITED: 'RATE_LIMITED',
+  SPEND_CAP: 'SPEND_CAP',
   OVERLOADED: 'OVERLOADED',
   BUDGET_EXCEEDED: 'BUDGET_EXCEEDED',
   NETWORK_OFFLINE: 'NETWORK_OFFLINE',
@@ -42,10 +44,22 @@ const CATALOG = {
     retryable: false,
     status: 401
   },
+  KEY_PERMISSION: {
+    message: 'This API key is not allowed to use that model or feature.',
+    hint: 'Enable the model in the Anthropic Console, or choose a different model in Profile & Settings.',
+    retryable: false,
+    status: 403
+  },
   RATE_LIMITED: {
     message: 'Anthropic is rate-limiting this key.',
     hint: 'Wait about a minute, then retry.',
     retryable: true,
+    status: 429
+  },
+  SPEND_CAP: {
+    message: 'The Anthropic account behind this key has reached its spend limit.',
+    hint: 'Raise or reset the limit in the Anthropic Console, or use a different API key.',
+    retryable: false,
     status: 429
   },
   OVERLOADED: {
@@ -136,6 +150,15 @@ export class ClaudeAuthError extends Error {
   }
 }
 
+/** A valid key that is not allowed to use a model or feature (HTTP 403). */
+export class ClaudePermissionError extends Error {
+  constructor(message = 'This API key is not allowed to use that model or feature.', status = 403) {
+    super(message);
+    this.name = 'ClaudePermissionError';
+    this.status = status;
+  }
+}
+
 export class ClaudeRefusalError extends Error {
   constructor(message = 'Claude declined this request.', details) {
     super(message);
@@ -204,6 +227,18 @@ function finalize(code, message, opts, context) {
   return payload;
 }
 
+/** A 429 or 402 that is a spend cap, not a transient rate limit. */
+export function isSpendCapError(err) {
+  const type = err?.error?.type || err?.type;
+  if (type === 'billing_error') return true;
+  return /spend(?:ing)? (?:cap|limit)|credit balance|billing/i.test(String(err?.message || ''));
+}
+
+function isPermissionError(err) {
+  const type = err?.error?.type || err?.type;
+  return type === 'permission_error' || /permission_error/i.test(String(err?.message || ''));
+}
+
 function isConnectionError(err, message) {
   if (err?.name === 'APIConnectionError') return true;
   if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|Failed to fetch|Load failed|network error/i.test(message)) return true;
@@ -237,6 +272,7 @@ export function toUserError(err, context = {}) {
     const code = /admin/i.test(message) ? ERROR_CODES.KEY_ADMIN : ERROR_CODES.KEY_INVALID;
     return finalize(code, message, {}, context);
   }
+  if (err instanceof ClaudePermissionError) return finalize(ERROR_CODES.KEY_PERMISSION, message, {}, context);
   if (err instanceof ClaudeAuthError) return finalize(ERROR_CODES.AUTH_REJECTED, message, {}, context);
   if (err instanceof ClaudeRefusalError) {
     return finalize(ERROR_CODES.UNKNOWN, message, {
@@ -258,6 +294,10 @@ export function toUserError(err, context = {}) {
     return finalize(ERROR_CODES.NETWORK_OFFLINE, message, {}, context);
   }
 
+  if (status === 402 || (status === 429 && isSpendCapError(err))) {
+    return finalize(ERROR_CODES.SPEND_CAP, message, {}, context);
+  }
+  if (isPermissionError(err)) return finalize(ERROR_CODES.KEY_PERMISSION, message, {}, context);
   if (status === 401 || status === 403) return finalize(ERROR_CODES.AUTH_REJECTED, message, {}, context);
   if (status === 429) return finalize(ERROR_CODES.RATE_LIMITED, message, {}, context);
   if (status === 529 || (typeof status === 'number' && status >= 500)) {

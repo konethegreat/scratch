@@ -14,6 +14,15 @@ test('registry holds exactly the four current models with their prices', () => {
   assert.equal(modelSpec('claude-opus'), null);
 });
 
+test('tier is a strict escalation ladder; Opus and Fable are both frontier', () => {
+  const ladder = [MODEL_IDS.haiku, MODEL_IDS.sonnet, MODEL_IDS.opus, MODEL_IDS.fable];
+  assert.deepEqual(ladder.map((id) => MODELS[id].tier), [0, 1, 2, 3]);
+  assert.equal(MODELS[MODEL_IDS.haiku].frontier, false);
+  assert.equal(MODELS[MODEL_IDS.sonnet].frontier, false);
+  assert.equal(MODELS[MODEL_IDS.opus].frontier, true);
+  assert.equal(MODELS[MODEL_IDS.fable].frontier, true);
+});
+
 test('every TASKS entry names a registry model and a valid effort', () => {
   const efforts = ['low', 'medium', 'high', 'xhigh', 'max'];
   for (const [name, t] of Object.entries(TASKS)) {

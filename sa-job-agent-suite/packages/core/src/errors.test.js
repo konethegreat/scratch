@@ -7,6 +7,7 @@ import {
   statusForCode,
   ClaudeAuthError,
   ClaudeKeyError,
+  ClaudePermissionError,
   ClaudeRefusalError
 } from './errors.js';
 
@@ -14,10 +15,10 @@ const fakeKey = () => 'sk-' + 'ant-api03-' + 'A'.repeat(40);
 
 test('the code union contains the spec codes and the three HTTP extensions', () => {
   for (const code of [
-    'KEY_INVALID', 'KEY_ADMIN', 'AUTH_REJECTED', 'RATE_LIMITED', 'OVERLOADED',
-    'BUDGET_EXCEEDED', 'NETWORK_OFFLINE', 'CORS_BLOCKED', 'STORAGE_FULL',
-    'STORAGE_UNAVAILABLE', 'FEED_FAILED', 'VALIDATION', 'NOT_SUPPORTED_IN_WEB',
-    'UNKNOWN', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT'
+    'KEY_INVALID', 'KEY_ADMIN', 'AUTH_REJECTED', 'KEY_PERMISSION', 'RATE_LIMITED',
+    'SPEND_CAP', 'OVERLOADED', 'BUDGET_EXCEEDED', 'NETWORK_OFFLINE', 'CORS_BLOCKED',
+    'STORAGE_FULL', 'STORAGE_UNAVAILABLE', 'FEED_FAILED', 'VALIDATION',
+    'NOT_SUPPORTED_IN_WEB', 'UNKNOWN', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT'
   ]) {
     assert.equal(ERROR_CODES[code], code);
   }
@@ -28,6 +29,8 @@ test('statusForCode maps every code to its HTTP status', () => {
   assert.equal(statusForCode('KEY_INVALID'), 400);
   assert.equal(statusForCode('KEY_ADMIN'), 400);
   assert.equal(statusForCode('AUTH_REJECTED'), 401);
+  assert.equal(statusForCode('KEY_PERMISSION'), 403);
+  assert.equal(statusForCode('SPEND_CAP'), 429);
   assert.equal(statusForCode('VALIDATION'), 400);
   assert.equal(statusForCode('FORBIDDEN'), 403);
   assert.equal(statusForCode('NOT_FOUND'), 404);
@@ -47,6 +50,28 @@ test('an auth failure is AUTH_REJECTED, not retryable, with a hint and request i
   assert.match(out.requestId, /^local-[a-z0-9]{1,12}$/);
   assert.ok(out.hint.length > 0);
   assert.equal(Object.hasOwn(out, 'details'), false);
+});
+
+test('a 403 permission_error is KEY_PERMISSION, not an invalid key', () => {
+  const out = toUserError(new ClaudePermissionError());
+  assert.equal(out.code, ERROR_CODES.KEY_PERMISSION);
+  assert.equal(out.retryable, false);
+  assert.match(out.hint, /console|model/i);
+  const raw = toUserError(Object.assign(new Error('permission_error'), {
+    status: 403,
+    error: { type: 'permission_error' }
+  }));
+  assert.equal(raw.code, ERROR_CODES.KEY_PERMISSION);
+});
+
+test('a spend-cap 429 or a 402 is SPEND_CAP, not a transient rate limit', () => {
+  const cap = toUserError(Object.assign(new Error('You have reached your spend limit'), { status: 429 }));
+  assert.equal(cap.code, ERROR_CODES.SPEND_CAP);
+  assert.equal(cap.retryable, false);
+  assert.match(cap.hint, /console|limit/i);
+  const billing = toUserError(Object.assign(new Error('billing_error'), { status: 402, error: { type: 'billing_error' } }));
+  assert.equal(billing.code, ERROR_CODES.SPEND_CAP);
+  assert.equal(toUserError(Object.assign(new Error('slow down'), { status: 429 })).code, ERROR_CODES.RATE_LIMITED);
 });
 
 test('status codes map to the right family', () => {

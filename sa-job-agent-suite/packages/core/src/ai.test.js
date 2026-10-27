@@ -5,7 +5,7 @@ import {
   getLearnedCapabilities, resetLearnedCapabilities, degradeStepFor
 } from './ai.js';
 import { webSearchTool } from './tools.js';
-import { ClaudeAuthError, ClaudeRefusalError, ClaudeKeyError } from './errors.js';
+import { ClaudeAuthError, ClaudePermissionError, ClaudeRefusalError, ClaudeKeyError } from './errors.js';
 import { fakeClient } from './testing.js';
 import { MODEL_IDS } from './models.js';
 
@@ -38,7 +38,7 @@ test('reads text from text blocks even when a thinking block comes first', async
 });
 
 test('never sends sampling parameters, prefill, forced tool_choice or disabled thinking', async () => {
-  const { p, calls } = run({ tools: [{ type: 'web_search_20260209', name: 'web_search' }] }, [reply([text('ok')])]);
+  const { p, calls } = run({ tools: [{ type: 'web_search_20260318', name: 'web_search' }] }, [reply([text('ok')])]);
   await p;
   const c = calls[0];
   for (const k of ['temperature', 'top_p', 'top_k', 'tool_choice', 'thinking']) {
@@ -154,6 +154,14 @@ test('max_tokens stop sets truncated and still returns partial text', async () =
   assert.equal(r.stopReason, 'max_tokens');
 });
 
+test('model_context_window_exceeded also counts as truncation', async () => {
+  const { p } = run({}, [reply([text('partial')], { stop_reason: 'model_context_window_exceeded' })]);
+  const r = await p;
+  assert.equal(r.truncated, true);
+  assert.equal(r.text, 'partial');
+  assert.equal(r.stopReason, 'model_context_window_exceeded');
+});
+
 test('refusal stop throws ClaudeRefusalError', async () => {
   const usage = [];
   const { p } = run({}, [reply([], { stop_reason: 'refusal' })], { onUsage: (u) => usage.push(u) });
@@ -181,8 +189,57 @@ test('refusalFallback:false uses the plain stream', async () => {
 test('401 becomes ClaudeAuthError with the user-facing message', async () => {
   const { p } = run({}, [{ __throw: Object.assign(new Error('401 invalid x-api-key'), { status: 401 }) }]);
   await assert.rejects(p, (e) => e instanceof ClaudeAuthError && e.message === 'Anthropic rejected the API key. Check it in Settings.');
-  const q = run({}, [{ __throw: Object.assign(new Error('forbidden'), { status: 403 }) }]);
-  await assert.rejects(q.p, ClaudeAuthError);
+});
+
+test('403 becomes ClaudePermissionError and is never retried', async () => {
+  const forbidden = Object.assign(new Error('permission_error'), {
+    status: 403,
+    error: { type: 'permission_error' }
+  });
+  const { p, calls } = run({}, [{ __throw: forbidden }], { sleep: async () => {} });
+  await assert.rejects(p, (e) => e instanceof ClaudePermissionError && e.status === 403);
+  assert.equal(calls.length, 1);
+});
+
+test('retries a rate-limit 429 that carries retry-after', async () => {
+  const limited = Object.assign(new Error('rate limited'), {
+    status: 429,
+    headers: new Headers({ 'retry-after': '1' })
+  });
+  const { p, calls } = run({}, [{ __throw: limited }, reply([text('ok')])], { sleep: async () => {} });
+  const r = await p;
+  assert.equal(r.text, 'ok');
+  assert.equal(calls.length, 2);
+});
+
+test('does not retry a spend-cap 429', async () => {
+  const cap = Object.assign(new Error('You have reached your spend limit'), { status: 429 });
+  const { p, calls } = run({}, [{ __throw: cap }, reply([text('unused')])], { sleep: async () => {} });
+  await assert.rejects(p, (e) => e.status === 429);
+  assert.equal(calls.length, 1);
+});
+
+test('retries overloads and stops at maxRetries', async () => {
+  const busy = Object.assign(new Error('overloaded'), { status: 529 });
+  const once = run({ maxRetries: 1 }, [{ __throw: busy }, reply([text('ok')])], { sleep: async () => {} });
+  assert.equal((await once.p).text, 'ok');
+  assert.equal(once.calls.length, 2);
+
+  const exhausted = run({ maxRetries: 1 }, [{ __throw: busy }], { sleep: async () => {} });
+  await assert.rejects(exhausted.p, (e) => e.status === 529);
+  assert.equal(exhausted.calls.length, 2);
+});
+
+test('beforeCall runs before a retry so the budget guard can stop it', async () => {
+  const busy = Object.assign(new Error('overloaded'), { status: 529 });
+  let n = 0;
+  const beforeCall = () => {
+    n += 1;
+    if (n === 2) throw new Error('BUDGET_EXCEEDED');
+  };
+  const { p, calls } = run({}, [{ __throw: busy }, reply([text('x')])], { beforeCall, sleep: async () => {} });
+  await assert.rejects(p, /BUDGET_EXCEEDED/);
+  assert.equal(calls.length, 1);
 });
 
 test('other SDK errors propagate with key-shaped text scrubbed', async () => {
@@ -249,7 +306,9 @@ test('makeClient pins the API host even when ANTHROPIC_BASE_URL points elsewhere
   process.env.ANTHROPIC_BASE_URL = 'https://gateway.example.test';
   try {
     assert.equal(ANTHROPIC_BASE_URL, 'https://api.anthropic.com');
-    assert.equal(makeClient({ apiKey: KEY }).baseURL, ANTHROPIC_BASE_URL);
+    const client = makeClient({ apiKey: KEY });
+    assert.equal(client.baseURL, ANTHROPIC_BASE_URL);
+    assert.equal(client.maxRetries, 0, 'callClaude owns retries so it can refuse spend caps');
   } finally {
     if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
     else process.env.ANTHROPIC_BASE_URL = before;

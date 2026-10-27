@@ -33,9 +33,44 @@ test('admin and malformed keys are refused without a request', async () => {
 });
 
 test('SDK-style statuses map to typed errors', async () => {
-  for (const [status, code] of [[401, 'AUTH_REJECTED'], [403, 'KEY_PERMISSION'], [429, 'RATE_LIMITED'], [529, 'OVERLOADED'], [500, 'OVERLOADED']]) {
+  for (const [status, code] of [[401, 'AUTH_REJECTED'], [402, 'SPEND_CAP'], [403, 'KEY_PERMISSION'], [429, 'RATE_LIMITED'], [529, 'OVERLOADED'], [500, 'OVERLOADED']]) {
     await assert.rejects(() => validateAnthropicKey(API_KEY, { fetchImpl: fakeFetch(status) }), (e) => e.code === code, String(status));
   }
+});
+
+test('a 402 and a billing 429 are spend caps, not rate limits', async () => {
+  const billing = JSON.stringify({
+    type: 'error',
+    error: { type: 'billing_error', message: 'Your credit balance is too low to access the API.' }
+  });
+  for (const fetchImpl of [fakeFetch(402), fakeFetch(429, billing)]) {
+    await assert.rejects(
+      () => validateAnthropicKey(API_KEY, { fetchImpl }),
+      (e) => e.code === 'SPEND_CAP'
+    );
+    assert.equal(fetchImpl.calls.length, 1, 'the key probe retried a spend cap');
+  }
+});
+
+test('a plain 429 stays a rate limit and is not retried', async () => {
+  const limited = JSON.stringify({
+    type: 'error',
+    error: { type: 'rate_limit_error', message: 'Number of requests has exceeded your rate limit.' }
+  });
+  const fetchImpl = fakeFetch(429, limited);
+  await assert.rejects(
+    () => validateAnthropicKey(API_KEY, { fetchImpl }),
+    (e) => e.code === 'RATE_LIMITED'
+  );
+  assert.equal(fetchImpl.calls.length, 1, 'the key probe retried a rate limit');
+});
+
+test('an unreadable 429 body is treated as a rate limit', async () => {
+  const fetchImpl = fakeFetch(429, 'not json');
+  await assert.rejects(
+    () => validateAnthropicKey(API_KEY, { fetchImpl }),
+    (e) => e.code === 'RATE_LIMITED'
+  );
 });
 
 test('a blocked fetch maps to offline or CORS using the online hint', async () => {

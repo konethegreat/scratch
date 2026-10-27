@@ -9,6 +9,8 @@
 //      custom header a cross-site form or simple request cannot add.
 // Every in-repo caller that makes a state-changing request must send the header.
 
+import { forbidden } from './httpErrors.js';
+
 export const CLIENT_HEADER = 'x-sajas-client';
 export const CLIENT_HEADER_VALUE = '1';
 
@@ -48,7 +50,7 @@ export function localGuard({ port }) {
       origin: req.headers.origin,
       clientHeader: req.headers[CLIENT_HEADER]
     }, { port });
-    if (!verdict.ok) return res.status(403).json({ error: verdict.error });
+    if (!verdict.ok) return forbidden(res, verdict.error);
     return next();
   };
 }

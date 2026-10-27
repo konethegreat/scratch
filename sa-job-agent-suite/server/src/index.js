@@ -75,10 +75,12 @@ import { dreamOverMemory } from './agents/memoryReflect.js';
 import { runReferralPipeline } from './agents/referralAgent.js';
 import { demoOrigin, installDemo } from './demo.js';
 import { localGuard } from './localGuard.js';
+import { requestContext, sendError, badRequest, notFound, conflict, errorHandler } from './httpErrors.js';
 import { createSingleFlight } from './singleFlight.js';
-import { MODELS } from '@sajas/core';
+import { MODELS, AppError, ERROR_CODES } from '@sajas/core';
 
 const app = express();
+app.use(requestContext);
 const PORT = process.env.PORT || 5000;
 
 // CORS: this is a local desktop app. Only allow same-machine origins (the Vite
@@ -129,7 +131,7 @@ app.get('/api/profile', (req, res) => {
       performanceModeActual: detectActivePreset(profile)
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -179,8 +181,8 @@ app.post('/api/profile', (req, res) => {
   } catch (error) {
     // A malformed / Admin key is the caller's mistake, not a server fault. The
     // message is user-facing and never contains the key itself.
-    if (error instanceof InvalidKeyError) return res.status(400).json({ error: error.message });
-    res.status(500).json({ error: error.message });
+    if (error instanceof InvalidKeyError) return badRequest(res, error.message);
+    sendError(res, error);
   }
 });
 
@@ -191,7 +193,7 @@ app.post('/api/profile/preset', (req, res) => {
   try {
     const { mode } = req.body || {};
     if (!PERFORMANCE_PRESETS[mode]) {
-      return res.status(400).json({ error: `Unknown performance mode: ${mode}` });
+      return badRequest(res, `Unknown performance mode: ${mode}`);
     }
     const updated = applyPerformancePreset(mode);
     addLog(`Performance mode applied: ${PERFORMANCE_PRESETS[mode].label}.`, 'system');
@@ -200,7 +202,7 @@ app.post('/api/profile/preset', (req, res) => {
       profile: { ...publicProfile(updated), performanceModeActual: detectActivePreset(updated) }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -212,7 +214,7 @@ app.get('/api/usage', (req, res) => {
   try {
     res.json(getUsageSummary());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -222,7 +224,7 @@ app.delete('/api/usage', (req, res) => {
     addLog('AI usage history cleared.', 'system');
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -232,7 +234,7 @@ app.get('/api/backup', (req, res) => {
   try {
     res.json(getBackupInfo());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -243,18 +245,18 @@ app.post('/api/backup/restore', (req, res) => {
     addLog(`Database restored from backup (taken ${info.backedUpAt || 'unknown'}).`, 'system');
     res.json({ success: true, ...info });
   } catch (error) {
-    res.status(400).json({ error: `Could not restore: ${error.message}` });
+    badRequest(res, `Could not restore: ${error.message}`);
   }
 });
 
 app.delete('/api/profile/key/:provider', (req, res) => {
   try {
     // Anthropic is the only provider; anything else has no key to clear.
-    if (!clearKey(req.params.provider)) return res.status(404).json({ error: 'Unknown provider' });
+    if (!clearKey(req.params.provider)) return notFound(res, 'Unknown provider');
     addLog('Anthropic API key cleared.', 'system');
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -272,7 +274,7 @@ app.get('/api/application/bank', (req, res) => {
   try {
     res.json(getAnswerBank());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -280,12 +282,12 @@ app.post('/api/application/bank', (req, res) => {
   try {
     const { question, answer } = req.body || {};
     if (!question || !answer) {
-      return res.status(400).json({ error: 'Both question and answer are required.' });
+      return badRequest(res, 'Both question and answer are required.');
     }
     const entry = upsertAnswer({ question, answer });
     res.json({ success: true, entry });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -294,7 +296,7 @@ app.delete('/api/application/bank/:id', (req, res) => {
     deleteAnswer(req.params.id);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -305,7 +307,7 @@ app.delete('/api/application/bank', (req, res) => {
     addLog(`Cleared answer bank (${removed} entr${removed === 1 ? 'y' : 'ies'}).`, 'system');
     res.json({ success: true, removed });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -314,7 +316,7 @@ app.get('/api/application/pending', (req, res) => {
   try {
     res.json(getPendingQuestions());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -322,12 +324,12 @@ app.get('/api/application/pending', (req, res) => {
 app.post('/api/application/pending/:id/resolve', (req, res) => {
   try {
     const { answer } = req.body || {};
-    if (!answer) return res.status(400).json({ error: 'An answer is required.' });
+    if (!answer) return badRequest(res, 'An answer is required.');
     const entry = resolvePending(req.params.id, answer);
-    if (!entry) return res.status(404).json({ error: 'Pending question not found.' });
+    if (!entry) return notFound(res, 'Pending question not found.');
     res.json({ success: true, entry });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -337,7 +339,7 @@ app.delete('/api/application/pending/:id', (req, res) => {
     clearPending(req.params.id);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -348,7 +350,7 @@ app.delete('/api/application/pending', (req, res) => {
     addLog(`Cleared ${removed} pending question(s).`, 'system');
     res.json({ success: true, removed });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -359,7 +361,7 @@ app.get('/api/documents', (req, res) => {
   try {
     res.json(getSupportingDocuments());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -370,14 +372,14 @@ app.post('/api/documents', (req, res) => {
   try {
     const { docType, fileName, dataBase64 } = req.body || {};
     if (!docType || !dataBase64) {
-      return res.status(400).json({ error: 'docType and the file are required.' });
+      return badRequest(res, 'docType and the file are required.');
     }
     const entry = saveSupportingDocument({ docType, originalName: fileName, dataBase64 });
     addLog(`Supporting document saved: ${docType} (${entry.originalName}).`, 'system');
     res.json({ success: true, entry });
   } catch (error) {
     // Validation failures (not a PDF, unknown type) are user errors → 400.
-    res.status(400).json({ error: error.message });
+    badRequest(res, error.message);
   }
 });
 
@@ -388,7 +390,7 @@ app.delete('/api/documents/:docType', (req, res) => {
     addLog(`Supporting document removed: ${req.params.docType}.`, 'system');
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -399,7 +401,7 @@ app.get('/api/memory', (req, res) => {
   try {
     res.json(getCandidateMemory());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -408,13 +410,13 @@ app.post('/api/memory/insight', (req, res) => {
   try {
     const { text, category } = req.body || {};
     if (!text || !String(text).trim()) {
-      return res.status(400).json({ error: 'Insight text is required.' });
+      return badRequest(res, 'Insight text is required.');
     }
     const entry = addInsight({ text, category, source: 'manual' });
-    if (!entry) return res.status(409).json({ error: 'That insight already exists.' });
+    if (!entry) return conflict(res, 'That insight already exists.');
     res.json({ success: true, entry });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -424,7 +426,7 @@ app.delete('/api/memory/insight/:id', (req, res) => {
     deleteInsight(req.params.id);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -433,12 +435,12 @@ app.post('/api/memory/employer', (req, res) => {
   try {
     const { company, note } = req.body || {};
     if (!company || !String(company).trim()) {
-      return res.status(400).json({ error: 'Company is required.' });
+      return badRequest(res, 'Company is required.');
     }
     const rec = upsertEmployerNote({ company, note });
     res.json({ success: true, entry: rec });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -447,12 +449,12 @@ app.post('/api/memory/employer', (req, res) => {
 app.patch('/api/memory/application/:jobId', (req, res) => {
   try {
     const { outcome } = req.body || {};
-    if (!outcome) return res.status(400).json({ error: 'An outcome is required.' });
+    if (!outcome) return badRequest(res, 'An outcome is required.');
     const rec = updateApplicationOutcome(req.params.jobId, outcome);
-    if (!rec) return res.status(404).json({ error: 'Application not found in memory.' });
+    if (!rec) return notFound(res, 'Application not found in memory.');
     res.json({ success: true, entry: rec });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -462,14 +464,14 @@ app.post('/api/memory/dream', async (req, res) => {
   try {
     const result = await dreamOverMemory(getProfile());
     if (result.skipped === 'no-key') {
-      return res.status(400).json({ error: 'No AI provider key is set — add one in Profile & Settings.' });
+      return badRequest(res, 'No AI provider key is set — add one in Profile & Settings.');
     }
     if (result.skipped === 'disabled') {
-      return res.status(400).json({ error: 'Dreaming is turned off in Settings.' });
+      return badRequest(res, 'Dreaming is turned off in Settings.');
     }
     res.json({ success: true, result });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -479,7 +481,7 @@ app.delete('/api/memory', (req, res) => {
     const mem = clearCandidateMemory();
     res.json({ success: true, memory: mem });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -528,7 +530,7 @@ app.get('/api/jobs', (req, res) => {
     const nextCursor = nextOffset < total ? Buffer.from(String(nextOffset)).toString('base64') : null;
     res.json({ items, nextCursor, total });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -536,7 +538,7 @@ app.post('/api/jobs', (req, res) => {
   try {
     const { title, company, location, description, applyUrl, source } = req.body || {};
     if (!title || !company) {
-      return res.status(400).json({ error: 'Title and company are required.' });
+      return badRequest(res, 'Title and company are required.');
     }
     const job = {
       id: uuidv4(),
@@ -558,19 +560,19 @@ app.post('/api/jobs', (req, res) => {
       addLog(`Manual job added: ${title} at ${company}`, 'system');
       return res.json({ success: true, job });
     }
-    res.status(409).json({ error: 'A similar job already exists.' });
+    conflict(res, 'A similar job already exists.');
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
 app.patch('/api/jobs/:id', (req, res) => {
   try {
     const updated = updateJob(req.params.id, req.body || {});
-    if (!updated) return res.status(404).json({ error: 'Job not found' });
+    if (!updated) return notFound(res, 'Job not found');
     res.json({ success: true, job: updated });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -580,7 +582,7 @@ app.delete('/api/jobs', (req, res) => {
     addLog('All jobs cleared by user.', 'system');
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -589,7 +591,7 @@ app.delete('/api/jobs/:id', (req, res) => {
     deleteJob(req.params.id);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -599,7 +601,7 @@ app.delete('/api/jobs/:id', (req, res) => {
 let revalidating = false;
 app.post('/api/jobs/revalidate', (req, res) => {
   if (revalidating) {
-    return res.status(409).json({ error: 'A link re-check is already running.' });
+    return conflict(res, 'A link re-check is already running.');
   }
   revalidating = true;
   res.json({ success: true, message: 'Re-checking saved job links in the background.' });
@@ -617,7 +619,7 @@ app.get('/api/logs', (req, res) => {
   try {
     res.json(getLogs());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -626,7 +628,7 @@ app.post('/api/logs/clear', (req, res) => {
     clearLogs();
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -641,7 +643,7 @@ app.get('/api/status', (req, res) => {
       uptime: process.uptime()
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -652,15 +654,13 @@ app.post('/api/jobs/hunter', (req, res) => {
   // response so a second hunt/apply/login check is refused immediately.
   const release = tryAcquireBrowser('hunt');
   if (!release) {
-    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+    return conflict(res, `A browser job is already running (${browserOwner()}).`);
   }
 
   const state = getHunterState();
   if (state.isRunning) {
     release();
-    return res.status(409).json({
-      error: 'Job hunter is already running. Please wait for the current scrape to finish.'
-    });
+    return conflict(res, 'Job hunter is already running. Please wait for the current scrape to finish.');
   }
 
   try {
@@ -692,7 +692,7 @@ app.post('/api/jobs/hunter', (req, res) => {
 app.post('/api/jobs/hunter/stop', (req, res) => {
   const state = getHunterState();
   if (!state.isRunning) {
-    return res.status(409).json({ error: 'Job hunter is not currently running.' });
+    return conflict(res, 'Job hunter is not currently running.');
   }
   setHunterState({ stopRequested: true });
   addLog('Stop requested by user — hunter will halt after the current source.', 'system');
@@ -707,9 +707,9 @@ app.post('/api/jobs/:id/tailor', (req, res) => {
   const jobs = getJobs();
   const job = jobs.find((j) => j.id === jobId);
 
-  if (!job) return res.status(404).json({ error: 'Job not found.' });
+  if (!job) return notFound(res, 'Job not found.');
   if (job.status === 'tailoring') {
-    return res.status(409).json({ error: 'Already tailoring this job.' });
+    return conflict(res, 'Already tailoring this job.');
   }
 
   updateJob(jobId, { status: 'tailoring' });
@@ -740,7 +740,7 @@ app.post('/api/jobs/tailor-batch', (req, res) => {
       .map((j) => j.id);
   }
   if (!jobIds.length) {
-    return res.status(400).json({ error: 'No jobs to tailor. Find some jobs first.' });
+    return badRequest(res, 'No jobs to tailor. Find some jobs first.');
   }
 
   res.json({ success: true, message: `Tailoring ${Math.min(jobIds.length, 10)} job(s) in parallel.`, queued: Math.min(jobIds.length, 10) });
@@ -756,14 +756,12 @@ app.post('/api/jobs/:id/apply', (req, res) => {
 
   const applyState = getApplyState();
   if (applyState.isRunning) {
-    return res.status(409).json({
-      error: `An apply session is already open for another job. Close it first.`
-    });
+    return conflict(res, `An apply session is already open for another job. Close it first.`);
   }
 
   const release = tryAcquireBrowser('apply');
   if (!release) {
-    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+    return conflict(res, `A browser job is already running (${browserOwner()}).`);
   }
 
   try {
@@ -792,7 +790,7 @@ app.post('/api/jobs/:id/apply', (req, res) => {
 app.post('/api/jobs/:id/referral', async (req, res) => {
   const jobId = req.params.id;
   const job = getJobs().find((j) => j.id === jobId);
-  if (!job) return res.status(404).json({ error: 'Job not found.' });
+  if (!job) return notFound(res, 'Job not found.');
 
   try {
     const profile = getProfile();
@@ -808,7 +806,7 @@ app.post('/api/jobs/:id/referral', async (req, res) => {
     res.json({ success: true, referral });
   } catch (err) {
     addLog(`[Referral] Pipeline failed: ${err.message}`, 'error');
-    res.status(500).json({ error: err.message });
+    sendError(res, err);
   }
 });
 
@@ -828,14 +826,14 @@ const loginStatusFlight = createSingleFlight();
 app.post('/api/browser/login-status', async (req, res) => {
   const release = tryAcquireBrowser('login-check');
   if (!release) {
-    return res.status(409).json({ success: false, error: `A browser job is already running (${browserOwner()}).` });
+    return conflict(res, `A browser job is already running (${browserOwner()}).`, { success: false });
   }
   try {
     const result = await loginStatusFlight(() => checkLoginStatuses());
-    if (result.busy) return res.status(409).json({ success: false, error: 'A login check is already running.' });
+    if (result.busy) return conflict(res, 'A login check is already running.', { success: false });
     res.json({ success: true, statuses: result.value });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendError(res, err, { success: false });
   } finally {
     release();
   }
@@ -849,7 +847,7 @@ app.get('/api/routines', (req, res) => {
   try {
     res.json(getRoutines());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -859,17 +857,17 @@ app.post('/api/routines', (req, res) => {
     addLog(`Routine created: "${routine.name}".`, 'system');
     res.json({ success: true, routine });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    badRequest(res, error.message);
   }
 });
 
 app.patch('/api/routines/:id', (req, res) => {
   try {
     const updated = updateRoutine(req.params.id, req.body || {});
-    if (!updated) return res.status(404).json({ error: 'Routine not found.' });
+    if (!updated) return notFound(res, 'Routine not found.');
     res.json({ success: true, routine: updated });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    badRequest(res, error.message);
   }
 });
 
@@ -879,7 +877,7 @@ app.delete('/api/routines/:id', (req, res) => {
     addLog('Routine deleted.', 'system');
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -887,14 +885,14 @@ app.delete('/api/routines/:id', (req, res) => {
 // respond at once, let the scheduler's guards manage execution.
 app.post('/api/routines/:id/run', (req, res) => {
   const routine = getRoutine(req.params.id);
-  if (!routine) return res.status(404).json({ error: 'Routine not found.' });
+  if (!routine) return notFound(res, 'Routine not found.');
 
   // Pre-check the concurrency guard so the user gets an immediate 409 instead of
   // a silent skip.
   const hunter = getHunterState();
   const apply = getApplyState();
   if (hunter.isRunning || apply.isRunning) {
-    return res.status(409).json({ error: 'Another run is already in progress. Try again once it finishes.' });
+    return conflict(res, 'Another run is already in progress. Try again once it finishes.');
   }
 
   res.json({ success: true, message: `Routine "${routine.name}" started.` });
@@ -974,7 +972,7 @@ app.get('/api/hunter/sources', (req, res) => {
       testing: canaryRunning
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -987,12 +985,12 @@ app.post('/api/hunter/sources/test', (req, res) => {
   if (requested === undefined || requested === null) {
     ids = SOURCES.map((source) => source.id);
   } else if (!Array.isArray(requested)) {
-    return res.status(400).json({ error: 'ids must be an array of source ids.' });
+    return badRequest(res, 'ids must be an array of source ids.');
   } else if (!requested.length) {
     ids = SOURCES.map((source) => source.id);
   } else {
     const bad = requested.findIndex((id) => typeof id !== 'string' || !getSource(id));
-    if (bad !== -1) return res.status(404).json({ error: `Unknown source: ${String(requested[bad])}.` });
+    if (bad !== -1) return notFound(res, `Unknown source: ${String(requested[bad])}.`);
     ids = [...new Set(requested)];
   }
 
@@ -1008,11 +1006,11 @@ app.post('/api/hunter/sources/test', (req, res) => {
   }
 
   const refusal = canaryStartRefusal({ testing: canaryRunning, browserBusy: browserOwner() });
-  if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+  if (refusal) return sendError(res, new AppError(ERROR_CODES.CONFLICT, refusal.error), { status: refusal.status });
 
   const release = tryAcquireBrowser('canary');
   if (!release) {
-    return res.status(409).json({ error: `A browser job is already running (${browserOwner()}).` });
+    return conflict(res, `A browser job is already running (${browserOwner()}).`);
   }
 
   try {
@@ -1038,7 +1036,7 @@ app.post('/api/hunter/sources/test', (req, res) => {
 app.patch('/api/hunter/sources/:id', (req, res) => {
   try {
     const source = getSource(req.params.id);
-    if (!source) return res.status(404).json({ error: 'Unknown source.' });
+    if (!source) return notFound(res, 'Unknown source.');
     const body = req.body || {};
     let entry;
     if (typeof body.enabled === 'boolean') entry = setEnabled(source.id, body.enabled);
@@ -1046,7 +1044,7 @@ app.patch('/api/hunter/sources/:id', (req, res) => {
     if (!entry) entry = getHealthEntry(source.id);
     res.json({ success: true, source: boardRow(source, entry) });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendError(res, error);
   }
 });
 
@@ -1055,6 +1053,8 @@ app.patch('/api/hunter/sources/:id', (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+app.use(errorHandler);
 
 // -------------------- Startup --------------------
 

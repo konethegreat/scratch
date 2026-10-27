@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import express from 'express';
 import { checkLocalRequest, localGuard, CLIENT_HEADER, CLIENT_HEADER_VALUE } from './localGuard.js';
+import { requestContext } from './httpErrors.js';
 
 const PORT = 5000;
 const ok = (req) => checkLocalRequest({ method: 'GET', ...req }, { port: PORT });
@@ -67,7 +68,7 @@ function request(port, { method = 'GET', path = '/', headers = {} } = {}) {
     const req = http.request({ host: '127.0.0.1', port, method, path, headers }, (res) => {
       let body = '';
       res.on('data', (c) => { body += c; });
-      res.on('end', () => resolve({ status: res.statusCode, body }));
+      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
     });
     req.on('error', reject);
     req.end();
@@ -80,6 +81,7 @@ test('localGuard: the middleware answers 403 JSON and does not call the route', 
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
+  app.use(requestContext);
   app.use(localGuard({ port }));
   app.post('/count', (req, res) => { hits += 1; res.json({ hits }); });
   app.get('/count', (req, res) => res.json({ hits }));
@@ -87,7 +89,12 @@ test('localGuard: the middleware answers 403 JSON and does not call the route', 
     // Default Host header is 127.0.0.1:<port>, which is allowed.
     const blocked = await request(port, { method: 'POST', path: '/count' });
     assert.equal(blocked.status, 403);
-    assert.deepEqual(JSON.parse(blocked.body), { error: 'Missing X-SAJAS-Client header' });
+    const blockedBody = JSON.parse(blocked.body);
+    assert.equal(blockedBody.error, 'Missing X-SAJAS-Client header');
+    assert.equal(blockedBody.code, 'FORBIDDEN');
+    assert.equal(blockedBody.retryable, false);
+    assert.match(blockedBody.requestId, /^local-/);
+    assert.equal(blocked.headers['x-request-id'], blockedBody.requestId);
     assert.equal(hits, 0);
 
     const allowed = await request(port, { method: 'POST', path: '/count', headers: { 'X-SAJAS-Client': '1' } });
@@ -96,7 +103,9 @@ test('localGuard: the middleware answers 403 JSON and does not call the route', 
 
     const rebinding = await request(port, { path: '/count', headers: { Host: 'evil.example' } });
     assert.equal(rebinding.status, 403);
-    assert.deepEqual(JSON.parse(rebinding.body), { error: 'Host not allowed' });
+    const rebindingBody = JSON.parse(rebinding.body);
+    assert.equal(rebindingBody.error, 'Host not allowed');
+    assert.equal(rebindingBody.code, 'FORBIDDEN');
 
     const foreignOrigin = await request(port, { method: 'POST', path: '/count', headers: { 'X-SAJAS-Client': '1', Origin: 'https://evil.example' } });
     assert.equal(foreignOrigin.status, 403);

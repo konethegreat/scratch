@@ -1,0 +1,44 @@
+{
+  "job-count": 3,
+  "jobs": [
+    {
+      "id": 1001,
+      "url": "https://remotive.com/remote-jobs/software-development/senior-frontend-engineer-1001",
+      "title": "Senior Frontend Engineer",
+      "company_name": "Acme Labs",
+      "category": "Software Development",
+      "tags": ["react", "typescript"],
+      "job_type": "full_time",
+      "publication_date": "2026-10-20T09:12:00",
+      "candidate_required_location": "Remote (Worldwide)",
+      "salary": "R 900 000 - R 1 200 000",
+      "description": "<p>Build the design system with <strong>React</strong> and TypeScript.</p>"
+    },
+    {
+      "id": 1002,
+      "url": "https://remotive.com/remote-jobs/software-development/backend-engineer-1002",
+      "title": "Backend Engineer",
+      "company_name": "Karoo Systems",
+      "category": "Software Development",
+      "tags": ["nodejs"],
+      "job_type": "full_time",
+      "publication_date": "2026-10-19T08:00:00",
+      "candidate_required_location": "South Africa",
+      "salary": "",
+      "description": "<p>Node.js services and PostgreSQL.</p>"
+    },
+    {
+      "id": 1003,
+      "url": "",
+      "title": "Data Analyst",
+      "company_name": "Nimbus Data",
+      "category": "Data",
+      "tags": ["sql"],
+      "job_type": "contract",
+      "publication_date": "2026-10-18T10:30:00",
+      "candidate_required_location": "Cape Town",
+      "salary": "",
+      "description": "<p>SQL and dashboards.</p>"
+    }
+  ]
+}

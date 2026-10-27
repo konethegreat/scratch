@@ -1,0 +1,45 @@
+{
+  "jobCount": 3,
+  "jobs": [
+    {
+      "id": 555,
+      "url": "https://jobicy.com/jobs/555-senior-data-engineer",
+      "jobTitle": "Senior Data Engineer",
+      "companyName": "Nimbus Data",
+      "jobIndustry": ["Data"],
+      "jobType": ["full-time"],
+      "jobGeo": "Remote",
+      "jobLevel": "Senior",
+      "jobExcerpt": "Build pipelines.",
+      "jobDescription": "<p>Build data pipelines with Python.</p>",
+      "pubDate": "2026-10-22 08:00:00",
+      "annualSalaryMin": "60000",
+      "annualSalaryMax": "80000",
+      "salaryCurrency": "USD"
+    },
+    {
+      "id": 556,
+      "url": "https://jobicy.com/jobs/556-product-designer",
+      "jobTitle": "Product Designer",
+      "companyName": "Studio Nine",
+      "jobIndustry": ["Design"],
+      "jobType": ["contract"],
+      "jobGeo": "Cape Town",
+      "jobLevel": "Mid",
+      "jobExcerpt": "Design systems.",
+      "jobDescription": "<p>Own the design system.</p>",
+      "pubDate": "2026-10-21 09:00:00",
+      "annualSalaryMin": "",
+      "annualSalaryMax": "",
+      "salaryCurrency": "ZAR"
+    },
+    {
+      "id": 557,
+      "url": "",
+      "jobTitle": "",
+      "companyName": "Dropped Co",
+      "jobDescription": "<p>No title.</p>",
+      "pubDate": "2026-10-20 09:00:00"
+    }
+  ]
+}

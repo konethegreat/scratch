@@ -1,0 +1,42 @@
+{
+  "data": [
+    {
+      "slug": "backend-engineer-cape-town-123",
+      "company_name": "Karoo Systems",
+      "title": "Backend Engineer",
+      "description": "<p>Node.js services and Docker.</p>",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/karoo-systems/backend-engineer-cape-town-123",
+      "tags": ["nodejs", "docker"],
+      "job_types": ["full-time"],
+      "location": "Cape Town",
+      "created_at": 1761000000
+    },
+    {
+      "slug": "support-engineer-remote-456",
+      "company_name": "Helio Support",
+      "title": "Support Engineer",
+      "description": "<p>Help customers remotely.</p>",
+      "remote": true,
+      "url": "https://www.arbeitnow.com/jobs/companies/helio-support/support-engineer-remote-456",
+      "tags": ["support"],
+      "job_types": ["full-time"],
+      "location": "Berlin",
+      "created_at": 1761100000
+    },
+    {
+      "slug": "junior-developer-789",
+      "company_name": "",
+      "title": "Junior Developer",
+      "description": "<p>No company, should be dropped.</p>",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/unknown/junior-developer-789",
+      "tags": [],
+      "job_types": ["full-time"],
+      "location": "Durban",
+      "created_at": 1761200000
+    }
+  ],
+  "links": {},
+  "meta": {}
+}

@@ -8,7 +8,8 @@
     "./errors": "./src/errors.js",
     "./secrets": "./src/secrets.js",
     "./models": "./src/models.js",
-    "./testing": "./src/testing.js"
+    "./testing": "./src/testing.js",
+    "./feeds": "./src/feeds/index.js"
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.js\""

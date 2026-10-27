@@ -842,9 +842,9 @@ input[type=number] { -moz-appearance: textfield; }
   .landing-nav {
     order: 3;
     width: 100%;
-    gap: 16px;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    gap: 12px 16px;
+    flex-wrap: wrap;
+    padding: 2px 0;
   }
   .landing-nav a { white-space: nowrap; }
   .principles { grid-template-columns: 1fr; }

@@ -202,6 +202,14 @@ async function main() {
       const reducedPage = await reduced.newPage();
       await reducedPage.goto(server.url, { waitUntil: 'networkidle' });
       await enterLanding(reducedPage);
+      // The reveal rule and the reduced-motion override settle as the landing
+      // mounts; poll instead of sampling once so the check cannot race them.
+      await reducedPage.waitForFunction(() => {
+        const element = document.querySelector('.reveal');
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        return Number(style.opacity) > 0.99 && parseFloat(style.animationDuration) < 0.02;
+      }, null, { timeout: 2000 }).catch(() => {});
       const reveal = await reducedPage.evaluate(() => {
         const element = document.querySelector('.reveal');
         if (!element) return null;

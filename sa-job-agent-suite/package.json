@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm test --workspaces --if-present && node --test \"evals/*.test.js\"",
+    "test": "npm test --workspaces --if-present && node --test \"evals/*.test.js\" && node --test scripts/hunter-record.test.mjs",
     "eval": "node evals/run.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "demo": "node scripts/demo.mjs",

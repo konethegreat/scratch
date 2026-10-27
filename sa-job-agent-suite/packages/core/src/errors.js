@@ -110,7 +110,7 @@ const CATALOG = {
   },
   FORBIDDEN: {
     message: 'That action is not allowed here.',
-    hint: 'Use SA-JAS Desktop for this action.',
+    hint: 'This action is not available from here. Reload the app and try again.',
     retryable: false,
     status: 403
   },
@@ -265,6 +265,8 @@ export function toUserError(err, context = {}) {
   }
   if (status === 404) return finalize(ERROR_CODES.NOT_FOUND, message, {}, context);
   if (status === 409) return finalize(ERROR_CODES.CONFLICT, message, {}, context);
+  if (status === 413) return finalize(ERROR_CODES.VALIDATION, 'That upload is too large.', { hint: 'Reduce the file size and try again.' }, context);
+  if (status === 415) return finalize(ERROR_CODES.VALIDATION, 'That file type is not supported.', { hint: 'Use a supported document format and try again.' }, context);
   if (status === 400 || status === 422) return finalize(ERROR_CODES.VALIDATION, message, {}, context);
 
   return finalize(ERROR_CODES.UNKNOWN, message, {}, context);

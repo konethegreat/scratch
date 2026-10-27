@@ -16,7 +16,12 @@ export function requestContext(req, res, next) {
 
 export function errorBody(err, requestId, { success = true } = {}) {
   const payload = toUserError(err, { requestId });
-  const status = err instanceof AppError ? err.status : statusForCode(payload.code);
+  const upstream = err?.status;
+  const status = err instanceof AppError
+    ? err.status
+    : Number.isInteger(upstream) && upstream >= 400 && upstream < 500
+      ? upstream
+      : statusForCode(payload.code);
   const body = { error: payload.message, ...payload };
   if (success === false) body.success = false;
   return { status, body };

@@ -71,6 +71,18 @@ test('rate limits and overloads are retryable; budget and validation are not', (
   assert.equal(toUserError(Object.assign(new Error('bad'), { status: 400 })).retryable, false);
 });
 
+test('413 and 415 map to a non-retryable VALIDATION with upload-specific copy', () => {
+  const tooLarge = toUserError({ status: 413, message: 'too large' });
+  assert.equal(tooLarge.code, ERROR_CODES.VALIDATION);
+  assert.equal(tooLarge.retryable, false);
+  assert.match(tooLarge.message, /too large/i);
+  assert.match(tooLarge.hint, /file size/i);
+  const wrongType = toUserError({ status: 415, message: 'bad type' });
+  assert.equal(wrongType.code, ERROR_CODES.VALIDATION);
+  assert.equal(wrongType.retryable, false);
+  assert.match(wrongType.hint, /supported document format/i);
+});
+
 test('local key errors split into KEY_ADMIN and KEY_INVALID', () => {
   const admin = toUserError(new ClaudeKeyError('That is an Admin key. Create a standard API key.'));
   assert.equal(admin.code, ERROR_CODES.KEY_ADMIN);

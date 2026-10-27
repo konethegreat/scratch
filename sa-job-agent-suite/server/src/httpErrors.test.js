@@ -66,6 +66,18 @@ test('sendError maps a plain error to 500 UNKNOWN with no stack', () => {
   assert.ok(!JSON.stringify(res.body).includes('    at '));
 });
 
+test('sendError preserves an integer upstream 4xx and maps 413 to VALIDATION', () => {
+  const res = fakeRes('local-up413');
+  sendError(res, { status: 413, message: 'too large' });
+  assert.equal(res.statusCode, 413);
+  assert.equal(res.body.error, res.body.message);
+  assert.equal(res.body.code, 'VALIDATION');
+  assert.equal(res.body.retryable, false);
+  assert.ok(res.body.hint.length > 0);
+  assert.equal(res.body.requestId, 'local-up413');
+  assert.equal(res.headers['X-Request-Id'], res.body.requestId);
+});
+
 test('sendError honours an explicit status and the legacy success flag', () => {
   const res = fakeRes();
   sendError(res, new AppError(ERROR_CODES.CONFLICT, 'busy'), { status: 423, success: false });

@@ -52,6 +52,32 @@ test('a 402 and a billing 429 are spend caps, not rate limits', async () => {
   }
 });
 
+test('a credit-balance 400 is a spend cap, not a rejected key', async () => {
+  const billing = JSON.stringify({
+    type: 'error',
+    error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' }
+  });
+  const fetchImpl = fakeFetch(400, billing);
+  await assert.rejects(
+    () => validateAnthropicKey(API_KEY, { fetchImpl }),
+    (e) => e.code === 'SPEND_CAP'
+  );
+  assert.equal(fetchImpl.calls.length, 1, 'the key probe retried a spend cap');
+});
+
+test('a plain 400 stays AUTH_REJECTED and is not retried', async () => {
+  const invalid = JSON.stringify({
+    type: 'error',
+    error: { type: 'invalid_request_error', message: 'model: unknown model' }
+  });
+  const fetchImpl = fakeFetch(400, invalid);
+  await assert.rejects(
+    () => validateAnthropicKey(API_KEY, { fetchImpl }),
+    (e) => e.code === 'AUTH_REJECTED'
+  );
+  assert.equal(fetchImpl.calls.length, 1, 'the key probe retried a rejected key');
+});
+
 test('a plain 429 stays a rate limit and is not retried', async () => {
   const limited = JSON.stringify({
     type: 'error',

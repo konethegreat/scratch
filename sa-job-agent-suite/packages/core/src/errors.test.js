@@ -74,6 +74,24 @@ test('a spend-cap 429 or a 402 is SPEND_CAP, not a transient rate limit', () => 
   assert.equal(toUserError(Object.assign(new Error('slow down'), { status: 429 })).code, ERROR_CODES.RATE_LIMITED);
 });
 
+test('a credit-balance 400 is SPEND_CAP, while an unrelated 400 stays VALIDATION', () => {
+  const credit = {
+    status: 400,
+    error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' }
+  };
+  const cap = toUserError(credit);
+  assert.equal(cap.code, ERROR_CODES.SPEND_CAP);
+  assert.equal(cap.retryable, false);
+  // The SDK surfaces the same body with the text on the error itself.
+  assert.equal(toUserError(Object.assign(new Error(credit.error.message), credit)).code, ERROR_CODES.SPEND_CAP);
+  const unrelated = {
+    status: 400,
+    error: { type: 'invalid_request_error', message: 'model: unknown model' }
+  };
+  assert.equal(toUserError(unrelated).code, ERROR_CODES.VALIDATION);
+  assert.equal(toUserError(unrelated).retryable, false);
+});
+
 test('status codes map to the right family', () => {
   const status = (n) => toUserError(Object.assign(new Error(`http ${n}`), { status: n })).code;
   assert.equal(status(401), ERROR_CODES.AUTH_REJECTED);

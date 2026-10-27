@@ -3,6 +3,7 @@
 // x-api-key header of a request to api.anthropic.com.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { startStaticServer } from './lib/staticServer.mjs';
@@ -48,6 +49,12 @@ async function assertBuiltDist() {
 // phase). Three things must hold: nothing may reach the desktop API origin,
 // nothing may reach an origin the router blocked, and no request may target an
 // origin outside the local server and the mocked Anthropic endpoint.
+// The canary injects one deliberate third-party script to prove CSP stops it
+// (see the CSP probe in main). Chromium surfaces a CSP-refused subresource as a
+// request even though it never reaches the network, so that one exact probe URL
+// is excluded; the probe asserts itself that the router never saw it.
+const CSP_PROBE_URL = 'https://evil.example/canary.js';
+
 function assertNetworkSurface({ requests, blocked, allowedOrigins }) {
   const offOrigin = (url) => {
     try {
@@ -66,7 +73,7 @@ function assertNetworkSurface({ requests, blocked, allowedOrigins }) {
   assert.deepEqual(localApiHits.map((req) => req.url), [], 'web mode called the desktop API origin');
   assert.deepEqual(blocked, [], 'the web build tried to reach an origin the canary blocked');
   assert.deepEqual(
-    requests.filter((req) => offOrigin(req.url)).map((req) => req.url),
+    requests.filter((req) => offOrigin(req.url) && req.url !== CSP_PROBE_URL).map((req) => req.url),
     [],
     'the web build made a request outside the local server and api.anthropic.com'
   );
@@ -167,6 +174,7 @@ async function main() {
 
   const server = await startStaticServer({ root: dist });
   const { chromium } = await import('playwright');
+  let backupFile = null;
 
   // The offline proof starts here: every origin the page is allowed to talk to.
   const allowedOrigins = new Set([new URL(server.url).origin, 'https://api.anthropic.com']);
@@ -178,9 +186,14 @@ async function main() {
     assert.match(servedCsp, /script-src 'self'/, '_headers CSP was not applied by the server');
     assert.equal(servedCsp.includes('unsafe-eval'), false, 'served CSP allows unsafe-eval');
     assert.equal(/\*/.test(servedCsp.split(';').find((s) => s.trim().startsWith('connect-src')) || ''), false, 'served CSP has a wildcard connect-src');
+    assert.match(servedCsp, /frame-ancestors 'none'/, 'served CSP does not forbid framing');
+    assert.equal(served.headers.get('x-frame-options'), 'DENY', 'X-Frame-Options is missing');
+    assert.equal(served.headers.get('cross-origin-opener-policy'), 'same-origin', 'Cross-Origin-Opener-Policy is missing');
+    assert.equal(served.headers.get('cross-origin-resource-policy'), 'same-origin', 'Cross-Origin-Resource-Policy is missing');
 
     const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const context = await browser.newContext({ acceptDownloads: true });
+    const page = await context.newPage();
     const requests = [];
     const consoleLines = [];
     page.on('request', (req) => requests.push({
@@ -306,6 +319,42 @@ async function main() {
       }
       assert.deepEqual(leaks, [], `canary leaked: ${leaks.join(', ')}`);
 
+      // CSP must stop a third-party script before any request leaves the page.
+      const violation = await page.evaluate((probeUrl) => new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), 3000);
+        document.addEventListener('securitypolicyviolation', (event) => {
+          if (!event.violatedDirective.startsWith('script-src')) return;
+          clearTimeout(timer);
+          resolve({ directive: event.violatedDirective, blockedURI: event.blockedURI });
+        }, { once: true });
+        const script = document.createElement('script');
+        script.src = probeUrl;
+        document.head.appendChild(script);
+      }), CSP_PROBE_URL);
+      assert.ok(violation, 'the CSP did not fire a script-src violation for a third-party script');
+      assert.match(violation.blockedURI, /evil\.example/, `the CSP reported ${violation.blockedURI}`);
+      assert.deepEqual(
+        blocked.filter((url) => url === CSP_PROBE_URL),
+        [],
+        'the third-party script left the page before CSP stopped it'
+      );
+
+      // A real export with the key loaded must not contain it, and must not
+      // carry the vault store at all.
+      await page.getByRole('button', { name: /Profile & Settings/i }).click();
+      await page.getByRole('button', { name: 'Backup', exact: true }).click();
+      const [backupDownload] = await Promise.all([
+        page.waitForEvent('download', { timeout: 20_000 }),
+        page.getByTestId('export-backup').click()
+      ]);
+      backupFile = path.join(os.tmpdir(), `sajas-web-canary-${process.pid}-${Date.now()}.json`);
+      await backupDownload.saveAs(backupFile);
+      const backupText = await fs.readFile(backupFile, 'utf8');
+      assert.equal(backupText.includes(canary), false, 'the backup export contains the plaintext key');
+      const backup = JSON.parse(backupText);
+      assert.equal('keyVault' in (backup.data || {}), false, 'the backup contains a keyVault store');
+      await page.getByRole('button', { name: 'AI & Cost', exact: true }).click();
+
       // Remember -> the blob must be ciphertext only.
       await page.getByRole('button', { name: /Profile & Settings/i }).click();
       await page.getByTestId('remember-open').click();
@@ -401,6 +450,7 @@ async function main() {
 
       console.log(`web canary: PASS (${requests.length} requests checked)`);
     } finally {
+      if (backupFile) await fs.rm(backupFile, { force: true }).catch(() => {});
       await browser.close();
     }
   } finally {

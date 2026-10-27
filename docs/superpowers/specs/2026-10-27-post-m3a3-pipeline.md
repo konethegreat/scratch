@@ -15,9 +15,9 @@ A request from 2026-10-27 asked for three things beyond M3a-3: verify the app ag
 
 | # | Arc | Status | Ships when |
 |---|---|---|---|
-| 1 | API compliance | In progress | All offline tests pass and each changed API assumption cites the docs |
-| 2 | Live-scale hardening and isolation | Queued | Isolation, key-canary, spend-cap, and feed-failure tests pass |
-| 3 | UI/UX refresh | Committed, queued | Light mode, copy sweep, and the new home page pass the acceptance list below |
+| 1 | API compliance | Shipped 2026-10-27 (PR #8, `fd4863f`) | All offline tests pass and each changed API assumption cites the docs |
+| 2 | Live-scale hardening and isolation | Shipped 2026-10-27 (PR #9) | Isolation, key-canary, spend-cap and feed-failure tests pass |
+| 3 | UI/UX refresh | Next | Light mode, copy sweep and the new home page pass the acceptance list below |
 
 Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing.
 
@@ -76,6 +76,8 @@ Acceptance criteria:
 - A stranger opening the live URL in a fresh browser sees no other user's jobs.
 - Removing the key and clearing site data removes every key-derived artifact.
 - The security notes state plainly what the free host does and does not protect.
+
+**Shipped 2026-10-27 in PR #9.** Evidence: `npm run test:web` runs the canary, the feeds failure pass and the two-context isolation pass; `SECURITY.md` records the free-plan limits and residual risks.
 
 Out of scope: a backend, accounts, server-side storage, and anything that would put user data on our origin.
 

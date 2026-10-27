@@ -227,11 +227,13 @@ function finalize(code, message, opts, context) {
   return payload;
 }
 
-/** A 429 or 402 that is a spend cap, not a transient rate limit. */
+/** A 400, 402 or 429 that is a spend cap, not a validation error or transient rate limit. */
 export function isSpendCapError(err) {
   const type = err?.error?.type || err?.type;
   if (type === 'billing_error') return true;
-  return /spend(?:ing)? (?:cap|limit)|credit balance|billing/i.test(String(err?.message || ''));
+  // Raw API bodies nest the text at error.message; the SDK also copies it up.
+  const message = [err?.error?.message, err?.message].filter(Boolean).join(' ');
+  return /spend(?:ing)? (?:cap|limit)|credit balance|billing/i.test(message);
 }
 
 function isPermissionError(err) {
@@ -294,7 +296,9 @@ export function toUserError(err, context = {}) {
     return finalize(ERROR_CODES.NETWORK_OFFLINE, message, {}, context);
   }
 
-  if (status === 402 || (status === 429 && isSpendCapError(err))) {
+  // An exhausted credit balance arrives as a 400 invalid_request_error as well
+  // as the documented 402/429, so classify it by body before the 400 fallback.
+  if (status === 402 || ((status === 400 || status === 429) && isSpendCapError(err))) {
     return finalize(ERROR_CODES.SPEND_CAP, message, {}, context);
   }
   if (isPermissionError(err)) return finalize(ERROR_CODES.KEY_PERMISSION, message, {}, context);

@@ -5,8 +5,12 @@ import { normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/
 
 export const MODELS_PROBE_URL = 'https://api.anthropic.com/v1/models?limit=1';
 
-// A 429 is overloaded: it can be a transient rate limit or a permanent spend
-// cap. Anthropic names the latter in the body, so read it once and classify.
+const SPEND_CAP_MESSAGE = 'The Anthropic account behind this key has reached its spend or credit limit.';
+
+// A 400 or 429 is ambiguous: the former is usually a rejected key and the
+// latter a transient rate limit, but either can also be a permanent spend cap
+// (an exhausted credit balance arrives as a 400 invalid_request_error).
+// Anthropic names the latter in the body, so read it once and classify.
 async function bodyIsSpendCap(res) {
   try {
     return isSpendCapError(await res.json());
@@ -56,13 +60,15 @@ export async function validateAnthropicKey(raw, { fetchImpl = globalThis.fetch, 
 
   if (res.ok) return true;
   if (res.status === 402) {
-    throw new AppError(ERROR_CODES.SPEND_CAP, 'The Anthropic account behind this key has reached its spend or credit limit.');
+    throw new AppError(ERROR_CODES.SPEND_CAP, SPEND_CAP_MESSAGE);
   }
-  if (res.status === 429) {
+  if (res.status === 400 || res.status === 429) {
     if (await bodyIsSpendCap(res)) {
-      throw new AppError(ERROR_CODES.SPEND_CAP, 'The Anthropic account behind this key has reached its spend or credit limit.');
+      throw new AppError(ERROR_CODES.SPEND_CAP, SPEND_CAP_MESSAGE);
     }
-    throw new AppError(ERROR_CODES.RATE_LIMITED, 'Anthropic is rate-limiting this key right now.');
+    if (res.status === 429) {
+      throw new AppError(ERROR_CODES.RATE_LIMITED, 'Anthropic is rate-limiting this key right now.');
+    }
   }
   if (res.status >= 500) {
     throw new AppError(ERROR_CODES.OVERLOADED, 'Anthropic is temporarily unavailable. Try again in a moment.');

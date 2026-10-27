@@ -456,6 +456,10 @@ Sizes are relative effort (S/M/L/XL), not calendar estimates. Each milestone shi
 | **M5** | Auto-apply | L3 behind a flag, SubmitPolicy full rule set, trust ramp, kill switch, warnings flow | Table-driven policy tests: zero false submits; staged rollout per site | L |
 | **M6** | MCP hub + reach | WS8 both directions, first connectors, Runner MCP server; stretch: browser extension track | Desktop-driven read tools; Calendar connector end to end; injection regression passes | L |
 
+### 15.1 Post-M3a-3 pipeline
+
+M3a-3 is delivered. The work that follows the alpha is tracked in [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md): API compliance (in progress), live-scale hardening and isolation, then the committed UI/UX refresh (light mode, copy sweep, and a portfolio-led home page). That document is the authority for order and acceptance criteria.
+
 **Why the live date comes before apply:** M3 needs only the AI core, Hunter Tier 1, and security. Apply needs the Runner and is the highest-risk piece, so it ships after the public surface is proven.
 
 **Parallel lanes once M0 lands** (each could be its own session): core/runs (M1) · Hunter adapters (M2) · web shell + security (M3 groundwork) · docs/CI. M1 gates M3 and M4; M2 only gates the Runner side of M3.

@@ -14,19 +14,25 @@ import Anthropic from '@anthropic-ai/sdk';
 import { taskConfig, MODEL_IDS } from './models.js';
 import { fromAnthropicUsage } from './costs.js';
 import { isAnthropicKeyShape, isAdminKeyShape, normalizeKeyInput, scrubSecrets } from './secrets.js';
-import { ClaudeAuthError, ClaudeRefusalError, ClaudeKeyError } from './errors.js';
+import {
+  ClaudeAuthError, ClaudePermissionError, ClaudeRefusalError, ClaudeKeyError, isSpendCapError
+} from './errors.js';
 
 export const REFUSAL_FALLBACK_DEFAULT = true;
 const FALLBACK_BETAS = ['server-side-fallback-2026-07-01'];
 const DEFAULT_MAX_CONTINUATIONS = 12;
+const DEFAULT_MAX_RETRIES = 2;
+const MAX_RETRY_DELAY_MS = 60_000;
 
 // Pinned: the SDK would otherwise honour ANTHROPIC_BASE_URL, and Electron hands
 // the server the full process.env, so an environment variable (or a gateway URL
 // configured for another tool) could redirect the user's key to another host.
 export const ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
 
-export function makeClient({ apiKey, maxRetries = 6, timeout } = {}) {
-  return new Anthropic({ apiKey, baseURL: ANTHROPIC_BASE_URL, maxRetries, ...(timeout ? { timeout } : {}) });
+// Retries belong to callClaude: the SDK retries every 429, including a spend
+// cap, which is permanent. maxRetries: 0 keeps the SDK out of the decision.
+export function makeClient({ apiKey, timeout } = {}) {
+  return new Anthropic({ apiKey, baseURL: ANTHROPIC_BASE_URL, maxRetries: 0, ...(timeout ? { timeout } : {}) });
 }
 
 function checkedKey(raw) {
@@ -77,7 +83,10 @@ function buildMessages(req) {
   return messages;
 }
 
-const ZERO = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 };
+const ZERO = {
+  inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
+  cacheWriteTokens: 0, cacheWrite1hTokens: 0, webSearches: 0
+};
 function addUsage(total, u) {
   for (const k of Object.keys(ZERO)) total[k] += u[k] || 0;
   return total;
@@ -89,7 +98,8 @@ function textOf(content) {
 
 function wrapSdkError(err) {
   const status = err && err.status;
-  if (status === 401 || status === 403) return new ClaudeAuthError(undefined, status);
+  if (status === 401) return new ClaudeAuthError(undefined, status);
+  if (status === 403) return new ClaudePermissionError(undefined, status);
   if (err && typeof err.message === 'string') {
     const clean = scrubSecrets(err.message);
     if (clean !== err.message) {
@@ -98,6 +108,47 @@ function wrapSdkError(err) {
   }
   return err;
 }
+
+function headerValue(headers, name) {
+  if (!headers) return null;
+  if (typeof headers.get === 'function') return headers.get(name);
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
+  return key == null ? null : headers[key];
+}
+
+/** Milliseconds from retry-after / retry-after-ms, or null when absent. */
+export function retryAfterMsOf(err) {
+  const headers = err?.headers;
+  const ms = Number(headerValue(headers, 'retry-after-ms'));
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  const raw = headerValue(headers, 'retry-after');
+  if (raw == null) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return seconds > 0 ? seconds * 1000 : null;
+  const at = Date.parse(raw);
+  return Number.isFinite(at) && at > Date.now() ? at - Date.now() : null;
+}
+
+/**
+ * Whether to retry a failed request. A spend cap is permanent. A 429 is retried
+ * only when it carries retry-after, which is how rate limits differ from caps.
+ */
+export function shouldRetryError(err, retriesLeft) {
+  if (!err || retriesLeft <= 0 || isSpendCapError(err)) return false;
+  const status = err.status;
+  if (status === 408 || status === 409 || status === 529) return true;
+  if (typeof status === 'number' && status >= 500) return true;
+  if (status === 429) return retryAfterMsOf(err) != null;
+  return false;
+}
+
+export function retryDelayMsOf(err, retryNumber) {
+  const asked = retryAfterMsOf(err);
+  if (asked != null) return Math.min(asked, MAX_RETRY_DELAY_MS);
+  return Math.min(500 * 2 ** Math.max(0, retryNumber - 1), 8000);
+}
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---- Self-degrading ---------------------------------------------------------------------------
 // Three optional API features were never verified against the live API (the smoke test
@@ -161,8 +212,8 @@ export function degradeStepFor(err, request) {
  * ClaudeResult.messages conversation.
  *
  * @param {object} req  { apiKey, task, model?, system?, cacheSystem?, prompt?, messages?, images?, schema?,
- *                        tools?, maxTokens?, effort?, maxContinuations?, refusalFallback? }
- * @param {object} hooks { client?, beforeCall?, onUsage?, onLog? }
+ *                        tools?, maxTokens?, effort?, maxContinuations?, maxRetries?, refusalFallback? }
+ * @param {object} hooks { client?, beforeCall?, onUsage?, onLog?, sleep?, retryDelayMs? }
  */
 export async function callClaude(req, hooks = {}) {
   const apiKey = checkedKey(req.apiKey);
@@ -172,6 +223,7 @@ export async function callClaude(req, hooks = {}) {
   const effort = req.effort || cfg.effort;
   const maxTokens = Math.max(req.maxTokens || 0, cfg.maxTokens);
   const maxContinuations = req.maxContinuations ?? DEFAULT_MAX_CONTINUATIONS;
+  const maxRetries = Math.max(0, req.maxRetries ?? DEFAULT_MAX_RETRIES);
   const log = (msg, type) => { if (hooks.onLog) hooks.onLog(scrubSecrets(msg), type); };
 
   const messages = buildMessages(req);
@@ -207,8 +259,10 @@ export async function callClaude(req, hooks = {}) {
   let response;
 
   for (let attempt = 0; ; attempt++) {
-    // A degraded retry is a fresh request on the SAME attempt index; beforeCall (the budget
-    // guard) runs again before it, so a retry can never bypass the budget.
+    // A degraded or transient retry is a fresh request on the SAME attempt index;
+    // beforeCall (the budget guard) runs again before it, so a retry can never
+    // bypass the budget.
+    let retries = 0;
     for (;;) {
       const ctx = { task, model: variant.model, attempt };
       if (hooks.beforeCall) await hooks.beforeCall(ctx);
@@ -236,14 +290,23 @@ export async function callClaude(req, hooks = {}) {
           model: variant.model,
           attempt
         });
-        if (!step || tried.has(step)) throw wrapSdkError(err);
-        tried.add(step);
-        pending.push(step);
-        if (step === STEP_FALLBACK) variant.useFallback = false;
-        else if (step === STEP_SCHEMA) variant.dropFormat = true;
-        else variant.model = MODEL_IDS.sonnet;
-        log(`${task}: ${step} not accepted by the API (${excerptOf(err.message)}); retried without it`, 'system');
-        continue;
+        if (step && !tried.has(step)) {
+          tried.add(step);
+          pending.push(step);
+          if (step === STEP_FALLBACK) variant.useFallback = false;
+          else if (step === STEP_SCHEMA) variant.dropFormat = true;
+          else variant.model = MODEL_IDS.sonnet;
+          log(`${task}: ${step} not accepted by the API (${excerptOf(err.message)}); retried without it`, 'system');
+          continue;
+        }
+        if (shouldRetryError(err, maxRetries - retries)) {
+          retries += 1;
+          const delay = hooks.retryDelayMs ?? retryDelayMsOf(err, retries);
+          log(`${task}: ${err.status || 'request'} failed; retrying (${retries}/${maxRetries}) in ${Math.round(delay)}ms`, 'system');
+          await (hooks.sleep || defaultSleep)(delay);
+          continue;
+        }
+        throw wrapSdkError(err);
       }
       break;
     }
@@ -274,8 +337,14 @@ export async function callClaude(req, hooks = {}) {
       response.stop_details
     );
   }
-  const truncated = response.stop_reason === 'max_tokens';
-  if (truncated) log(`${task}: output hit max_tokens (${maxTokens}); returning partial text`, 'error');
+  const truncated = response.stop_reason === 'max_tokens'
+    || response.stop_reason === 'model_context_window_exceeded';
+  if (truncated) {
+    const why = response.stop_reason === 'model_context_window_exceeded'
+      ? 'the context window'
+      : `max_tokens (${maxTokens})`;
+    log(`${task}: output hit ${why}; returning partial text`, 'error');
+  }
 
   return {
     text: textOf(response.content),

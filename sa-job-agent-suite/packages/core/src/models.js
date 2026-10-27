@@ -10,7 +10,10 @@
 //   Web search: $10 per 1,000 searches.
 // Differs from the plan's assumption: Sonnet cache-read is 0.10, not 0.20.
 // Haiku 5.5 charges higher rates (in 0.50 / out 2.50) for prompts over 100k
-// tokens; the estimator uses the standard (<=100k) rate.
+// tokens; longContext holds those rates and the threshold.
+//
+// tier is the escalation ladder, not a capability claim: Opus 5.5 and Fable 5.1
+// are both frontier models, but Fable is the opt-in Max rung above Opus.
 
 export const MODEL_IDS = Object.freeze({
   haiku: 'claude-haiku-5-5',
@@ -30,10 +33,11 @@ export const CAPABILITIES = Object.freeze({ searchStructuredOutput: true, haikuW
 export const DEFAULT_MODEL_ID = MODEL_IDS.sonnet;
 
 export const MODELS = Object.freeze({
-  [MODEL_IDS.haiku]:  { id: MODEL_IDS.haiku,  label: 'Claude Haiku 5.5',  tier: 0, inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01 },
-  [MODEL_IDS.sonnet]: { id: MODEL_IDS.sonnet, label: 'Claude Sonnet 5.5', tier: 1, inputPerMTok: 2,   outputPerMTok: 10,  cacheReadPerMTok: 0.1 },
-  [MODEL_IDS.opus]:   { id: MODEL_IDS.opus,   label: 'Claude Opus 5.5',   tier: 2, inputPerMTok: 4,   outputPerMTok: 20,  cacheReadPerMTok: 0.2 },
-  [MODEL_IDS.fable]:  { id: MODEL_IDS.fable,  label: 'Claude Fable 5.1',  tier: 3, inputPerMTok: 10,  outputPerMTok: 50,  cacheReadPerMTok: 0.25, optIn: true }
+  [MODEL_IDS.haiku]:  { id: MODEL_IDS.haiku,  label: 'Claude Haiku 5.5',  tier: 0, frontier: false, inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01,
+    longContext: { thresholdTokens: 100_000, inputPerMTok: 0.5, outputPerMTok: 2.5, cacheReadPerMTok: 0.05 } },
+  [MODEL_IDS.sonnet]: { id: MODEL_IDS.sonnet, label: 'Claude Sonnet 5.5', tier: 1, frontier: false, inputPerMTok: 2,   outputPerMTok: 10,  cacheReadPerMTok: 0.1 },
+  [MODEL_IDS.opus]:   { id: MODEL_IDS.opus,   label: 'Claude Opus 5.5',   tier: 2, frontier: true,  inputPerMTok: 4,   outputPerMTok: 20,  cacheReadPerMTok: 0.2 },
+  [MODEL_IDS.fable]:  { id: MODEL_IDS.fable,  label: 'Claude Fable 5.1',  tier: 3, frontier: true,  inputPerMTok: 10,  outputPerMTok: 50,  cacheReadPerMTok: 0.25, optIn: true }
 });
 
 export function modelSpec(id) {

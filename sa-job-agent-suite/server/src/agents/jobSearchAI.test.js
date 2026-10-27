@@ -104,7 +104,7 @@ test('parseJobs keeps the complete jobs from a truncated response', () => {
   assert.equal(search.parseJobs(bareCut, 'Cape Town').length, 2);
 });
 
-test('huntViaClaudeSearch sends the 20260209 web_search tool and no beta computer or search-20250305 types', async () => {
+test('huntViaClaudeSearch sends the current web_search tool and no beta computer or old search types', async () => {
   const f = fakeClient([reply([text(JSON.stringify({ jobs: [job(1)] }))])]);
   llm.setClaudeClientForTests(f.client);
   const jobs = await search.huntViaClaudeSearch(profile({ searchDepth: 'standard' }), 'software engineer', ['Cape Town']);
@@ -113,7 +113,7 @@ test('huntViaClaudeSearch sends the 20260209 web_search tool and no beta compute
 
   const tools = f.calls[0].tools;
   assert.equal(tools.length, 1);
-  assert.equal(tools[0].type, 'web_search_20260209');
+  assert.equal(tools[0].type, 'web_search_20260318');
   assert.equal(tools[0].name, 'web_search');
   assert.equal(tools[0].max_uses, 5);
   assert.deepEqual(tools[0].user_location, { type: 'approximate', country: 'ZA', timezone: 'Africa/Johannesburg' });
@@ -170,7 +170,7 @@ test('deep depth makes a second request that continues the first conversation', 
   assert.equal(f.calls.length, 2);
   const [c1, c2] = f.calls;
   assert.equal(c1.tools[0].max_uses, 8);
-  assert.equal(c2.tools[0].type, 'web_search_20260209');
+  assert.equal(c2.tools[0].type, 'web_search_20260318');
   assert.equal(c2.tools[0].max_uses, 4);
 
   // Second call = first prompt, the first assistant answer, then the follow-up.
@@ -199,7 +199,7 @@ test('findDirectPostingUrl returns \'\' for NONE and the first https URL otherwi
   const none = fakeClient([reply([text('NONE')])]);
   llm.setClaudeClientForTests(none.client);
   assert.equal(await search.findDirectPostingUrl(profile(), j), '');
-  assert.equal(none.calls[0].tools[0].type, 'web_search_20260209');
+  assert.equal(none.calls[0].tools[0].type, 'web_search_20260318');
   assert.equal(none.calls[0].tools[0].max_uses, 3);
   assert.equal(helper.getUsageSummary().today.byBucket['link-repair'].calls, 1);
 
@@ -210,7 +210,7 @@ test('findDirectPostingUrl returns \'\' for NONE and the first https URL otherwi
   assert.equal(await search.findDirectPostingUrl({}, j), '');
 });
 
-test('researchCompany and findReferralContact use the 20260209 tool under their own task buckets', async () => {
+test('researchCompany and findReferralContact use the current web_search tool under their own task buckets', async () => {
   const research = await import('./companyResearch.js');
   const referral = await import('./referralAgent.js');
   const j = { title: 'Software Engineer', company: 'Acme', location: 'Cape Town' };
@@ -218,7 +218,7 @@ test('researchCompany and findReferralContact use the 20260209 tool under their 
   const r = fakeClient([reply([text('Acme builds payments software.')])]);
   llm.setClaudeClientForTests(r.client);
   assert.equal(await research.researchCompany(profile({ useResearchFanout: true }), j), 'Acme builds payments software.');
-  assert.equal(r.calls[0].tools[0].type, 'web_search_20260209');
+  assert.equal(r.calls[0].tools[0].type, 'web_search_20260318');
   assert.equal(r.calls[0].tools[0].max_uses, 3);
   assert.equal(helper.getUsageSummary().today.byBucket.research.calls, 1);
 
@@ -227,6 +227,6 @@ test('researchCompany and findReferralContact use the 20260209 tool under their 
   const contact = await referral.findReferralContact(profile(), j);
   assert.equal(contact.full_name, 'Thandi Nkosi');
   assert.equal(contact.grounded, true);
-  assert.equal(c.calls[0].tools[0].type, 'web_search_20260209');
+  assert.equal(c.calls[0].tools[0].type, 'web_search_20260318');
   assert.equal(helper.getUsageSummary().today.byBucket['referral-search'].calls, 1);
 });

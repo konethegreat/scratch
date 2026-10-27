@@ -22,7 +22,7 @@ test('a working key validates with the browser-access header', async () => {
   assert.equal(call.url, 'https://api.anthropic.com/v1/models?limit=1');
   assert.equal(call.init.headers['x-api-key'], API_KEY);
   assert.equal(call.init.headers['anthropic-dangerous-direct-browser-access'], 'true');
-  assert.equal(call.init.headers['anthropic-version'], '2023-06-01');
+  assert.equal(call.init.headers['anthropic-version'], '2026-10-21');
 });
 
 test('admin and malformed keys are refused without a request', async () => {
@@ -33,7 +33,7 @@ test('admin and malformed keys are refused without a request', async () => {
 });
 
 test('SDK-style statuses map to typed errors', async () => {
-  for (const [status, code] of [[401, 'AUTH_REJECTED'], [403, 'AUTH_REJECTED'], [429, 'RATE_LIMITED'], [529, 'OVERLOADED'], [500, 'OVERLOADED']]) {
+  for (const [status, code] of [[401, 'AUTH_REJECTED'], [403, 'KEY_PERMISSION'], [429, 'RATE_LIMITED'], [529, 'OVERLOADED'], [500, 'OVERLOADED']]) {
     await assert.rejects(() => validateAnthropicKey(API_KEY, { fetchImpl: fakeFetch(status) }), (e) => e.code === code, String(status));
   }
 });

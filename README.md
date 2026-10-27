@@ -350,6 +350,8 @@ Every error card and every contract-driven error toast names a code, the cause a
 |---|---|---|
 | `KEY_INVALID` / `KEY_ADMIN` | No key, a malformed key, or an Anthropic admin key | Paste a standard API key (`sk-ant-api…`) in Profile & Settings |
 | `AUTH_REJECTED` | Anthropic rejected the key | Check or replace the key in Profile & Settings |
+| `KEY_PERMISSION` | The key is valid but not allowed to use that model or feature | Enable the model in the Anthropic Console, or pick a different model |
+| `SPEND_CAP` | The Anthropic account behind the key reached its spend or credit limit | Raise the limit in the Anthropic Console, or use a different key |
 | `RATE_LIMITED` | Too many requests for this key | Wait about a minute, then Retry |
 | `OVERLOADED` | Anthropic is busy or the request timed out | Retry in a moment |
 | `BUDGET_EXCEEDED` | The daily AI budget is spent | Raise the cap in Settings → AI & Cost, or wait until tomorrow |

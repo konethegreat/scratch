@@ -176,6 +176,8 @@ Acceptance criteria:
 - No document text, index, or embedding leaves the browser or desktop except inside the user's own Anthropic request.
 - Prompt caching and the no-sampling-params rule still hold.
 
+**Evidence:** `packages/core/src/rag/*.test.js` covers the tokenizer, chunker, corpus, BM25 ranking, prompts, citation validation and prepare flow offline. `server/src/rag/service.test.js`, `client/src/web/rag.test.js` and `client/src/web/api.test.js` cover both services, including budget stops and usage buckets. `evals/rag.test.js` proves an answerable question cites, an unanswerable one refuses, and removing the supporting document flips an answer to a refusal. `scripts/web-rag.mjs` drives the real tab in Chromium against a mocked Anthropic endpoint and checks laziness, refusal without a call, document check gaps, the budget stop, and no key to our origin.
+
 Out of scope: a hosted vector database, server-side document storage, cross-user retrieval, and any automatic ingest of employer pages.
 
 ## Arc 6: Real-browser auto-apply

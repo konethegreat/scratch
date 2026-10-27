@@ -163,7 +163,7 @@ async function main() {
     const text = await fs.readFile(file, 'utf8');
     assert.equal(text.includes('\u2014'), false, `${relative} contains an em dash`);
     assert.equal(
-      /[\u{1F000}-\u{1FAFF}\u{25A0}-\u{27BF}]/u.test(text),
+      /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{25A0}-\u{27BF}\u{2B00}-\u{2BFF}\u{3030}\u{303D}\u{FE0F}]/u.test(text),
       false,
       `${relative} contains an emoji`
     );

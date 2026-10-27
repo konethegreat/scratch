@@ -7,9 +7,9 @@ import { Trash2, Save, Sparkles, Inbox } from 'lucide-react';
  * Three parts:
  *   1) A structured questionnaire of the questions that recur on SA job sites.
  *      These are mapped DETERMINISTICALLY by Agent 3 (no AI guessing). ID/passport
- *      number is deliberately NOT collected — paste it per-application.
+ *      number is deliberately NOT collected: paste it per-application.
  *   2) The learn-as-you-go answer bank (questions Agent 3 has learned).
- *   3) Pending questions Agent 3 captured but couldn't answer — answer once here
+ *   3) Pending questions Agent 3 captured but couldn't answer: answer once here
  *      and they're remembered for every future application.
  */
 
@@ -69,7 +69,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
         body: JSON.stringify({ answer }),
       });
       if (res.ok) {
-        toasts?.success?.('Saved to your answer bank — it will auto-fill next time.');
+        toasts?.success?.('Saved to your answer bank. It will auto-fill next time.');
         setDrafts((d) => { const n = { ...d }; delete n[q.id]; return n; });
         refresh();
       } else {
@@ -105,9 +105,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
           <Sparkles size={14} color="var(--color-accent)" />
         </div>
         <p className="hint" style={{ marginTop: 0 }}>
-          Answer the questions SA job sites ask most. The Apply Copilot fills these exactly as you
-          set them — demographics and salary are never guessed. Everything is optional and stored
-          locally only. Your ID/passport number is intentionally not saved here — paste it per application.
+          Answer the questions SA job sites ask most. Set them yourself. Demographics and salary are never guessed. Everything is optional and stored locally only. Your ID or passport number is intentionally not saved here. Paste it per application.
         </p>
       </div>
 
@@ -125,7 +123,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
                 style={{ width: '100%', fontSize: 12 }}
               >
                 {f.options.map((o) => (
-                  <option key={o} value={o}>{o === '' ? '— select —' : o}</option>
+                  <option key={o} value={o}>{o === '' ? 'Select an option' : o}</option>
                 ))}
               </select>
             ) : (

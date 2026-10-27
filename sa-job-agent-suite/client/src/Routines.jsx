@@ -4,11 +4,11 @@ import {
 } from 'lucide-react';
 
 /**
- * Routines tab (T1) — unattended, recurring runs.
+ * Routines tab (T1): unattended, recurring runs.
  *
  * A routine runs the Job Hunter on a schedule and can optionally auto-tailor the
  * top matches, so the user wakes up to application-ready packages. Routines
- * NEVER submit applications — they only find and prepare. The human always
+ * NEVER submit applications: they only find and prepare. The human always
  * reviews and applies (Apply Copilot stays a manual, supervised step).
  *
  * Every paid token of work is opt-in: "Find only" routines cost the least;
@@ -185,11 +185,11 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
       <div className="panel" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <ShieldCheck size={20} color="var(--color-success)" style={{ flexShrink: 0, marginTop: 2 }} />
         <div>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Routines find and prepare — they never apply for you.</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Routines find and prepare. They never apply for you.</div>
           <p className="muted" style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
             A routine runs the Job Hunter on your schedule and can auto-tailor the top matches, so you wake up to
-            ready-to-send packages. It will <strong>never open the Apply Copilot or submit an application</strong> —
-            you always review and click apply yourself. Runs happen only while the app is open; a missed daily run
+            ready-to-send packages. It will <strong>never open the Apply Copilot or submit an application</strong>. You
+            always review and click apply yourself. Runs happen only while the app is open; a missed daily run
             catches up the next time you open it.
           </p>
         </div>
@@ -232,7 +232,7 @@ export default function Routines({ apiBase, toasts, jobs = [], onReview, refresh
               <span className="hint">
                 {form.type === 'hunt' && 'Just discovers and saves new jobs. No tailoring cost.'}
                 {form.type === 'hunt_and_tailor' && 'Discovers jobs, then writes a tailored CV + cover letter for the top matches.'}
-                {form.type === 'dream' && 'No hunting. Reviews your past application outcomes and curates your Candidate Memory — strengthens what wins interviews, drops noise. One small AI call. Best run nightly.'}
+                {form.type === 'dream' && 'No hunting. Reviews your past application outcomes and curates your Candidate Memory: strengthens what wins interviews, drops noise. One small AI call. Best run nightly.'}
                 {form.type === 'canary' && 'Visits one page per enabled source, records each source’s health on the Hunter board, and never hunts, tailors, applies or calls the AI. Use it to notice a broken board early.'}
               </span>
             </div>

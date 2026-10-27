@@ -247,14 +247,14 @@ function LinkBadge({ status }) {
   }
   if (status === 'unverified') {
     return (
-      <span className="badge badge-warning" title="Couldn't confirm this link (site blocked the check or timed out) — open with care" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+      <span className="badge badge-warning" title="Couldn't confirm this link (site blocked the check or timed out). Open with care." style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
         <AlertTriangle size={11} /> Unverified
       </span>
     );
   }
   if (status === 'dead') {
     return (
-      <span className="badge badge-error" title="A re-check found this posting is gone (expired/removed). Kept so you can decide — but the link likely won't work." style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+      <span className="badge badge-error" title="A re-check found this posting is gone (expired or removed). Kept so you can decide, but the link likely won't work." style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
         <AlertTriangle size={11} /> Expired
       </span>
     );
@@ -371,7 +371,7 @@ export default function App() {
   const [confirm, setConfirm] = useState({ open: false });
   const [addJobOpen, setAddJobOpen] = useState(false);
 
-  // API-key reveal state — when toggled, the user is "replacing" the saved key
+  // API-key reveal state: when toggled, the user is "replacing" the saved key
   const [revealKey, setRevealKey] = useState(false);
   // The model registry (GET /api/models) feeds the model dropdowns.
   const [models, setModels] = useState([]);
@@ -441,7 +441,7 @@ export default function App() {
       setHunterRunning(Boolean(data?.hunter?.isRunning));
       setHunterResult(data?.hunter?.lastResult || null);
     } catch (err) {
-      // ignore — server may be booting
+      // ignore: server may be booting
     }
   }, []);
 
@@ -452,7 +452,7 @@ export default function App() {
       const data = await res.json();
       setDocuments(Array.isArray(data) ? data : []);
     } catch (err) {
-      // ignore — server may be booting
+      // ignore: server may be booting
     }
   }, []);
 
@@ -540,7 +540,7 @@ export default function App() {
     };
   }, [webReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep the terminal pinned to its newest line — but scroll ONLY the terminal's
+  // Keep the terminal pinned to its newest line, but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
   // ancestor (including the window), so each 3s log poll yanked the whole
   // dashboard back down whenever you tried to scroll up. We set the container's
@@ -817,7 +817,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/browser/setup`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        toasts.info('Browser opened with LinkedIn and Indeed sign-in pages. Log in, then close the window — your sessions will be saved for all future scraping runs.', 'Login browser open');
+        toasts.info('Browser opened with LinkedIn and Indeed sign-in pages. Log in, then close the window. Your sessions will be saved for all future scraping runs.', 'Login browser open');
         setActiveTab('logs');
       } else {
         fail(contractFromBody(data, res.status, 'Could not open browser.'), 'browser setup');
@@ -904,7 +904,7 @@ export default function App() {
     try {
       const dataBase64 = await new Promise((resolve, reject) => {
         const r = new FileReader();
-        r.onload = () => resolve(r.result);   // data: URL — server strips the prefix
+        r.onload = () => resolve(r.result);   // data URL: server strips the prefix
         r.onerror = () => reject(new Error('Could not read the file.'));
         r.readAsDataURL(file);
       });
@@ -1017,7 +1017,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.success) {
         const labels = { saver: 'Token Saver', balanced: 'Balanced', max: 'Maximum' };
-        toasts.success(`${labels[mode] || mode} mode applied — every cost toggle updated.`, 'Performance mode');
+        toasts.success(`${labels[mode] || mode} mode applied. Every cost toggle updated.`, 'Performance mode');
         await fetchProfile();
         setRefreshTick((t) => t + 1);
       } else {
@@ -1080,7 +1080,7 @@ export default function App() {
   const tailoredJobs = jobs.filter((j) => j.status === 'tailored' || j.status === 'applied').length;
   const appliedJobs = jobs.filter((j) => j.status === 'applied').length;
 
-  // Setup readiness — drives the dashboard checklist so the user can always see
+  // Setup readiness: drives the dashboard checklist so the user can always see
   // what's still needed instead of running the hunter and getting a silent zero.
   const keywordCount = (profile.keywords || '').split(',').map((s) => s.trim()).filter(Boolean).length;
   const locationCount = (profile.locations || '').split(',').map((s) => s.trim()).filter(Boolean).length;
@@ -1116,13 +1116,13 @@ export default function App() {
 
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
-    hunter:    { title: 'Job Hunter',          subtitle: 'AI web search (Claude) first, then the 12-source scraper registry (health-aware and paginated) — major boards first: LinkedIn, Indeed SA, PNet, CareerJunction, then Google Jobs, Adzuna SA, Executive/Job Placements, National Government, JobMail, Jobs.co.za, Gumtree SA.' },
+    hunter:    { title: 'Job Hunter',          subtitle: 'Claude web search first, then 12 South African job boards, with link checks.' },
     feeds:     { title: 'Job Feeds',           subtitle: 'Public job feeds fetched by your browser. Filter them, then add the ones worth tracking. No key needed.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
-    referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message — you review and send.' },
-    routines:  { title: 'Routines',            subtitle: 'Schedule unattended hunts that find — and optionally tailor — jobs while you sleep. They never apply for you.' },
-    memory:    { title: 'Candidate Memory',    subtitle: 'Your evolving dossier — learned insights, employer notes and what wins. Read by all three agents.' },
+    referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message for you to review and send.' },
+    routines:  { title: 'Routines',            subtitle: 'Schedule unattended hunts that find jobs, and optionally tailor them, while you sleep. They never apply for you.' },
+    memory:    { title: 'Candidate Memory',    subtitle: 'Learned insights, employer notes and what wins. Read by all three agents.' },
     logs:      { title: 'Activity Console',    subtitle: 'Real-time, colour-coded logs from each running agent.' },
     profile:   { title: 'Profile & Settings',  subtitle: 'Anthropic key, search criteria, personal info and base CV.' }
   };
@@ -1149,7 +1149,7 @@ export default function App() {
     );
   }
 
-  // Immersive personal landing page — the entry screen (no sidebar chrome).
+  // Immersive personal landing page: the entry screen (no sidebar chrome).
   if (activeTab === 'landing') {
     return (
       <>
@@ -1295,7 +1295,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }} className="fade-in">
 
-            {/* Setup checklist — shows what's still needed before the hunter can work */}
+            {/* Setup checklist: shows what's still needed before the hunter can work */}
             {!SYNTHETIC_DEMO && <SetupChecklist
               checks={setupChecks}
               complete={setupComplete}
@@ -1303,7 +1303,7 @@ export default function App() {
               onFix={() => setActiveTab('profile')}
             />}
 
-            {/* Last-run summary — surfaces why a run found what it found */}
+            {/* Last-run summary: surfaces why a run found what it found */}
             <RunSummary
               result={hunterResult}
               running={hunterRunning}
@@ -1409,7 +1409,7 @@ export default function App() {
                   </button>
                 )}
                 {!IS_WEB && jobs.length > 0 && (
-                  <button className="btn-secondary" onClick={revalidateLinks} disabled={revalidating} title="Re-check saved job links — flags ones that have since expired (never deletes)">
+                  <button className="btn-secondary" onClick={revalidateLinks} disabled={revalidating} title="Re-check saved job links. Flags ones that have since expired, never deletes">
                     {revalidating ? <Loader2 size={14} className="spin" /> : <ShieldCheck size={14} />} Re-check links
                   </button>
                 )}
@@ -1425,12 +1425,12 @@ export default function App() {
               </div>
             </div>
 
-            {/* Engine + scope echo — confirms exactly what the next run will do */}
+            {/* Engine + scope echo: confirms exactly what the next run will do */}
             <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Next run:</span>
               <span>engine</span>
               <span className={`badge ${aiSearchOn ? 'badge-success' : 'badge-info'}`}>{aiSearchOn ? 'AI Search (Claude)' : 'Scrapers only'}</span>
-              {aiSearchOn && <span className="badge badge-accent" title="Search thoroughness — change in Settings → Job Search">depth: {profile.searchDepth || 'standard'}</span>}
+              {aiSearchOn && <span className="badge badge-accent" title="Search thoroughness. Change it in Settings, then Job Search">depth: {profile.searchDepth || 'standard'}</span>}
               {aiSearchOn && !profile.hasAnthropicKey && (
                 <span className="badge badge-error" title="AI search needs an Anthropic key">
                   <AlertTriangle size={11} aria-hidden="true" /> No Anthropic key
@@ -1788,7 +1788,7 @@ export default function App() {
             <p className="muted" style={{ fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
               Applications can disappear into an ATS. For each job you've applied to, this finds one real senior engineer
               (Engineering Manager / Tech Lead / CTO) at the company and drafts a short, peer-to-peer message you can send
-              to open a human conversation. <strong>Nothing is sent automatically</strong> — you review, edit, and reach out.
+              to open a human conversation. <strong>Nothing is sent automatically</strong>. You review, edit, and reach out.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1843,7 +1843,7 @@ export default function App() {
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <h3 style={{ fontSize: 18 }}>Real-time agent console</h3>
-                <p className="muted" style={{ fontSize: 12 }}>Browser steps, AI calls and database changes — all streamed live.</p>
+                <p className="muted" style={{ fontSize: 12 }}>Browser steps, AI calls and database changes, all streamed live.</p>
               </div>
               <button className="btn-secondary" onClick={clearSystemLogs}><Trash2 size={12} /> Clear logs</button>
             </div>
@@ -1877,7 +1877,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Sub-tab navigation — settings grouped instead of one long scroll */}
+            {/* Sub-tab navigation: settings grouped instead of one long scroll */}
             <SettingsSubTabs
               current={settingsTab}
               onChange={setSettingsTab}
@@ -1894,7 +1894,7 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
             {settingsTab === 'ai' && (<>
-              {/* Performance mode — one click sets every cost toggle */}
+              {/* Performance mode: one click sets every cost toggle */}
               {!IS_WEB && (
                 <section>
                   <SectionHeader title="Performance mode" subtitle="One click configures every cost-relevant setting at once. Token Saver protects your API spend; Maximum turns everything on. Tweak any toggle afterwards and the mode honestly reads as Custom." />
@@ -1904,7 +1904,7 @@ export default function App() {
 
               {/* Usage & budget */}
               <section>
-                <SectionHeader title="AI usage & daily budget" subtitle="Estimated spend across every AI feature (your Anthropic invoice is the source of truth). Set a daily cap to hard-stop AI calls when it's reached — it resets at midnight." />
+                <SectionHeader title="AI usage & daily budget" subtitle="Estimated spend across every AI feature. Your Anthropic invoice is the source of truth. Set a daily cap to hard-stop AI calls when it is reached; it resets at midnight." />
                 <UsagePanel
                   apiBase={API_BASE}
                   refreshSignal={refreshTick}
@@ -1973,7 +1973,7 @@ export default function App() {
               {/* Apply Copilot intelligence (planner / vision / computer-use) */}
               {!IS_WEB && (
                 <section>
-                  <SectionHeader title="Apply Copilot intelligence" subtitle="How much AI the copilot uses while walking application forms. Each step up is smarter — and costs more." />
+                  <SectionHeader title="Apply Copilot intelligence" subtitle="How much AI the copilot uses while walking application forms. Each step up is smarter and costs more." />
 
                 <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-surface-2)' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: 0 }}>
@@ -1983,7 +1983,7 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useAiPlanner: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Apply Copilot — smart page understanding (planner)</span>
+                    <span style={{ fontWeight: 600 }}>Apply Copilot: smart page understanding (planner)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
                     Lets Agent 3 use your Anthropic key to comprehend each page (form vs listing vs login) and decide whether to fill it or click through to the real application. One cheap text call per page, capped per session. Recommended on.
@@ -1995,7 +1995,7 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useVision: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>AI vision fallback (experimental — uses more credit)</span>
+                    <span style={{ fontWeight: 600 }}>AI vision fallback (experimental, uses more credit)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
                     When the planner is unsure, send a screenshot to Claude so it can actually see tricky or custom pages. Costs more per call. Off by default.
@@ -2007,10 +2007,10 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useComputerUse: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Computer-use form filler (advanced — highest cost)</span>
+                    <span style={{ fontWeight: 600 }}>Computer-use form filler (advanced, highest cost)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Lets Claude <strong>see and operate</strong> the live form after smart-fill, completing tricky or custom fields that label-matching can&apos;t. It is the most token-hungry feature, so it&apos;s off by default. It <strong>never clicks Submit</strong> — that&apos;s hard-blocked in code — and stops on any CAPTCHA. Best on a window around 1280px wide for click accuracy.
+                    Lets Claude <strong>see and operate</strong> the live form after smart-fill, completing tricky or custom fields that label-matching can&apos;t. It is the most token-hungry feature, so it&apos;s off by default. It <strong>never clicks Submit</strong>, which is hard-blocked in code, and stops on any CAPTCHA. Best on a window around 1280px wide for click accuracy.
                   </span>
                   {profile.useComputerUse === true && (
                     <div className="grid-2" style={{ marginTop: 10 }}>
@@ -2067,7 +2067,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Company research fan-out (richer cover letters)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Before tailoring, a sub-agent uses <strong>live web search</strong> to research each employer and role (sector, recent news, salary context) so the cover letter is specific to the company — not generic. <strong>Anthropic key required</strong>; web search is billed (~$10/1,000) and it&apos;s the most token-hungry tailoring add-on, so it&apos;s off by default. Briefs are gathered in parallel across a batch.
+                    Before tailoring, a sub-agent uses <strong>live web search</strong> to research each employer and role (sector, recent news, salary context) so the cover letter is specific to the company, not generic. <strong>Anthropic key required</strong>; web search is billed (~$10/1,000) and it is the most token-hungry tailoring add-on, so it is off by default. Briefs are gathered in parallel across a batch.
                   </span>
                 </div>
 
@@ -2079,10 +2079,10 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useStructuredOutputs: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Structured outputs — reliable form-filling & planning</span>
+                    <span style={{ fontWeight: 600 }}>Structured outputs for reliable form-filling and planning</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Forces the AI to return guaranteed-valid JSON when mapping forms and planning pages, removing a whole class of parsing errors. No extra cost. Recommended on — switch off only if you hit a schema error.
+                    Forces the AI to return guaranteed-valid JSON when mapping forms and planning pages, removing a whole class of parsing errors. No extra cost. Recommended on. Switch off only if you hit a schema error.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -2091,7 +2091,7 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, usePromptCaching: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Prompt caching — cheaper repeat tailoring</span>
+                    <span style={{ fontWeight: 600 }}>Prompt caching for cheaper repeat tailoring</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
                     Caches your base CV across tailoring calls so repeat runs reuse it at ~10% of the input cost. Needs a CV long enough to meet the cache minimum (longer on the smaller models). It only ever saves money. Recommended on.
@@ -2103,10 +2103,10 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useMemoryReflection: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Candidate memory — learn from each application</span>
+                    <span style={{ fontWeight: 600 }}>Candidate memory that learns from each application</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    After each confirmed application, the AI distils a few durable insights about you (strengths, preferences, what you said) into your <strong>Candidate Memory</strong> dossier, which all three agents then read. Uses your Anthropic key; costs one small call per application. Turn off to keep memory manual-only — the dossier still records your application history either way.
+                    After each confirmed application, the AI distils a few durable insights about you (strengths, preferences, what you said) into your <strong>Candidate Memory</strong> dossier, which all three agents then read. Uses your Anthropic key; costs one small call per application. Turn off to keep memory manual-only. The dossier still records your application history either way.
                   </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', margin: '12px 0 0 0' }}>
                     <input
@@ -2115,10 +2115,10 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useDreaming: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>Dreaming — let memory learn what wins</span>
+                    <span style={{ fontWeight: 600 }}>Dreaming: let memory learn what wins</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    A periodic reflective pass that reviews your application <strong>outcomes</strong> (interview/offer vs rejected) and curates the dossier — strengthening the insights and phrasings that keep winning, dropping noise. Run it on a schedule via a <strong>Reflect &amp; learn</strong> routine, or on demand with <strong>Reflect now</strong> in the Candidate Memory tab. Uses your Anthropic key; one small call per pass. Your manually-added insights are never removed.
+                    A periodic reflective pass that reviews your application <strong>outcomes</strong> (interview or offer versus rejected) and curates the dossier: strengthening the insights and phrasings that keep winning, dropping noise. Run it on a schedule via a <strong>Reflect and learn</strong> routine, or on demand with <strong>Reflect now</strong> in the Candidate Memory tab. Uses your Anthropic key; one small call per pass. Your manually-added insights are never removed.
                   </span>
                 </div>
               </section>
@@ -2224,10 +2224,10 @@ export default function App() {
                       onChange={(e) => setProfile({ ...profile, useAiSearch: e.target.checked })}
                       style={{ width: 16, height: 16 }}
                     />
-                    <span style={{ fontWeight: 600 }}>AI job search (Claude live web search) — primary engine</span>
+                    <span style={{ fontWeight: 600 }}>AI job search (Claude live web search), primary engine</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Uses your <strong>Anthropic API key</strong> to search the live web for real SA vacancies (grounded, with source links — not invented). This is the most reliable source; the site scrapers run as a fallback. Web search is billed by Anthropic (~$10/1,000 searches) and must be enabled in your Anthropic Console.
+                    Uses your <strong>Anthropic API key</strong> to search the live web for real SA vacancies (grounded, with source links, not invented). This is the most reliable source; the site scrapers run as a fallback. Web search is billed by Anthropic (~$10/1,000 searches) and must be enabled in your Anthropic Console.
                   </span>
                   {profile.useAiSearch !== false && (
                     <div style={{ marginTop: 12, maxWidth: 460 }}>
@@ -2236,11 +2236,11 @@ export default function App() {
                         value={profile.searchDepth || 'standard'}
                         onChange={(e) => setProfile({ ...profile, searchDepth: e.target.value })}
                       >
-                        <option value="light">Light — cheapest (2 web searches per keyword, ~10 results)</option>
-                        <option value="standard">Standard — recommended (5 searches per keyword, ~20 results)</option>
-                        <option value="deep">Deep — most thorough (8 searches + a second pass per keyword)</option>
+                        <option value="light">Light: cheapest (2 web searches per keyword, ~10 results)</option>
+                        <option value="standard">Standard: recommended (5 searches per keyword, ~20 results)</option>
+                        <option value="deep">Deep: most thorough (8 searches + a second pass per keyword)</option>
                       </select>
-                      <span className="hint">Deep runs a second, differently-targeted search round per keyword (PNet, CareerJunction, employer ATS pages) so far fewer roles slip through — at roughly double the search cost.</span>
+                      <span className="hint">Deep runs a second, differently-targeted search round per keyword (PNet, CareerJunction, employer ATS pages) so far fewer roles slip through, at roughly double the search cost.</span>
                     </div>
                   )}
                 </div>
@@ -2256,7 +2256,7 @@ export default function App() {
                     <span style={{ fontWeight: 600 }}>Verify job links before saving (recommended)</span>
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    Before a job is saved, its link is shape-checked and opened (browser-grade) to confirm the advert is live — so <strong>only confirmed-dead links are dropped</strong>. Links on junk repost-aggregators (Jooble, Jobrapido, WhatJobs…) are stripped so the copilot never lands on them. Anything we can't confirm is kept and flagged <em>Unverified</em>. Adds a few seconds per run.
+                    Before a job is saved, its link is shape-checked and opened (browser-grade) to confirm the advert is live, so <strong>only confirmed-dead links are dropped</strong>. Links on junk repost-aggregators (Jooble, Jobrapido, WhatJobs and similar) are stripped so the copilot never lands on them. Anything we cannot confirm is kept and flagged <em>Unverified</em>. Adds a few seconds per run.
                   </span>
                 </div>
 
@@ -2272,7 +2272,7 @@ export default function App() {
                     {!profile.hasAnthropicKey && <span className="badge badge-warning" style={{ marginLeft: 6 }}>needs Anthropic key</span>}
                   </label>
                   <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-                    When a found job has no usable apply link, ask Claude (grounded web search) to find the real posting URL, then re-verify it before saving. <strong>Billed per search and capped per run</strong>, so it's off by default — turn on if you want fewer linkless leads.
+                    When a found job has no usable apply link, ask Claude (grounded web search) to find the real posting URL, then re-verify it before saving. <strong>Billed per search and capped per run</strong>, so it is off by default. Turn it on if you want fewer linkless leads.
                   </span>
                 </div>
               </section>
@@ -2281,7 +2281,7 @@ export default function App() {
               <section>
                 <SectionHeader
                   title="Job site logins"
-                  subtitle="Sign in to all 6 SA job sites at once. Sessions are saved to your persistent browser profile and reused by every future scraping run — no need to sign in again."
+                  subtitle="Sign in to all 6 SA job sites at once. Sessions are saved to your persistent browser profile and reused by every future scraping run, with no need to sign in again."
                 />
                 <div className="flex-gap" style={{ alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
                   <button
@@ -2291,7 +2291,7 @@ export default function App() {
                     disabled={isBrowserSetupOpen}
                   >
                     {isBrowserSetupOpen ? <Loader2 size={14} className="spin" /> : <ExternalLink size={14} />}
-                    {isBrowserSetupOpen ? 'Browser open — sign in then close window…' : 'Open login browser'}
+                    {isBrowserSetupOpen ? 'Browser open. Sign in, then close the window.' : 'Open login browser'}
                   </button>
                   <button
                     type="button"
@@ -2303,7 +2303,7 @@ export default function App() {
                     {isCheckingLogins ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
                     {isCheckingLogins ? 'Checking…' : 'Check status'}
                   </button>
-                  <span className="hint">Opens Chrome with login tabs for LinkedIn, Indeed SA, PNet, CareerJunction &amp; Gumtree SA. Do this once — sessions are saved permanently to your browser profile.</span>
+                  <span className="hint">Opens Chrome with login tabs for LinkedIn, Indeed SA, PNet, CareerJunction &amp; Gumtree SA. Do this once. Sessions are saved permanently to your browser profile.</span>
                 </div>
 
                 {/* Per-site login status badges */}
@@ -2350,7 +2350,7 @@ export default function App() {
             </>)}
 
             {settingsTab === 'answers' && (
-              /* Application defaults — structured questionnaire + learn-as-you-go bank */
+              /* Application defaults: structured questionnaire + learn-as-you-go bank */
               <ApplicationAnswers
                 appProfile={profile.applicationProfile || {}}
                 onChangeField={(key, value) =>
@@ -2368,7 +2368,7 @@ export default function App() {
             )}
 
             {settingsTab === 'data' && (<>
-              {/* Supporting documents — reusable PDFs Agent 3 attaches to matching
+              {/* Supporting documents: reusable PDFs Agent 3 attaches to matching
                   upload fields (ID, matric, degree, academic record). Managed via
                   their own endpoints, so they save instantly (no form submit). */}
               <section className="panel" style={{ padding: 20 }}>
@@ -2376,7 +2376,7 @@ export default function App() {
                   <FileText size={16} /> Supporting documents
                 </h3>
                 <p className="hint" style={{ marginBottom: 16 }}>
-                  Upload your ID, matric certificate, qualification and academic record once — <strong>PDF only, max 15 MB</strong>.
+                  Upload your ID, matric certificate, qualification and academic record once. <strong>PDF only, max 15 MB</strong>.
                   The Apply Copilot attaches each to the matching upload field automatically, and never uploads a non-PDF.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2386,7 +2386,7 @@ export default function App() {
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{doc.label}</div>
                         {doc.uploaded ? (
                           <div className="tiny" style={{ color: 'var(--color-success)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
-                            ✓ {doc.originalName}{doc.size ? ` · ${(doc.size / 1024).toFixed(0)} KB` : ''}
+                            <CheckCircle2 size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 2 }} /> {doc.originalName}{doc.size ? ` · ${(doc.size / 1024).toFixed(0)} KB` : ''}
                           </div>
                         ) : (
                           <div className="tiny" style={{ color: 'var(--text-muted)' }}>Not uploaded</div>
@@ -2428,7 +2428,7 @@ export default function App() {
                 </button>
               </section>
 
-              {/* Danger zone — wipe stored data. Profile, API keys and uploaded
+              {/* Danger zone: wipe stored data. Profile, API keys and uploaded
                   documents are preserved. */}
               <section className="panel" style={{ padding: 20, borderLeft: '3px solid var(--color-error)' }}>
                 <h3 style={{ fontSize: 16, marginBottom: 4, color: 'var(--color-error)' }}>Danger zone</h3>
@@ -2522,7 +2522,7 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
   if (!result) {
     return running
       ? <div className="panel" style={{ padding: 14, fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Loader2 size={14} className="spin" /> Hunter is running — results will appear here when it finishes.
+          <Loader2 size={14} className="spin" /> Hunter is running. Results will appear here when it finishes.
         </div>
       : null;
   }
@@ -2541,7 +2541,7 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
     if (!aiSearchOn) {
       diagnosis = 'AI Search is off, and the site scrapers alone are frequently bot-blocked. Turn on AI Search (needs an Anthropic key) for reliable results.';
     } else if (!hasAnthropicKey) {
-      diagnosis = 'AI Search is on but no Anthropic key is set, so it was skipped — and the scrapers returned nothing. Add an Anthropic key to enable AI search.';
+      diagnosis = 'AI Search is on but no Anthropic key is set, so it was skipped, and the scrapers returned nothing. Add an Anthropic key to enable AI search.';
     } else {
       diagnosis = 'The engine ran but matched nothing. Try broader or fewer keywords, add more locations, or check the Activity Console for bot-blocks on individual sites.';
     }
@@ -2568,8 +2568,8 @@ function RunSummary({ result, running, aiSearchOn, hasAnthropicKey, onConfig }) 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: zero ? 10 : 0 }}>
           <span className="tiny" style={{ color: 'var(--text-muted)' }}>Link health:</span>
           {ls.live > 0 && <span className="badge badge-success" title="Verified live before saving"><ShieldCheck size={10} /> {ls.live} live</span>}
-          {ls.unverified > 0 && <span className="badge badge-warning" title="Couldn't confirm (bot-blocked/timeout) — kept anyway">{ls.unverified} unverified</span>}
-          {ls.noLink > 0 && <span className="badge badge-info" title="Kept as leads — no direct apply link">{ls.noLink} lead{ls.noLink === 1 ? '' : 's'}</span>}
+          {ls.unverified > 0 && <span className="badge badge-warning" title="Couldn't confirm (bot-blocked or timeout). Kept anyway">{ls.unverified} unverified</span>}
+          {ls.noLink > 0 && <span className="badge badge-info" title="Kept as leads, with no direct apply link">{ls.noLink} lead{ls.noLink === 1 ? '' : 's'}</span>}
           {ls.repaired > 0 && <span className="badge badge-accent" title="Missing links found via AI grounded search"><RotateCw size={10} aria-hidden="true" /> {ls.repaired} repaired</span>}
           {ls.dead > 0 && <span className="badge badge-error" title="Confirmed-dead links dropped (never saved)">{ls.dead} dead dropped</span>}
         </div>
@@ -2655,10 +2655,10 @@ function ApiKeyField({ label, hasKey, revealed, value, onChange, onReveal, onCle
   );
 }
 
-// "Claude Sonnet 5.5 — $2 / $10 per MTok" for the model dropdowns.
+// "Claude Sonnet 5.5: $2 / $10 per MTok" for the model dropdowns.
 const fmtPrice = (n) => (!Number.isFinite(n) ? '?' : Number.isInteger(n) ? String(n) : n.toFixed(2));
 function modelOptionLabel(m) {
-  return `${m.label} — $${fmtPrice(m.inputPerMTok)} / $${fmtPrice(m.outputPerMTok)} per MTok${m.optIn ? ' (opt-in)' : ''}`;
+  return `${m.label}: $${fmtPrice(m.inputPerMTok)} / $${fmtPrice(m.outputPerMTok)} per MTok${m.optIn ? ' (opt-in)' : ''}`;
 }
 
 /* ---------------------------------------------------------------- */
@@ -2737,7 +2737,7 @@ function PresetCards({ active, busy, onApply }) {
       </div>
       {active === 'custom' && (
         <p className="hint" style={{ marginTop: 10 }}>
-          Current mode: <strong>Custom</strong> — your settings don't exactly match a preset. Click a card to snap every cost toggle to that bundle.
+          Current mode: <strong>Custom</strong>. Your settings do not exactly match a preset. Click a card to snap every cost toggle to that bundle.
         </p>
       )}
     </div>
@@ -2846,7 +2846,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
         </div>
       )}
       {buckets.length === 0 && (
-        <p className="tiny" style={{ marginBottom: 12 }}>No AI calls recorded today yet — run the hunter or tailor a job and the breakdown appears here.</p>
+        <p className="tiny" style={{ marginBottom: 12 }}>No AI calls recorded today yet. Run the hunter or tailor a job and the breakdown appears here.</p>
       )}
 
       {/* Cost per task */}
@@ -2897,7 +2897,7 @@ function UsagePanel({ apiBase, refreshSignal, budgetUSD, onChangeBudget, onClear
         </button>
       </div>
       <span className="hint" style={{ display: 'block', marginTop: 6 }}>
-        0 = no cap. When today's estimated spend reaches the cap, <strong>every AI call refuses</strong> (hunter AI search, tailoring, smart-fill, research, dreaming…) until midnight. Costs are estimates from public pricing — check the Anthropic Console for exact billing. Click <strong>Save configuration</strong> to apply a new cap.
+        0 = no cap. When today's estimated spend reaches the cap, <strong>every AI call refuses</strong> (hunter AI search, tailoring, smart-fill, research, dreaming) until midnight. Costs are estimates from public pricing. Check the Anthropic Console for exact billing. Click <strong>Save configuration</strong> to apply a new cap.
       </span>
     </div>
   );
@@ -2929,7 +2929,7 @@ function DocumentBox({ title, tone, text, filename, onCopy, onDownload }) {
 }
 
 /* ---------------------------------------------------------------- */
-/* Referral Network Bypass — post-application direct outreach        */
+/* Referral Network Bypass: post-application direct outreach        */
 /* ---------------------------------------------------------------- */
 function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
   const [referral, setReferral] = useState(job.referral || null);
@@ -2947,7 +2947,7 @@ function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
         toasts.success(
           data.referral.contact?.full_name
             ? `Found ${data.referral.contact.full_name} at ${job.company}.`
-            : 'Outreach channel ready — search link + draft message.',
+            : 'Outreach channel ready. Search link and draft message.',
           'Direct Outreach Channel'
         );
         onSaved && onSaved();
@@ -2976,7 +2976,7 @@ function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
         <div className="flex-gap" style={{ alignItems: 'center' }}>
           <Send size={14} color="var(--color-accent)" />
           <span style={{ fontSize: 13, fontWeight: 700 }}>Direct Outreach Channel</span>
-          <span className="tiny muted">Skip the ATS — reach a human</span>
+          <span className="tiny muted">Skip the ATS and reach a human</span>
         </div>
         {referral && (
           <button className="btn-ghost btn-xs" onClick={build} disabled={loading} title="Find a different contact / redraft">
@@ -2989,7 +2989,7 @@ function ReferralPanel({ job, apiBase, toasts, fail, copyText, onSaved }) {
         <div style={{ marginTop: 10 }}>
           <p className="tiny muted" style={{ marginBottom: 8, lineHeight: 1.5 }}>
             Find a senior engineer (Eng Manager / Tech Lead / CTO) at {job.company} and draft a peer-to-peer
-            message you can send for a referral. Drafts only — nothing is sent automatically.
+            message you can send for a referral. Drafts only, nothing is sent automatically.
           </p>
           <button className="btn-secondary btn-sm" onClick={build} disabled={loading}>
             {loading ? <Loader2 size={13} className="spin" /> : <Search size={13} />}

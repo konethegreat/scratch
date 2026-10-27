@@ -5,10 +5,10 @@ import { Brain, Trash2, Plus, Building2, ClipboardList, Sparkles, RefreshCw, Moo
  * Candidate Memory (evolving dossier) tab.
  *
  * Reads /api/memory and renders three growing sections:
- *   1) Insights — durable facts the suite has learned about the candidate
+ *   1) Insights: durable facts the suite has learned about the candidate
  *      (from AI reflection after each application, or added manually here).
- *   2) Employers — per-company notes + how many times applied.
- *   3) Applications — an outcome log. Marking interview/offer is the signal the
+ *   2) Employers: per-company notes + how many times applied.
+ *   3) Applications: an outcome log. Marking interview/offer is the signal the
  *      dossier uses to learn which phrasings win.
  *
  * All three agents read a compact digest of this when tailoring CVs and filling
@@ -90,7 +90,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
         body: JSON.stringify({ outcome })
       });
       if (res.ok) {
-        toasts?.success?.('Outcome updated — the suite learns from this.');
+        toasts?.success?.('Outcome updated. The suite learns from this.');
         refresh();
       }
     } catch { /* ignore */ }
@@ -103,7 +103,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
       const j = await res.json().catch(() => ({}));
       if (res.ok) {
         const r = j.result || {};
-        toasts?.success?.(`Reflection done — reinforced ${r.reinforced || 0}, pruned ${r.pruned || 0}, added ${r.added || 0}.`);
+        toasts?.success?.(`Reflection done. Reinforced ${r.reinforced || 0}, pruned ${r.pruned || 0}, added ${r.added || 0}.`);
         refresh();
       } else {
         toasts?.error?.(j.error || 'Could not run reflection.');
@@ -139,7 +139,7 @@ export default function CandidateMemory({ apiBase, toasts, refreshSignal }) {
           {mem.lastDream?.at && (
             <p className="hint" style={{ fontSize: 11, marginTop: 4 }}>
               <Moon size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
-              Last reflected {new Date(mem.lastDream.at).toLocaleString()} — reinforced {mem.lastDream.reinforced || 0}, pruned {mem.lastDream.pruned || 0}, added {mem.lastDream.added || 0}.
+              Last reflected {new Date(mem.lastDream.at).toLocaleString()}. Reinforced {mem.lastDream.reinforced || 0}, pruned {mem.lastDream.pruned || 0}, added {mem.lastDream.added || 0}.
             </p>
           )}
         </div>

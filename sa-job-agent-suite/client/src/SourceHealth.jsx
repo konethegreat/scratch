@@ -167,7 +167,7 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
             <Activity size={15} /> Source health
           </h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            What each registry source returned last run — and what needs attention.
+            What each registry source returned last run, and what needs attention.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -263,7 +263,7 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
                 </div>
                 <div className="tiny" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
                   <span title={row.lastSuccessAt || undefined}>last worked {relativeTime(row.lastSuccessAt)}</span>
-                  <span>returns ~{row.typicalRaw == null ? 0 : row.typicalRaw}, last run {row.lastRaw == null ? '—' : row.lastRaw}</span>
+                  <span>returns ~{row.typicalRaw == null ? 0 : row.typicalRaw}, last run {row.lastRaw == null ? 'Not set' : row.lastRaw}</span>
                   <span>
                     {pages} page{pages === 1 ? '' : 's'}
                     {row.stopReason ? ` · stopped: ${row.stopReason}` : ''}
@@ -275,8 +275,8 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
           {allUnknown && (
             <p className="tiny">
               {readOnly
-                ? 'All sources are unknown — run the crawler to collect health data.'
-                : 'All sources are unknown — launch the crawler or test sources to collect health data.'}
+                ? 'All sources are unknown. Run the crawler to collect health data.'
+                : 'All sources are unknown. Launch the crawler or test sources to collect health data.'}
             </p>
           )}
         </div>

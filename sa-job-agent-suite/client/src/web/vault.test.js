@@ -114,3 +114,43 @@ test('export -> wipe -> import keeps record keys and values', async () => {
   assert.deepEqual(await vault.get(STORES.jobs, 'job-42'), job);
   assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
 });
+
+function backup(data) {
+  return { app: 'sajas-web', schemaVersion: 1, exportedAt: '2026-10-27T00:00:00.000Z', data };
+}
+
+async function seedExisting(vault) {
+  await vault.put(STORES.profile, 'current', { fullName: 'Keep Me' });
+  await vault.put(STORES.jobs, 'job-1', { title: 'Keep Me' });
+}
+
+function assertExisting(vault) {
+  return Promise.all([
+    (async () => assert.deepEqual(await vault.get(STORES.profile, 'current'), { fullName: 'Keep Me' }))(),
+    (async () => assert.deepEqual(await vault.get(STORES.jobs, 'job-1'), { title: 'Keep Me' }))()
+  ]);
+}
+
+test('import rejects an empty data object and leaves existing records intact', async () => {
+  const { vault } = make();
+  await seedExisting(vault);
+  await assert.rejects(() => vault.importAll(backup({})), (e) => e.code === 'VALIDATION');
+  await assertExisting(vault);
+});
+
+test('import rejects array data and leaves existing records intact', async () => {
+  const { vault } = make();
+  await seedExisting(vault);
+  await assert.rejects(() => vault.importAll(backup([])), (e) => e.code === 'VALIDATION');
+  await assertExisting(vault);
+});
+
+test('import rejects an array store value and leaves existing records intact', async () => {
+  const { vault } = make();
+  await seedExisting(vault);
+  await assert.rejects(
+    () => vault.importAll(backup({ profile: {}, jobs: [], answers: {}, memory: {}, usage: {}, meta: {} })),
+    (e) => e.code === 'VALIDATION'
+  );
+  await assertExisting(vault);
+});

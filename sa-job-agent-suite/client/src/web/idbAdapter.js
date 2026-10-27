@@ -1,6 +1,7 @@
 // IndexedDB adapter for the hosted app. One database, one object store per data
-// area, created on the first open. All failures surface as AppError codes the
-// shared mapper understands (QuotaExceededError -> STORAGE_FULL).
+// area, created on the first open. Raw IndexedDB errors are rejected as-is; the
+// shared toUserError mapper translates them (e.g. QuotaExceededError ->
+// STORAGE_FULL).
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import { VAULT_STORES } from './vault.js';
 
@@ -34,8 +35,26 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
     return open().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction(store, mode);
       const request = action(tx.objectStore(store));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      let settled = false;
+      let result;
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+      // A request success only means the request was processed; the write is
+      // not durable until the transaction commits.
+      request.onsuccess = () => {
+        result = request.result;
+      };
+      request.onerror = () => fail(request.error);
+      tx.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+      tx.onerror = () => fail(tx.error || request.error);
+      tx.onabort = () => fail(tx.error || request.error);
     }));
   }
 
@@ -73,9 +92,7 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
       await run(store, 'readwrite', (s) => s.clear());
     },
     async clearAll() {
-      const db = await open();
       await Promise.all(VAULT_STORES.map((store) => run(store, 'readwrite', (s) => s.clear())));
-      void db;
     }
   };
 }

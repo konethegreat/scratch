@@ -24,6 +24,10 @@ function checkStore(store) {
   }
 }
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function createVault(adapter) {
   if (!adapter) throw new AppError(ERROR_CODES.STORAGE_UNAVAILABLE, 'Local storage is unavailable.');
 
@@ -73,15 +77,20 @@ export function createVault(adapter) {
       if (payload.schemaVersion !== EXPORT_FORMAT.schemaVersion) {
         throw new AppError(ERROR_CODES.VALIDATION, 'That backup comes from a different version of the app.');
       }
-      if (!payload.data || typeof payload.data !== 'object') {
+      if (!isPlainObject(payload.data)) {
         throw new AppError(ERROR_CODES.VALIDATION, 'That backup has no data.');
+      }
+      // Validate every store before clearing anything: one bad store must not
+      // cost the user the records that are already on this device.
+      for (const store of EXPORT_STORES) {
+        if (!isPlainObject(payload.data[store])) {
+          throw new AppError(ERROR_CODES.VALIDATION, `That backup is missing or has invalid ${store} data.`);
+        }
       }
       for (const store of EXPORT_STORES) {
         await adapter.clear(store);
-        const entries = payload.data[store];
         // One export format only: each store is a keyed map of key -> value.
-        if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
-        for (const [key, value] of Object.entries(entries)) {
+        for (const [key, value] of Object.entries(payload.data[store])) {
           await adapter.put(store, key, value);
         }
       }

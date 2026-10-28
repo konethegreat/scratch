@@ -1,6 +1,6 @@
 # Real-Browser Auto-Apply: Design
 
-**Status:** approved 2026-10-28, implementation starting
+**Status:** shipped 2026-10-28
 **Date:** 2026-10-28
 **Arc:** 8 of the post-M3a-3 pipeline
 **Sources of truth:** [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md) section "Arc 8", `SECURITY.md`, `POLICY.md`, and the user's decisions of 2026-10-28.
@@ -114,7 +114,7 @@ Consent is stored in the local database under `siteConsent`:
 - `POST /api/sites/:key/connect` acquires the browser lock, opens a visible browser on the site's login page with the persistent profile, and polls the signed-in check. On success it records consent. If the window closes or five minutes pass without a session, nothing is recorded and the response says so plainly.
 - `POST /api/sites/:key/disconnect` acquires the browser lock, clears cookies and site storage for the site's origins through the Chromium DevTools protocol, then deletes the consent entry. It reports what it cleared.
 - `GET /api/sites` returns the registry with `connected` and the consent timestamp.
-- The Profile settings section "Job site logins" gains a row per site with Connect, Disconnect and a status label. The old open-login-browser flow stays.
+- The Profile settings section "Job site logins" replaces the old open-login-browser button with a row per site and Connect or Disconnect. The shared registry still powers the sign-in status check.
 - The copilot uses the persistent profile only when the apply URL's host matches a site with consent. A host matches when it equals the site origin's host or is a subdomain of it, so `za.indeed.com` and `www.indeed.com` both match the Indeed entry. Otherwise it launches a temporary context with no saved cookies and logs: "This site is not connected. The copilot is using a temporary session; connect the site under Job site logins to reuse your login."
 - The app never sees or stores a site password. Consent records a domain and a time, nothing more.
 
@@ -135,12 +135,12 @@ Pending confirmation lives in `applyState.pendingConfirmation`:
 
 ```js
 {
-  nonce,            // 32 hex characters, one time
+  nonce,            // one-time UUID
   jobId, jobTitle, company, site,
   pageUrl,
   controlText,
   fieldsFilled,     // count
-  documents,        // [{ key, fileName }]
+  documents,        // file name strings
   createdAt, expiresAt  // 2 minutes
 }
 ```
@@ -163,7 +163,7 @@ Hard rules:
 
 - Autopilot, the planner, vision and computer-use still cannot click a final submit. Their policy modules are unchanged.
 - A confirmed submit is never retried automatically.
-- A challenge that appears while a confirmation is pending clears the pending record and hands control back to the user.
+- A challenge that appears while a confirmation is pending blocks the click. The copilot waits for the challenge to clear and never clicks through it.
 - Closing the window cancels everything. No submit happens after the user closes the copilot.
 
 ## Recording
@@ -172,7 +172,7 @@ Hard rules:
 
 ```js
 {
-  delivery: 'web-packet' | 'desktop-copilot',
+  delivery: 'web-guided' | 'desktop-copilot',
   submittedBy: 'user' | 'copilot-confirmed',
   site,
   documents: [{ key, fileName }],

@@ -186,6 +186,16 @@ and your data will not survive there.
 
 ---
 
+## Applying from the web and desktop
+
+The hosted app cannot type into another site's form. It gives you an Apply tab with a copy sheet: your details, saved answers, printable documents and a checklist. Open the job site in another tab, paste each answer, submit there, then press **Mark applied** in SA-JAS.
+
+The desktop copilot can drive the form because it runs a real browser on your machine. It fills fields, attaches your PDFs and advances the form. At the final review it stops and asks you to confirm in SA-JAS. After you confirm, it presses the final button once, waits up to 60 seconds for the site's confirmation, and records the delivery, site, field labels and values, document names and confirmation text. If the site does not confirm, nothing is recorded and the copilot does not try again.
+
+Job site logins are per domain. Connect a site under Profile and Settings, sign in in the window that opens, and the copilot reuses that session only while the site is connected. Disconnect clears that site's cookies and local storage. SA-JAS never stores a password, and a site without consent uses a temporary browser session that shares nothing with your other logins.
+
+---
+
 ## First-launch checklist
 
 Open **Profile & Settings** and complete each section before running the Hunter.

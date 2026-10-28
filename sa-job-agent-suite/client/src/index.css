@@ -883,3 +883,21 @@ input[type=number] { -moz-appearance: textfield; }
   font-size: 13px;
   color: var(--text-primary);
 }
+
+/* Job filters: filters sit inline on wide screens and collapse behind a toggle
+   on narrow ones, where seven selects in a row would be unusable. */
+.job-filters { margin-bottom: 14px; }
+.job-filters-toggle { display: none; }
+.job-filters-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.job-filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 130px; }
+.job-filter-field label { font-size: 11px; color: var(--text-muted); }
+.job-filter-search { flex: 1 1 200px; }
+.job-filter-check { justify-content: flex-end; }
+.job-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.job-filter-hidden { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .job-filters-toggle { display: inline-flex; margin-bottom: 10px; }
+  .job-filters-body { display: none; }
+  .job-filters-body.open { display: flex; flex-direction: column; align-items: stretch; }
+}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Activity, AlertTriangle, Loader2, Play, RotateCcw } from 'lucide-react';
+import { viaLabel } from './viaLabels.js';
 
 /**
  * Source health board for the Hunter tab.
@@ -223,7 +224,7 @@ export default function SourceHealth({ apiBase, refreshSignal, toasts, readOnly 
                     <span className="tiny">{row.tier} · {row.scope}</span>
                     {row.via && (
                       <span className="chip" style={{ padding: '2px 8px', fontSize: 10 }} title="How this source's items were extracted">
-                        via {row.via}
+                        via {viaLabel(row.via)}
                       </span>
                     )}
                     {row.pagination && row.pagination.verified === false && (

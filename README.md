@@ -221,6 +221,12 @@ Two safety nets sit on top. After **three consecutive broken hunt runs** the cir
 
 Maintainers can record one real page per board with `node scripts/hunter-record.mjs <sourceId> --yes` (from `sa-job-agent-suite/`; it visits the live site, writes a sanitised, gitignored fixture, and the adapter contract test then re-runs itself against that page).
 
+### Scraper resilience and the anti-bot baseline
+
+The hunter reads each page through structured data (JSON-LD and the page's own JSON responses), the source's DOM extractor, and a semantic fallback. Every row is validated before it is saved, and a source whose rows stop validating is marked broken instead of quietly returning nothing.
+
+The tool uses real Chrome with the persistent profile, a South African locale and timezone, polite per-host pacing and bounded retries. It does not solve CAPTCHAs, rotate proxies or spoof fingerprints. When a site challenges the browser or needs a login, use the site's own interface or the login browser. The full triage guide is in `docs/SCRAPER-DEBUGGING.md`.
+
 ### Agent 2 — Document Tailor
 Rewrites the base CV for ATS keyword match and writes a 300–400 word cover letter per role (SA English, injection-hardened prompts), then renders both to PDF for upload. Status goes `tailoring → tailored`.
 

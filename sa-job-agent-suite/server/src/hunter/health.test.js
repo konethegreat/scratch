@@ -319,4 +319,55 @@ test('computeStatus: a failing canary with an invalid or missing at is not ignor
     assert.match(s.reason, /selector gone/);
   }
 });
+
+test('summariseRun stores strategy and quality counts with raw as attempts', () => {
+  const r = summariseRun({
+    kind: 'hunt', items: [{ title: 'Backend Developer', applyUrl: 'https://x/1' }],
+    strategy: 'structured', valid: 1, rejected: 3, rejectReasons: ['3 rows with no apply link'], at: iso(900)
+  });
+  assert.equal(r.raw, 4);
+  assert.equal(r.valid, 1);
+  assert.equal(r.rejected, 3);
+  assert.equal(r.strategy, 'structured');
+  assert.deepEqual(r.rejectReasons, ['3 rows with no apply link']);
+});
+
+test('a high rejection ratio marks the source broken and names the count', () => {
+  const entry = entryWith([run({ raw: 10, valid: 5, rejected: 5, rejectReasons: ['5 rows with no apply link'] })]);
+  const { status, reason } = computeStatus(entry);
+  assert.equal(status, 'broken');
+  assert.match(reason, /5 of 10 cards failed validation/);
+});
+
+test('a moderate rejection ratio marks the source degraded with the top reason', () => {
+  const entry = entryWith([run({ raw: 10, valid: 8, rejected: 2, rejectReasons: ['2 rows with no apply link'] })]);
+  const { status, reason } = computeStatus(entry);
+  assert.equal(status, 'degraded');
+  assert.match(reason, /no apply link/);
+});
+
+test('a small sample is judged by completeness, not the ratio', () => {
+  const entry = entryWith([run({ raw: 3, valid: 2, rejected: 1, withTitle: 2, withUrl: 2, withCompany: 2, withLocation: 2 })]);
+  assert.equal(computeStatus(entry).status, 'healthy');
+});
+
+test('all rows rejected is never a success or a healthy status', () => {
+  const before = { ...emptyEntry(), lastSuccessAt: null, consecutiveBroken: 0, runs: [] };
+  const rejectedRun = run({ raw: 5, valid: 0, rejected: 5, rejectReasons: ['5 rows with no usable title'] });
+  const next = applyRun(before, rejectedRun, NOW);
+  assert.equal(next.lastSuccessAt, null);
+  assert.equal(next.consecutiveBroken, 1);
+  assert.equal(computeStatus(next).status, 'broken');
+});
+
+test('old run records without quality fields keep the previous behaviour', () => {
+  const entry = entryWith(goodRuns(3));
+  assert.equal(computeStatus(entry).status, 'healthy');
+  assert.equal(baselineRaw(entry.runs).median, 10);
+});
+
+test('the baseline counts valid rows, not rejected attempts', () => {
+  const runs = [run({ raw: 10, valid: 10, rejected: 0 }), run({ raw: 20, valid: 6, rejected: 14 }), run({ raw: 10, valid: 10, rejected: 0 })];
+  assert.equal(baselineRaw(runs).median, 10);
+});
 });

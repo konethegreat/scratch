@@ -30,3 +30,7 @@ supporting-docs/
 # possibly personal data) - never commit them; the contract test picks them up
 # locally when present and skips when the directory is absent
 server/src/hunter/fixtures/recorded/
+
+# manual debug snapshots from `node scripts/hunter-debug.mjs` (real page HTML
+# and captured JSON responses)
+hunter-debug/

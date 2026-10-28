@@ -265,6 +265,10 @@ test('a fixture source is crawled to the page cap and de-duplicated', async (t) 
   assert.equal(stats.stopReason, 'page_cap');
   assert.equal(stats.via, 'dom');
   assert.equal(stats.status, 'healthy');
+  const latest = healthStore.getHealthEntry('paged').runs.at(-1);
+  assert.equal(latest.strategy, 'dom');
+  assert.equal(latest.valid, 4);
+  assert.equal(latest.rejected, 0);
 });
 
 test('a source skipped by the circuit breaker is not browsed and is reported as skipped', async (t) => {
@@ -302,38 +306,38 @@ test('a source skipped by the circuit breaker is not browsed and is reported as 
   assert.equal(healthStore.getHealthEntry(id).runs.length, 3, 'a skip does not append a run');
 });
 
-test('a source returning cards with no titles is recorded and shows broken afterwards', async (t) => {
+test('a source returning only untitled cards saves nothing and shows broken afterwards', async (t) => {
   const id = 'untitled-board';
   const source = fixtureSource({
     id,
     name: 'Untitled Board',
     scope: 'oncePerKeyword',
-    extractInPage: () => [{
+    extractInPage: () => Array.from({ length: 5 }, () => ({
       title: '',
       company: 'Acme',
       location: 'Johannesburg',
       description: '',
       applyUrl: 'https://fixture.test/jobs/untitled',
       datePosted: 'Recently'
-    }]
+    }))
   });
   const result = await runHunter(t, {
     sources: [source],
+    seed: () => seedGoodBaseline(id),
     handler: (route) => route.fulfill({ status: 200, contentType: 'text/html', body: pageHtml([]) })
   });
   if (!result) return;
 
-  assert.equal(result.totalFound, 1);
+  assert.equal(result.totalFound, 0);
   assert.equal(result.totalSaved, 0);
   assert.equal(result.perSourceStats['Untitled Board'].status, 'broken');
   const entry = healthStore.getHealthEntry(id);
   const run = entry.runs.at(-1);
-  assert.equal(run.raw, 1);
   assert.equal(run.withTitle, 0);
   assert.equal(health.computeStatus(entry).status, 'broken');
 });
 
-test('a silent zero after a good baseline triggers the AI extractor (one request) and its anchor-verified jobs are saved with via ai-extract', async (t) => {
+test('a silent zero after a good baseline triggers the AI extractor (one request) and its anchor-verified jobs are saved with via ai', async (t) => {
   const id = 'extractor-board';
   const source = fixtureSource({ id, name: 'Extractor Board', scope: 'oncePerKeyword' });
   const f = fakeClient([{
@@ -384,7 +388,8 @@ test('a silent zero after a good baseline triggers the AI extractor (one request
 
   assert.equal(f.calls.length, 1, 'exactly one extract request');
   assert.equal(result.totalSaved, 2);
-  assert.equal(result.perSourceStats['Extractor Board'].via, 'ai-extract');
+  assert.equal(result.perSourceStats['Extractor Board'].via, 'ai');
+  assert.equal(healthStore.getHealthEntry(id).runs.at(-1).strategy, 'ai');
   const jobs = savedJobs();
   assert.equal(jobs.length, 2);
   const verified = jobs.find((j) => j.title === 'Senior Developer');
@@ -415,7 +420,7 @@ test('with no key the zero stays zero, no request is made, and the source is rec
   assert.equal(result.totalFound, 0);
   assert.equal(result.totalSaved, 0);
   const stats = result.perSourceStats['Keyless Board'];
-  assert.equal(stats.via, 'dom');
+  assert.equal(stats.via, 'none');
   assert.ok(['broken', 'degraded'].includes(stats.status), stats.status);
   assert.equal(healthStore.getHealthEntry(id).runs.at(-1).raw, 0);
 });

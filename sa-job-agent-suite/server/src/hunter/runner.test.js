@@ -98,7 +98,7 @@ test('runner: a rate-limited response is blocked as rate-limit', async (t) => {
   await withPage(
     (route) => route.fulfill({ status: 429, contentType: 'text/html', body: html('Slow down', '<p>Too many requests</p>') }),
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { sleep: async () => {} });
       assert.deepEqual(items, []);
       assert.equal(meta.blocked, true);
       assert.equal(meta.blockKind, 'rate-limit');
@@ -112,7 +112,7 @@ test('runner: a navigation abort yields meta.error and does not throw', async (t
   await withPage(
     (route) => route.abort('connectionrefused'),
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { retryCount: 0 });
       assert.deepEqual(items, []);
       assert.equal(meta.blocked, false);
       assert.equal(typeof meta.error, 'string');
@@ -127,7 +127,7 @@ test('runner: a navigation timeout yields meta.error and does not throw', async 
   await withPage(
     () => new Promise(() => {}), // never answers
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { timeoutMs: 300 });
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { timeoutMs: 300, retryCount: 0 });
       assert.deepEqual(items, []);
       assert.match(meta.error, /timeout/i);
     },
@@ -250,7 +250,7 @@ test('runner: a 5xx response sets meta.error and skips extraction', async (t) =>
   await withPage(
     (route) => route.fulfill({ status: 503, contentType: 'text/html', body: html('Service unavailable', CARDS) }),
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1);
+      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1, { sleep: async () => {} });
       assert.deepEqual(items, []);
       assert.equal(meta.error, 'HTTP 503');
       assert.equal(meta.blocked, false);
@@ -279,4 +279,165 @@ test('runner: fetchSourcePage never throws, even with a missing source or query'
     assert.deepEqual(items, []);
     assert.equal(typeof meta.error, 'string');
   }
+});
+
+test('runner: embedded JSON-LD yields structured items even when the DOM extractor throws', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const source = {
+    ...fakeSource,
+    extractInPage: () => { throw new Error('selectors changed'); },
+  };
+  await withPage(
+    (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: html('Jobs', '<script type="application/ld+json">{"@type":"JobPosting","title":"Senior Developer","url":"https://fixture.test/j/7","hiringOrganization":{"name":"Acme"},"jobLocation":{"address":{"addressLocality":"Cape Town"}}}</script>'),
+    }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, source, { keyword: 'developer', location: null }, 1);
+      assert.equal(meta.strategy, 'structured');
+      assert.equal(meta.valid, 1);
+      assert.equal(meta.rejected, 0);
+      assert.equal(items.length, 1);
+      assert.equal(items[0].title, 'Senior Developer');
+      assert.match(meta.strategies.dom.error, /selectors changed/);
+    },
+  );
+});
+
+test('runner: invalid DOM rows are counted and never returned', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const source = {
+    ...fakeSource,
+    extractInPage: () => [{ title: 'Dev' }, { title: 'Backend Developer', applyUrl: 'javascript:alert(1)' }, { title: 'Frontend Developer', applyUrl: 'https://fixture.test/j/2' }],
+  };
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<p>rendered</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, source, { keyword: 'developer', location: null }, 1);
+      assert.equal(meta.strategy, 'dom');
+      assert.equal(meta.valid, 1);
+      assert.equal(meta.rejected, 2);
+      assert.equal(items.length, 1);
+      assert.equal(meta.rejectReasons.length >= 1, true);
+    },
+  );
+});
+
+test('runner: the injected AI callback runs only after all free strategies are empty', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let calls = 0;
+  const source = { ...fakeSource, extractInPage: () => [] };
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<p>nothing</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, source, { keyword: 'developer', location: null }, 1, {
+        aiExtract: async () => {
+          calls += 1;
+          return [{ title: 'Backend Developer', applyUrl: 'https://fixture.test/ai', company: 'Acme', location: 'Cape Town' }];
+        },
+      });
+      assert.equal(calls, 1);
+      assert.equal(meta.strategy, 'ai');
+      assert.equal(items.length, 1);
+    },
+  );
+});
+
+test('runner: a blocked page never calls the AI callback', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let calls = 0;
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Just a moment...', '<p>challenge</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        aiExtract: async () => { calls += 1; return []; },
+      });
+      assert.deepEqual(items, []);
+      assert.equal(meta.blocked, true);
+      assert.equal(calls, 0);
+    },
+  );
+});
+
+test('runner: a 503 is retried and the recovered page is used', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let requests = 0;
+  await withPage(
+    (route) => {
+      requests += 1;
+      return requests === 1
+        ? route.fulfill({ status: 503, contentType: 'text/html', body: html('Busy', '<p>later</p>') })
+        : route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<ul><li class="job" data-id="1">Dev One</li></ul>') });
+    },
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        sleep: async () => {},
+      });
+      assert.equal(requests, 2);
+      assert.equal(meta.httpStatus, 200);
+      assert.equal(items.length, 1);
+      assert.equal(meta.blocked, false);
+    },
+  );
+});
+
+test('runner: JSON captured from a failed attempt never reaches the retried page', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let requests = 0;
+  await withPage(
+    (route) => {
+      requests += 1;
+      return requests === 1
+        ? route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ jobs: [{ title: 'Stale Job', applyUrl: 'https://fixture.test/stale' }] }),
+        })
+        : route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<ul><li class="job" data-id="1">Dev One</li></ul>') });
+    },
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        sleep: async () => {},
+      });
+      assert.equal(requests, 2);
+      assert.deepEqual(items.map((item) => item.title), ['Dev One']);
+      assert.equal(meta.strategy, 'dom');
+      assert.equal(meta.strategies.structured.valid, 0);
+    },
+  );
+});
+
+test('runner: a persistent 429 is retried twice and then reads as blocked', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let requests = 0;
+  await withPage(
+    (route) => {
+      requests += 1;
+      return route.fulfill({ status: 429, contentType: 'text/html', body: html('Slow down', '<p>Too many requests</p>') });
+    },
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        sleep: async () => {},
+      });
+      assert.equal(requests, 3);
+      assert.deepEqual(items, []);
+      assert.equal(meta.blocked, true);
+      assert.equal(meta.blockKind, 'rate-limit');
+    },
+  );
+});
+
+test('runner: the pacer is asked to wait for the page host before navigation', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const hosts = [];
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<ul><li class="job" data-id="1">Dev One</li></ul>') }),
+    async (page) => {
+      await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        pacer: { wait: async (host) => { hosts.push(host); } },
+      });
+      assert.deepEqual(hosts, ['fixture.test']);
+    },
+  );
 });

@@ -17,16 +17,23 @@ const realCompany = (v) => filled(v) && v.trim().toLowerCase() !== 'confidential
 // Build a RunRecord from the raw items a source returned (before scoring).
 export function summariseRun({
   kind = 'hunt', items = [], pages = 0, httpStatus = null, blocked = false, blockKind = null,
-  error = null, ms = 0, via = 'css', stopReason = '', at, expectsUrl = true
+  error = null, ms = 0, via = 'css', stopReason = '', at, expectsUrl = true,
+  strategy = null, valid, rejected, rejectReasons = []
 } = {}) {
   const list = Array.isArray(items) ? items : [];
   const countIf = (test) => list.reduce((n, it) => n + (it && test(it) ? 1 : 0), 0);
   const count = (pick) => countIf((it) => filled(pick(it)));
+  const validCount = Number.isFinite(valid) && valid >= 0 ? Math.floor(valid) : list.length;
+  const rejectedCount = Number.isFinite(rejected) && rejected >= 0 ? Math.floor(rejected) : 0;
   return {
     at: at || new Date().toISOString(),
     kind,
     pages,
-    raw: list.length,
+    raw: validCount + rejectedCount,
+    valid: validCount,
+    rejected: rejectedCount,
+    strategy: strategy || null,
+    rejectReasons: Array.isArray(rejectReasons) ? rejectReasons.slice(0, 3) : [],
     withTitle: count((i) => i.title),
     withUrl: count((i) => i.applyUrl ?? i.url),
     withCompany: countIf((i) => realCompany(i.company)),
@@ -42,14 +49,19 @@ export function summariseRun({
   };
 }
 
-const isSuccess = (r) => !!r && r.raw > 0 && !r.error && !r.blocked;
+// Records without quality fields fall back to raw, so old history keeps working.
+const usable = (r) => {
+  const n = Number.isFinite(r?.valid) ? r.valid : r?.raw;
+  return Number.isFinite(n) ? n : 0;
+};
+const isSuccess = (r) => !!r && usable(r) > 0 && !r.error && !r.blocked;
 
-// Median of `raw` over the last <=10 successful hunt runs with raw>0.
+// Median of usable rows over the last <=10 successful hunt runs.
 export function baselineRaw(runs) {
   const good = (Array.isArray(runs) ? runs : [])
-    .filter((r) => r && r.kind === 'hunt' && r.raw > 0 && !r.error && !r.blocked)
+    .filter((r) => r && r.kind === 'hunt' && usable(r) > 0 && !r.error && !r.blocked)
     .slice(-BASELINE_WINDOW)
-    .map((r) => r.raw)
+    .map(usable)
     .sort((a, b) => a - b);
   if (!good.length) return { median: 0, samples: 0 };
   const mid = Math.floor(good.length / 2);
@@ -115,7 +127,20 @@ export function computeStatus(entry, _opts = {}) {
 
   // Baseline from the runs BEFORE the newest one, so a bad run cannot dilute its own baseline.
   const baseline = baselineRaw(runs.slice(0, idx));
-  const raw = newest.raw;
+  // A rejected row is an attempt the page produced but the schema refused, so
+  // the pair is the real page yield. Old records fall back to raw alone.
+  const raw = Number.isFinite(newest.valid) ? newest.valid : newest.raw;
+  const rejected = Number.isFinite(newest.rejected) ? newest.rejected : 0;
+  const attempts = raw + rejected;
+  if (attempts >= 4 && rejected > 0) {
+    const ratio = raw / attempts;
+    if (ratio < 0.8) {
+      return out('broken', `the page layout changed: ${rejected} of ${attempts} cards failed validation`);
+    }
+    if (ratio < 0.95) {
+      return out('degraded', newest.rejectReasons?.[0] || `${rejected} of ${attempts} cards failed validation`);
+    }
+  }
 
   if (raw === 0) {
     if (baseline.median >= 3 && baseline.samples >= 2) {

@@ -98,7 +98,7 @@ test('runner: a rate-limited response is blocked as rate-limit', async (t) => {
   await withPage(
     (route) => route.fulfill({ status: 429, contentType: 'text/html', body: html('Slow down', '<p>Too many requests</p>') }),
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { sleep: async () => {} });
       assert.deepEqual(items, []);
       assert.equal(meta.blocked, true);
       assert.equal(meta.blockKind, 'rate-limit');
@@ -112,7 +112,7 @@ test('runner: a navigation abort yields meta.error and does not throw', async (t
   await withPage(
     (route) => route.abort('connectionrefused'),
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1);
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { retryCount: 0 });
       assert.deepEqual(items, []);
       assert.equal(meta.blocked, false);
       assert.equal(typeof meta.error, 'string');
@@ -127,7 +127,7 @@ test('runner: a navigation timeout yields meta.error and does not throw', async 
   await withPage(
     () => new Promise(() => {}), // never answers
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { timeoutMs: 300 });
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, { timeoutMs: 300, retryCount: 0 });
       assert.deepEqual(items, []);
       assert.match(meta.error, /timeout/i);
     },
@@ -250,7 +250,7 @@ test('runner: a 5xx response sets meta.error and skips extraction', async (t) =>
   await withPage(
     (route) => route.fulfill({ status: 503, contentType: 'text/html', body: html('Service unavailable', CARDS) }),
     async (page) => {
-      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1);
+      const { items, meta } = await fetchSourcePage(page, throwingSource, { keyword: 'developer', location: null }, 1, { sleep: async () => {} });
       assert.deepEqual(items, []);
       assert.equal(meta.error, 'HTTP 503');
       assert.equal(meta.blocked, false);
@@ -356,6 +356,62 @@ test('runner: a blocked page never calls the AI callback', async (t) => {
       assert.deepEqual(items, []);
       assert.equal(meta.blocked, true);
       assert.equal(calls, 0);
+    },
+  );
+});
+
+test('runner: a 503 is retried and the recovered page is used', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let requests = 0;
+  await withPage(
+    (route) => {
+      requests += 1;
+      return requests === 1
+        ? route.fulfill({ status: 503, contentType: 'text/html', body: html('Busy', '<p>later</p>') })
+        : route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<ul><li class="job" data-id="1">Dev One</li></ul>') });
+    },
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        sleep: async () => {},
+      });
+      assert.equal(requests, 2);
+      assert.equal(meta.httpStatus, 200);
+      assert.equal(items.length, 1);
+      assert.equal(meta.blocked, false);
+    },
+  );
+});
+
+test('runner: a persistent 429 is retried twice and then reads as blocked', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let requests = 0;
+  await withPage(
+    (route) => {
+      requests += 1;
+      return route.fulfill({ status: 429, contentType: 'text/html', body: html('Slow down', '<p>Too many requests</p>') });
+    },
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        sleep: async () => {},
+      });
+      assert.equal(requests, 3);
+      assert.deepEqual(items, []);
+      assert.equal(meta.blocked, true);
+      assert.equal(meta.blockKind, 'rate-limit');
+    },
+  );
+});
+
+test('runner: the pacer is asked to wait for the page host before navigation', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const hosts = [];
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<ul><li class="job" data-id="1">Dev One</li></ul>') }),
+    async (page) => {
+      await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        pacer: { wait: async (host) => { hosts.push(host); } },
+      });
+      assert.deepEqual(hosts, ['fixture.test']);
     },
   );
 });

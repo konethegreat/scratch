@@ -1,10 +1,10 @@
 // Canary checks: visit ONE page of each source with a known query and decide
 // whether the scraper still works. A canary is what makes "silently returns
 // nothing" visible before a real hunt wastes a slot on a dead source.
-import { chromium } from 'playwright';
-import { addLog, BROWSER_PROFILE_PATH } from '../db/helper.js';
+import { addLog } from '../db/helper.js';
 import { SOURCES } from './registry.js';
 import { fetchSourcePage } from './runner.js';
+import { openProfileContext } from './browser.js';
 import { getHealthEntry, recordCanary } from './healthStore.js';
 
 export const CANARY_INTERVAL_MS = 2000;
@@ -12,16 +12,6 @@ export const CANARY_INTERVAL_MS = 2000;
 const DEFAULT_KEYWORD = 'developer';
 const DEFAULT_MIN_ITEMS = 1;
 const COMPLETENESS_RATIO = 0.8;
-
-// Same launch options the hunter uses for the persistent profile.
-const LAUNCH_OPTS = Object.freeze({
-  headless: true,
-  args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox'],
-  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  viewport: { width: 1366, height: 768 },
-  locale: 'en-ZA',
-  timezoneId: 'Africa/Johannesburg'
-});
 
 const filled = (v) => typeof v === 'string' && v.trim().length > 0;
 const defaultSleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
@@ -153,11 +143,7 @@ export async function runCanarySession({ ids, onResult } = {}) {
   }
   let context = null;
   try {
-    try {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...LAUNCH_OPTS, channel: 'chrome' });
-    } catch {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, LAUNCH_OPTS);
-    }
+    context = await openProfileContext();
     const results = await runCanaries({ ids: selected.map((source) => source.id), newPage: () => context.newPage(), onResult });
     const list = Object.values(results);
     const passed = list.filter((result) => result.pass).length;

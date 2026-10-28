@@ -2,6 +2,7 @@ import { addLog } from '../db/helper.js';
 import { detectBlock } from './blockDetect.js';
 import { collectPageData, createCollector, installCapture } from './capture.js';
 import { extractPage } from './extract.js';
+import { retryPlan } from './pacing.js';
 
 /**
  * Fetches ONE results page of a HunterSource and extracts its raw cards.
@@ -34,6 +35,8 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
 
   try {
     const timeoutMs = Number.isFinite(opts?.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : 20000;
+    const pause = typeof opts.sleep === 'function' ? opts.sleep : (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
+    const retryCount = Number.isFinite(opts.retryCount) ? Math.max(0, opts.retryCount) : 2;
     const location = query?.location ?? null;
     const where = location ? ` in "${location}"` : '';
     const pageTag = pageNo > 1 ? ` (page ${pageNo})` : '';
@@ -45,7 +48,33 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
     const collector = opts.collector ?? createCollector({ origin: source.origin });
     detachCapture = installCapture(page, collector);
 
-    const response = await page.goto(meta.url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    if (opts.pacer && typeof opts.pacer.wait === 'function') {
+      await opts.pacer.wait(new URL(meta.url).host);
+    }
+
+    let response = null;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await page.goto(meta.url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+        const headers = (() => {
+          try { return response?.headers?.() || {}; } catch { return {}; }
+        })();
+        const plan = retryPlan({
+          status: response ? response.status() : null,
+          attempt,
+          retryAfter: headers['retry-after'] ?? headers['Retry-After'] ?? null,
+          maxRetries: retryCount
+        });
+        if (!plan.retry) break;
+        addLog(`[${name}] Retrying after HTTP ${response.status()} in ${plan.delayMs}ms${pageTag}`, 'agent1');
+        await pause(plan.delayMs);
+      } catch (err) {
+        const plan = retryPlan({ error: err, attempt, maxRetries: retryCount });
+        if (!plan.retry) throw err;
+        addLog(`[${name}] Retrying after a network error in ${plan.delayMs}ms${pageTag}`, 'agent1');
+        await pause(plan.delayMs);
+      }
+    }
     meta.httpStatus = response ? response.status() : null;
 
     if (source.waitIdleMs > 0) {

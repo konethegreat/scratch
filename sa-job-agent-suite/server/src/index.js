@@ -36,6 +36,7 @@ import {
   saveSupportingDocument,
   deleteSupportingDocument,
   getCandidateMemory,
+  recordApplication,
   addInsight,
   deleteInsight,
   upsertEmployerNote,
@@ -79,6 +80,7 @@ import { localGuard } from './localGuard.js';
 import { requestContext, sendError, badRequest, notFound, conflict, errorHandler } from './httpErrors.js';
 import { createSingleFlight } from './singleFlight.js';
 import { MODELS, AppError, ERROR_CODES } from '@sajas/core';
+import { buildApplyPacket, summariseSubmission } from '@sajas/core/apply';
 
 const app = express();
 app.use(requestContext);
@@ -782,6 +784,46 @@ app.post('/api/jobs/tailor-batch', (req, res) => {
     addLog(`Batch tailoring failed: ${err.message}`, 'error');
     console.error('Batch tailor error:', err);
   });
+});
+
+app.post('/api/jobs/:id/applied', (req, res) => {
+  try {
+    const job = getJobs().find((entry) => entry.id === req.params.id);
+    if (!job) return notFound(res, 'Job not found.');
+    const profile = getProfile();
+    const packet = buildApplyPacket({
+      profile,
+      job,
+      answerBank: getAnswerBank(),
+      // getSupportingDocuments() reports `uploaded`; the packet uses `available`.
+      supportingDocs: [
+        ...(job.tailoredCvPath
+          ? [{ key: 'cv', label: 'Tailored CV', fileName: path.basename(job.tailoredCvPath), available: true }]
+          : []),
+        ...getSupportingDocuments()
+          .filter((doc) => doc.uploaded)
+          .map((doc) => ({ key: doc.key, label: doc.label, fileName: doc.fileName || '', available: true }))
+      ]
+    });
+    const submission = summariseSubmission(packet, { delivery: 'web-guided', submittedBy: 'user' });
+    const application = recordApplication({
+      jobId: job.id,
+      title: job.title,
+      company: job.company,
+      salarySnapshot: {
+        current: (profile.applicationProfile || {}).currentSalary || '',
+        expected: (profile.applicationProfile || {}).expectedSalary || ''
+      },
+      transcript: [],
+      outcome: 'applied',
+      ...submission
+    });
+    const updated = updateJob(job.id, { status: 'applied', appliedAt: application.appliedAt });
+    addLog(`Marked "${job.title}" as applied.`, 'system');
+    res.json({ success: true, application, job: updated });
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 
 app.post('/api/jobs/:id/apply', (req, res) => {

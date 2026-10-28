@@ -32,7 +32,7 @@ async function json(res) {
 async function seedJob(vault) {
   const job = {
     id: 'job-1', title: 'Dev', company: 'Acme', location: 'Cape Town', description: '',
-    applyUrl: '', source: 'Manual', matchScore: 75, status: 'found', notes: '',
+    applyUrl: 'https://example.co.za/apply', source: 'Manual', matchScore: 75, status: 'found', notes: '',
     dateAdded: '2026-10-20', datePosted: '2026-10-20'
   };
   await vault.put(STORES.jobs, job.id, job);
@@ -135,7 +135,6 @@ test('documents is empty and server-only endpoints answer NOT_SUPPORTED_IN_WEB',
     ['/jobs/hunter', 'POST'],
     ['/jobs/revalidate', 'POST'],
     ['/jobs/tailor-batch', 'POST'],
-    ['/application/bank', 'GET'],
     ['/backup', 'GET'],
     ['/routines', 'GET'],
     ['/hunter/sources', 'GET'],
@@ -348,4 +347,30 @@ test('rag status and a short question are served by the in-page API', async () =
   assert.equal(bad.status, 400);
   assert.equal((await json(bad)).code, 'VALIDATION');
   assert.equal(JSON.stringify(await vault.exportAll()).includes(API_KEY), false);
+});
+
+test('bank answers are readable and marking applied records the packet', async () => {
+  const { call, vault } = harness();
+  const job = await seedJob(vault);
+  await vault.put(STORES.profile, 'current', {
+    fullName: 'Thandi Mokoena',
+    email: 'thandi@example.test',
+    applicationProfile: { noticePeriod: '30 days' }
+  });
+  await vault.put(STORES.answers, 'driver', { id: 'driver', question: 'Driver licence?', answer: 'Code B', normalized: 'driver licence' });
+
+  const bank = await json(await call('/application/bank'));
+  assert.equal(bank.length, 1);
+
+  const res = await call(`/jobs/${job.id}/applied`, { method: 'POST', body: {} });
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.application.delivery, 'web-guided');
+  assert.equal(body.application.site, 'example.co.za');
+  assert.deepEqual(body.application.fields.map((field) => field.label), ['Full name', 'Email address', 'Notice period', 'Driver licence?']);
+  assert.equal((await vault.get(STORES.jobs, job.id)).status, 'applied');
+
+  const memory = await json(await call('/memory'));
+  assert.equal(memory.applications.length, 1);
+  assert.equal(memory.applications[0].delivery, 'web-guided');
 });

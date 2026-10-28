@@ -737,20 +737,19 @@ export default function App() {
 
   const markApplied = async (jobId) => {
     try {
-      const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
-        method: 'PATCH',
+      const res = await fetch(`${API_BASE}/jobs/${jobId}/applied`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'applied' })
+        body: JSON.stringify({ delivery: 'web-guided', submittedBy: 'user' })
       });
-      if (res.ok) {
-        toasts.success('Marked as applied.');
-        fetchJobs();
-        if (selectedJob && selectedJob.id === jobId) {
-          setSelectedJob({ ...selectedJob, status: 'applied' });
-        }
+      if (!res.ok) throw await readResponseError(res, 'Could not mark this job as applied.');
+      toasts.success('Marked as applied.');
+      fetchJobs();
+      if (selectedJob && selectedJob.id === jobId) {
+        setSelectedJob({ ...selectedJob, status: 'applied' });
       }
     } catch (err) {
-      fail(err, 'update job', 'Could not update job.');
+      fail(err, 'mark applied', 'Could not mark this job as applied.');
     }
   };
 

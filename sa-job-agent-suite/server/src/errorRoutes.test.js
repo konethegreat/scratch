@@ -82,6 +82,8 @@ const postJson = (route, body) => fetch(runtime.origin + route, {
   body: JSON.stringify(body)
 });
 
+const json = (response) => response.json();
+
 // Key-shaped fixtures are assembled from fragments so this file never contains
 // a literal that looks like a credential.
 const malformedKey = ['sk', 'ant', 'api03', 'F'.repeat(12)].join('-');
@@ -151,4 +153,30 @@ test('profile stores the feed South Africa default as a boolean', async () => {
 
   const on = await postJson('/api/profile', { feedSaOnly: true });
   assert.equal((await on.json()).profile.feedSaOnly, true);
+});
+
+test('marking a job applied records a web-guided submission without leaking undeclared profile fields', async () => {
+  const created = await json(await postJson('/api/jobs', {
+    title: 'Developer', company: 'Example', applyUrl: 'https://example.co.za/apply'
+  }));
+  await postJson('/api/profile', {
+    fullName: 'Alex Example',
+    email: 'alex@example.test',
+    applicationProfile: { noticePeriod: '30 days', idNumber: '9001015000000' }
+  });
+  const res = await postJson(`/api/jobs/${created.job.id}/applied`, { delivery: 'web-guided' });
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.application.delivery, 'web-guided');
+  assert.equal(body.application.site, 'example.co.za');
+  assert.deepEqual(body.application.fields, [
+    { label: 'Full name', value: 'Alex Example' },
+    { label: 'Email address', value: 'alex@example.test' },
+    { label: 'Notice period', value: '30 days' }
+  ]);
+  assert.equal(JSON.stringify(body).includes('9001015000000'), false, 'an ID number was recorded');
+
+  const jobs = await json(await fetch(`${runtime.origin}/api/jobs`));
+  const job = jobs.find((entry) => entry.id === created.job.id);
+  assert.equal(job.status, 'applied');
 });

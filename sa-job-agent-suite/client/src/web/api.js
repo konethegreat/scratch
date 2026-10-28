@@ -4,6 +4,7 @@
 import { AppError, ERROR_CODES, statusForCode, toUserError } from '@sajas/core/errors';
 import { MODELS } from '@sajas/core/models';
 import { fingerprint } from '@sajas/core/feeds';
+import { buildApplyPacket, summariseSubmission } from '@sajas/core/apply';
 import { STORES } from './vault.js';
 import { limit } from './limits.js';
 import { createUsageLedger } from './usage.js';
@@ -58,7 +59,7 @@ function memoryOf(stored) {
 // background agents, the local browser, backups, routines and AI-only features.
 const SERVER_ONLY = [
   /^\/profile\/preset$/,
-  /^\/application\/(?:bank|pending)(?:\/.*)?$/,
+  /^\/application\/pending(?:\/.*)?$/,
   /^\/backup(?:\/.*)?$/,
   /^\/documents(?:\/[^/]+)?$/, // GET /documents is answered above; uploads are server-only
   /^\/jobs\/hunter(?:\/stop)?$/,
@@ -286,6 +287,53 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
     return ok({ success: true, entry: record });
   }
 
+  async function markApplied(input, init, jobId) {
+    const job = await vault.get(STORES.jobs, jobId);
+    if (!job) throw new AppError(ERROR_CODES.NOT_FOUND, 'Job not found.');
+    const profile = (await vault.get(STORES.profile, 'current', {})) || {};
+    const answerBank = await vault.getAll(STORES.answers);
+    const packet = buildApplyPacket({
+      profile,
+      job,
+      answerBank,
+      supportingDocs: [
+        ...(job.tailoredCvText ? [{ key: 'cv', label: 'Tailored CV', fileName: '', available: true }] : []),
+        ...(job.tailoredCoverLetterText ? [{ key: 'cover-letter', label: 'Cover letter', fileName: '', available: true }] : [])
+      ]
+    });
+    const submission = summariseSubmission(packet, { delivery: 'web-guided', submittedBy: 'user' });
+    const appliedAt = now().toISOString();
+    const updated = { ...job, status: 'applied', appliedAt };
+    await vault.put(STORES.jobs, jobId, updated);
+
+    const memory = await getMemory();
+    let record = memory.applications.find((entry) => entry.jobId === jobId);
+    if (!record) {
+      record = {
+        id: crypto.randomUUID(),
+        jobId,
+        title: job.title,
+        company: job.company,
+        appliedAt,
+        outcome: 'applied',
+        salarySnapshot: null,
+        transcript: []
+      };
+      memory.applications.push(record);
+      const normalized = String(job.company || '').trim().toLowerCase();
+      let employer = memory.employers.find((entry) => String(entry.normalized || entry.company || '').toLowerCase() === normalized);
+      if (!employer) {
+        employer = { id: crypto.randomUUID(), company: job.company, normalized, notes: [], applications: 0, updatedAt: null };
+        memory.employers.push(employer);
+      }
+      employer.applications = (Number(employer.applications) || 0) + 1;
+      employer.updatedAt = now().toISOString();
+    }
+    Object.assign(record, submission);
+    await saveMemory(memory);
+    return ok({ success: true, application: record, job: updated });
+  }
+
   async function clearMemory() {
     const memory = emptyMemory();
     await vault.put(STORES.memory, 'dossier', memory);
@@ -325,6 +373,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if (path === '/rag/ask' && method === 'POST') return ok(await rag.ask(await bodyOf(input, init)));
       if (path === '/rag/check' && method === 'POST') return ok(await rag.check(await bodyOf(input, init)));
       if (path === '/documents' && method === 'GET') return ok([]);
+      if (path === '/application/bank' && method === 'GET') return ok(await vault.getAll(STORES.answers));
       if (path === '/jobs' && method === 'GET') return await getJobs();
       if (path === '/jobs' && method === 'POST') return await addJob(input, init);
       if (path === '/jobs' && method === 'DELETE') {
@@ -337,6 +386,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
         const result = await tailor.tailorJob(match[1], profile);
         return ok({ success: true, job: result.job, ...(result.warning ? { warning: result.warning } : {}) });
       }
+      if ((match = path.match(/^\/jobs\/([^/]+)\/applied$/)) && method === 'POST') return await markApplied(input, init, match[1]);
       if ((match = path.match(/^\/jobs\/([^/]+)$/))) {
         if (method === 'PATCH') return await updateJob(input, init, match[1]);
         if (method === 'DELETE') { await vault.delete(STORES.jobs, match[1]); return ok({ success: true }); }

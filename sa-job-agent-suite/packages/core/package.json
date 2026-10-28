@@ -13,7 +13,8 @@
     "./ai": "./src/ai.js",
     "./costs": "./src/costs.js",
     "./tailor": "./src/tailorPrompts.js",
-    "./rag": "./src/rag/index.js"
+    "./rag": "./src/rag/index.js",
+    "./jobs": "./src/jobs/index.js"
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.js\""

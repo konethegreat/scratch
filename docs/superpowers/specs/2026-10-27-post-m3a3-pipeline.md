@@ -11,7 +11,7 @@ M3a-3 shipped the hosted web alpha: zero-knowledge key handling, the web shell, 
 
 A request from 2026-10-27 asked for three things beyond M3a-3: verify the app against the current Anthropic API, make the free hosted app survive real traffic without exposing keys or mixing users, and refresh the UI with light mode and a home page built from Kone's public work. The first two are correctness and safety work. The third is committed product work, not a nice-to-have.
 
-A second request on the same day chose the next four capabilities, in order: web tailoring, agentic RAG, real-browser auto-apply, and inbox/MCP. It also added a support section with Kone's public contact details to the first of those arcs. The user's condition is explicit: the system has to work before it is shown to anyone. Each arc therefore ends with a live browser check of the real flow, not only green tests.
+A second request on the same day chose the next four capabilities, in order: web tailoring, agentic RAG, real-browser auto-apply, and inbox/MCP. It also added a support section with Kone's public contact details to the first of those arcs. A request on 2026-10-28 asked for a live simulation mode on the hosted app: one button, a fully simulated workspace, and an easy exit back to the real thing. It is inserted as Arc 9, and inbox/MCP moves to Arc 10. The user's condition is explicit: the system has to work before it is shown to anyone. Each arc therefore ends with a live browser check of the real flow, not only green tests.
 
 ## Order
 
@@ -25,9 +25,10 @@ A second request on the same day chose the next four capabilities, in order: web
 | 6 | South Africa relevance and search filters | Shipped 2026-10-28 (PR #15, `925ca9c`) | Foreign jobs are hidden and counted, and the filter bar persists in the web and desktop views |
 | 7 | Scraper resilience | Shipped 2026-10-28 (PR #17, `8f2bc70`) | API and hydration interception, resilient selectors, schema gates and anti-bot baseline land with a debugging guide |
 | 8 | Real-browser auto-apply | Shipped 2026-10-28 (PR #19) | Guided web packet, per-site login consent, and a confirmed single-click submit |
-| 9 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
+| 9 | Live demo mode | Planned | A visitor enters an isolated simulation, exercises every surface, and exits with the real workspace unchanged |
+| 10 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
 
-Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing. Arc 4 depends on Arc 3 because tailoring uses the refreshed document pane and the shared design tokens. Arc 5 depends on Arc 4 because retrieval is applied to the documents that web tailoring produces. Arc 6 depends on Arc 5 because relevance uses the candidate and employer context retrieval produced. Arc 7 depends on Arc 6 because resilient scrapers replace the gates Arc 6 put around the fragile ones. Arcs 8 and 9 depend on Arc 7 because both need a scraper layer that survives bot walls.
+Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing. Arc 4 depends on Arc 3 because tailoring uses the refreshed document pane and the shared design tokens. Arc 5 depends on Arc 4 because retrieval is applied to the documents that web tailoring produces. Arc 6 depends on Arc 5 because relevance uses the candidate and employer context retrieval produced. Arc 7 depends on Arc 6 because resilient scrapers replace the gates Arc 6 put around the fragile ones. Arcs 8, 9 and 10 depend on Arc 7 because all three need a scraper layer that survives bot walls. Arc 9 depends on Arc 8 because the simulated copilot mirrors the review, confirmation and submission record Arc 8 defined.
 
 ## Arc 1: API compliance
 
@@ -203,7 +204,29 @@ Acceptance criteria:
 
 Out of scope: solving CAPTCHAs, bulk applications, and any automation that hides its actions from the user.
 
-## Arc 9: Inbox and MCP integration
+## Arc 9: Live demo mode
+
+**Goal:** let a visitor understand the suite in one click, from the live hosted app, without a key or any real data.
+
+The alpha is only convincing if a visitor can try it. This arc adds a button that switches the hosted app into a simulated workspace: seeded fictional data, canned tailored documents, grounded answers built from the demo corpus, a staged job hunter, and a full copilot loop with review, confirmation and a simulated receipt. Everything simulated is labeled. A persistent banner and an Exit action return the visitor to the real workspace.
+
+The load-bearing requirement is isolation. The demo runs in a separate runtime behind the same fetch seam, with its own `sessionStorage` vault, a stub key store with no key material, local feed results, and no network. The real IndexedDB vault and key are never passed to demo code. Exit wipes the demo namespace and refetches the real vault. Backup is hidden so demo data cannot leave through an export.
+
+Full design: [`2026-10-28-live-demo-mode-design.md`](2026-10-28-live-demo-mode-design.md).
+
+Acceptance criteria:
+
+- A visitor enters the demo from the landing page or startup screen with no key and no onboarding.
+- Feeds, tailoring, Ask, Hunter and the full Copilot loop work, and every simulated result is labeled.
+- Exit returns to the real workspace with its data unchanged, proven with a sentinel profile and job.
+- Refresh restores the demo in the same tab; a new tab starts real; exit removes every demo key.
+- The demo walk makes no request outside the page origin and produces no console errors.
+- The demo bundle is lazy and is not loaded in real mode until the demo action is used.
+- Unit tests, the browser proof and the live check pass offline, with no key set.
+
+Out of scope: real portal automation, real employer contact, demo data in backups, and demo mode in the desktop app.
+
+## Arc 10: Inbox and MCP integration
 
 **Goal:** let the candidate pull application replies into the tracker and let their own tools read SA-JAS data safely.
 

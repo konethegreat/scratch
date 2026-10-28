@@ -15,7 +15,8 @@
     "./tailor": "./src/tailorPrompts.js",
     "./rag": "./src/rag/index.js",
     "./jobs": "./src/jobs/index.js",
-    "./scrape": "./src/scrape/index.js"
+    "./scrape": "./src/scrape/index.js",
+    "./apply": "./src/apply/index.js"
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.js\""

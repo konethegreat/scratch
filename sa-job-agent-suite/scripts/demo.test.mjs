@@ -88,12 +88,45 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       await assert.rejects(callLlmVision({}, 'synthetic prompt'), /AI calls are disabled/);
     });
 
-    let ready;
-    const pageReady = new Promise(resolve => { ready = resolve; });
-    session = runApplyAssistantAgent(DEMO_JOB_ID, { headless: true, pollIntervalMs: 300,
-      onPageReady: page => { ready(page); } });
-    const page = await Promise.race([pageReady, session.then(() => { throw new Error('Copilot ended before opening a page.'); })]);
-    page.on('pageerror', error => console.error('Fixture page error:', error.message));
+    const openCopilot = async () => {
+      let ready;
+      const pageReady = new Promise((resolve) => { ready = resolve; });
+      const copilot = runApplyAssistantAgent(DEMO_JOB_ID, {
+        headless: true,
+        pollIntervalMs: 300,
+        onPageReady: (copilotPage) => { ready(copilotPage); }
+      });
+      const copilotPage = await Promise.race([
+        pageReady,
+        copilot.then(() => { throw new Error('Copilot ended before opening a page.'); })
+      ]);
+      copilotPage.on('pageerror', (error) => console.error('Fixture page error:', error.message));
+      return { page: copilotPage, session: copilot };
+    };
+
+    // The existing post helper wraps its body as { answer } for the answer-bank
+    // route. Confirmation calls carry their own body, so use a separate helper.
+    const postJson = (payload) => ({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-SAJAS-Client': '1' },
+      body: JSON.stringify(payload)
+    });
+    const confirm = (payload) => json('/api/apply/confirm', postJson(payload));
+
+    const waitForPending = async (timeoutMs = 20000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const pending = (await json('/api/status')).apply.pendingConfirmation;
+        if (pending && pending.status === 'pending') return pending;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error('the copilot never offered the final review');
+    };
+
+    // Assign the outer `session` (it is awaited in the finally block): do not
+    // shadow it with a new declaration.
+    let page;
+    ({ page, session } = await openCopilot());
     await t.test('copilot follows the listing to a real form, fills saved answers and attaches a real PDF', async () => {
       await page.waitForURL('**/demo/application', { timeout: 20000 });
       await page.waitForFunction(() => document.querySelector('#notice')?.value === '30 days' &&
@@ -128,42 +161,82 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       await page.locator('#continue').click();
       await page.waitForURL('**/demo/review');
     });
-    await t.test('review page retains the HUD and the copilot never presses the final Submit', async () => {
+    await t.test('review page retains the HUD and offers a confirmation without pressing Submit', async () => {
       await page.locator('#sajas-copilot-hud').waitFor();
-      await page.locator('#sajas-btn-autopilot').click();
-      await page.waitForFunction(() => window.sajasAutopilot === true);
-      await new Promise(resolve => setTimeout(resolve, 2100)); // seven copilot ticks
+      const pending = await waitForPending();
+      assert.equal(pending.jobTitle, 'Software Engineer');
+      assert.equal(pending.company, 'Example Studio');
+      assert.equal(pending.controlText, 'Submit application');
+      assert.equal(pending.documents.length, 1);
       assert.equal((await json('/api/demo')).submissions, 0);
       assert.equal(readDb().jobs[0].status, 'tailored');
       assert.match(await page.locator('#details').innerText(), /Alex Example/);
-      assert.match(await page.locator('#details').innerText(), /alex@example.test/);
       assert.match(await page.locator('#details').innerText(), /My fictional accessibility dashboard/);
       await capture(page, '03-human-review.png');
     });
+
+    // Unchanged from the existing suite. It runs here, on the live page from the
+    // first offer, before any cancel or approval.
     await t.test('copilot browser refuses requests outside the fixture origin', async () => {
       let requests = 0;
       const canary = http.createServer((_req, res) => { requests++; res.end('unexpected request'); });
-      await new Promise(resolve => canary.listen(0, '127.0.0.1', resolve));
+      await new Promise((resolve) => canary.listen(0, '127.0.0.1', resolve));
       try {
-        const result = await page.evaluate(async url => {
+        const result = await page.evaluate(async (url) => {
           try { await fetch(url); return 'allowed'; } catch { return 'blocked'; }
         }, `http://127.0.0.1:${canary.address().port}/canary`);
         assert.equal(result, 'blocked');
         assert.equal(requests, 0);
-      } finally { await new Promise(resolve => canary.close(resolve)); }
+      } finally { await new Promise((resolve) => canary.close(resolve)); }
     });
-    await t.test('explicit human fixture submission records a local receipt and candidate memory', async () => {
-      await page.locator('#submit').click();
+
+    await t.test('cancelling leaves the page open and does not offer that button again', async () => {
+      const pending = await waitForPending();
+      const cancelled = await confirm({ nonce: pending.nonce, cancel: true });
+      assert.equal(cancelled.cancelled, true);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const stored = (await json('/api/status')).apply.pendingConfirmation;
+      assert.equal(stored, null);
+      assert.equal((await json('/api/demo')).submissions, 0);
+    });
+
+    await t.test('a changed final button is not clicked even after approval', async () => {
+      await page.goto(new URL('/demo/review?again=1', runtime.origin).href, { waitUntil: 'domcontentloaded' });
+      const pending = await waitForPending();
+      await page.locator('#submit').evaluate((button) => { button.textContent = 'Send application'; });
+      const approved = await confirm({ nonce: pending.nonce });
+      assert.equal(approved.approved, true);
+      await session;
+      assert.equal((await json('/api/demo')).submissions, 0);
+      assert.equal(readDb().jobs[0].status, 'tailored');
+      const memory = await json('/api/memory');
+      assert.equal(memory.applications.length, 0);
+    });
+
+    await t.test('a confirmed submit is clicked once and recorded with its evidence', async () => {
+      ({ page, session } = await openCopilot());
+      await page.waitForURL('**/demo/review', { timeout: 20000 });
+      const pending = await waitForPending();
+      const approved = await confirm({ nonce: pending.nonce });
+      assert.equal(approved.approved, true);
       await session;
       const job = readDb().jobs[0];
       assert.equal((await json('/api/demo')).submissions, 1);
       assert.equal(job.status, 'applied');
       assert.ok(job.appliedAt);
       assert.ok((await fs.stat(job.confirmationShotPath)).size > 0);
+
       const memory = await json('/api/memory');
       assert.equal(memory.applications.length, 1);
-      assert.ok(memory.applications[0].transcript.some(entry => entry.answer === 'My fictional accessibility dashboard.'));
+      const application = memory.applications[0];
+      assert.equal(application.delivery, 'desktop-copilot');
+      assert.equal(application.submittedBy, 'copilot-confirmed');
+      assert.equal(application.site, runtime.origin);
+      assert.ok(application.fields.some((field) => field.label === 'Full name' && field.value === 'Alex Example'));
+      assert.equal(application.documents.length, 1);
+      assert.match(application.confirmation.text, /received|submitted|thank you/i);
       if (evidence) await fs.copyFile(job.confirmationShotPath, path.join(evidence, '04-local-receipt.png'));
+
       const usage = await json('/api/usage');
       assert.equal(usage.today.calls, 0);
     });

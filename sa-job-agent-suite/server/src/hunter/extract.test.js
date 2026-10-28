@@ -123,6 +123,19 @@ test('AI rows pass the same schema gate and a throwing AI is contained', async (
   assert.equal(thrown.strategies.ai.error, 'budget');
 });
 
+test('AI rows without a verified link are kept as leads', async () => {
+  const result = await extractPage({
+    page: fakePage(),
+    source: source(),
+    query: { keyword: 'developer' },
+    aiExtract: async () => [{ title: 'Backend Developer', company: 'Acme', applyUrl: '' }]
+  });
+  assert.equal(result.strategy, 'ai');
+  assert.equal(result.valid, 1);
+  assert.equal(result.rejected, 0);
+  assert.equal(result.items[0].applyUrl, undefined);
+});
+
 test('semantic extraction runs and can win when the DOM breaks', async () => {
   const snapshot = [{
     tag: 'li', className: 'job-card', testId: '', ariaLabel: '',

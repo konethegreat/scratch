@@ -89,7 +89,10 @@ export async function extractPage({ page, source, query = {}, captured = null, a
   if (!winner && typeof aiExtract === 'function') {
     try {
       const raw = await aiExtract({ page, source, query });
-      record('ai', () => raw, strategies, options);
+      // The AI extractor strips a link it cannot verify but keeps the job as a
+      // lead, so its rows are judged on title alone — the same gate, same
+      // lead policy the hunter applies to every linkless result.
+      record('ai', () => raw, strategies, { ...options, linkless: true });
       if (strategies.ai.valid.length) winner = { name: 'ai', ...strategies.ai };
     } catch (err) {
       strategies.ai = empty(errorText(err));

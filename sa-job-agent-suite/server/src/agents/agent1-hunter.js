@@ -1,7 +1,6 @@
 // Agent 1 — Job Hunter (SA-focused multi-source scraper).
-import { chromium } from 'playwright';
 import { v4 as uuidv4 } from 'uuid';
-import { addJob, addLog, getProfile, getHunterState, BROWSER_PROFILE_PATH } from '../db/helper.js';
+import { addJob, addLog, getProfile, getHunterState } from '../db/helper.js';
 import { huntViaClaudeSearch, findDirectPostingUrl } from './jobSearchAI.js';
 import { validateJobs, validateLink, createProbeContext } from './linkValidator.js';
 import { hasAnthropicKey } from './llm.js';
@@ -13,6 +12,9 @@ import { computeStatus, shouldSkip, summariseRun, baselineRaw } from '../hunter/
 import { getHealthEntry, recordRun } from '../hunter/healthStore.js';
 import { extractJobsFromPage } from '../hunter/aiExtract.js';
 import { tryAcquireBrowser, browserOwner } from '../hunter/browserLock.js';
+import { openProfileContext } from '../hunter/browser.js';
+import { createPacer } from '../hunter/pacing.js';
+import { mergeRejectReasons } from '../hunter/extract.js';
 import { describeRejected, gateJobsByLocation } from './jobLocationGate.js';
 
 // Max AI link-repair attempts per run (each is a billed grounded search), only
@@ -84,17 +86,6 @@ function emptyResult(extra = {}) {
 }
 
 const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
-
-// Remembers which extraction path produced a raw card without changing its shape.
-function tagOrigin(items, origin) {
-  for (const item of items) {
-    if (!item || typeof item !== 'object') continue;
-    try {
-      Object.defineProperty(item, '__origin', { value: origin, enumerable: false, configurable: true });
-    } catch { /* frozen item: leave it untagged */ }
-  }
-  return items;
-}
 
 /** Parse a value to an int within [min, max], falling back to `fallback`. */
 function clampInt(value, fallback, min, max) {
@@ -199,85 +190,6 @@ function calculateMatchScore(title, description, targetKeywords) {
   }
 
   return Math.min(Math.max(score, 0), 100);
-}
-
-/**
- * Universal fallback: extract schema.org/JobPosting structured data (JSON-LD)
- * embedded in the current page. Most modern SA job boards (PNet, Careers24,
- * Indeed, Adzuna, CareerJunction) embed this per listing, so it keeps the hunter
- * working even when a site changes its CSS class names and breaks the bespoke
- * selectors above. Runs against whatever page is already loaded.
- */
-async function scrapeJsonLd(page, sourceName, fallbackLocation, originForRelative) {
-  try {
-    // Default relative-URL base to the page's own origin when not supplied.
-    if (!originForRelative) {
-      try { originForRelative = new URL(page.url()).origin; } catch {}
-    }
-    const items = await page.evaluate(() => {
-      const out = [];
-      const stripHtml = (s) => (s || '').toString().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      const addrOf = (loc) => {
-        if (!loc) return '';
-        const a = loc.address || loc;
-        if (typeof a === 'string') return a;
-        if (typeof a !== 'object') return '';
-        const country = a.addressCountry && (a.addressCountry.name || a.addressCountry);
-        return [a.addressLocality, a.addressRegion, country].filter(Boolean).join(', ');
-      };
-      const pushPosting = (node) => {
-        if (!node || typeof node !== 'object') return;
-        const type = node['@type'];
-        const isPosting = type === 'JobPosting' ||
-          (Array.isArray(type) && type.includes('JobPosting'));
-        if (!isPosting) return;
-        const title = stripHtml(node.title);
-        if (!title || title.length < 4) return;
-        let company = '';
-        if (node.hiringOrganization) {
-          company = typeof node.hiringOrganization === 'string'
-            ? node.hiringOrganization
-            : (node.hiringOrganization.name || '');
-        }
-        let location = '';
-        const jl = node.jobLocation;
-        if (Array.isArray(jl)) location = jl.map(addrOf).filter(Boolean).join(' | ');
-        else location = addrOf(jl);
-        if (!location && node.jobLocationType === 'TELECOMMUTE') location = 'Remote';
-        const url = node.url ||
-          (node.mainEntityOfPage && (node.mainEntityOfPage['@id'] || node.mainEntityOfPage)) || '';
-        out.push({
-          title,
-          company: (company || '').toString().trim(),
-          location,
-          description: stripHtml(node.description).substring(0, 500),
-          applyUrl: (typeof url === 'string' ? url : ''),
-          datePosted: node.datePosted || 'Recently'
-        });
-      };
-      document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
-        let data;
-        try { data = JSON.parse(s.textContent); } catch { return; }
-        const nodes = Array.isArray(data) ? data : (data['@graph'] ? data['@graph'] : [data]);
-        nodes.forEach(pushPosting);
-      });
-      return out;
-    });
-
-    return items.map((it) => {
-      let url = it.applyUrl || '';
-      if (url.startsWith('/') && originForRelative) url = originForRelative + url;
-      return {
-        ...it,
-        company: it.company || 'Confidential',
-        location: it.location || fallbackLocation || 'South Africa',
-        applyUrl: url,
-        source: sourceName
-      };
-    });
-  } catch {
-    return [];
-  }
 }
 
 /**
@@ -450,21 +362,8 @@ async function runHunt() {
       addLog('Using the injected browser context (test run).', 'agent1');
     } else {
       addLog('Launching browser context...', 'agent1');
-      const launchOpts = {
-        headless: true,
-        args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox'],
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        viewport: { width: 1366, height: 768 },
-        locale: 'en-ZA',
-        timezoneId: 'Africa/Johannesburg'
-      };
-      try {
-        context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...launchOpts, channel: 'chrome' });
-        addLog('Using real Chrome with persistent session profile.', 'agent1');
-      } catch {
-        addLog('Chrome not found — falling back to bundled Chromium with persistent profile.', 'agent1');
-        context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, launchOpts);
-      }
+      context = await openProfileContext();
+      addLog('Using the persistent browser profile.', 'agent1');
       ownsContext = true;
     }
 
@@ -481,6 +380,7 @@ async function runHunt() {
     const maxPages = pageCapForDepth(profile.searchDepth);
     let extractLeft = EXTRACT_CAP;
     const extractorReady = profile.useAiExtractFallback !== false && hasAnthropicKey(profile);
+    const pacer = createPacer();
 
     for (const source of sources) {
       if (getHunterState().stopRequested) { addLog('🛑 Stop requested — halting before next source.', 'agent1'); break; }
@@ -526,11 +426,13 @@ async function runHunt() {
       let lastHttpStatus = null;
       let lastError = null;
       let threw = null;
-      let extractSupplied = false;
       const stopReasons = [];
       const healthItems = [];
       const healthSeen = new Set();
-      const origins = { dom: 0, jsonld: 0, extract: 0 };
+      const strategiesSeen = new Set();
+      const rejectReasonLists = [];
+      let rejectedTotal = 0;
+      let duplicateValid = 0;
 
       let page = null;
       try {
@@ -543,33 +445,29 @@ async function runHunt() {
 
           const crawl = await crawlPages({
             fetchPage: async (pageNo) => {
-              const { items: domItems, meta } = await fetchSourcePage(page, source, query, pageNo);
-              let combined = tagOrigin(domItems, 'dom');
-
-              // Universal JSON-LD fallback against the page fetchSourcePage loaded.
-              if (!source.skipJsonLd) {
-                const ld = await scrapeJsonLd(page, source.name, query.location || 'South Africa', source.origin);
-                if (ld.length) {
-                  addLog(`[${source.name}] +${ld.length} listing(s) via JSON-LD structured data`, 'agent1');
-                  combined = combined.concat(tagOrigin(ld, 'jsonld'));
+              const allowAiHere = extractOnFirstPage && pageNo === 1 && allowExtract && extractLeft > 0;
+              const aiExtract = allowAiHere
+                ? async () => {
+                  extractLeft -= 1;
+                  const extracted = await extractJobsFromPage(profile, page, source, query);
+                  if (extracted.items.length) {
+                    addLog(`[${source.name}] AI extractor recovered ${extracted.items.length} card(s)`, 'agent1');
+                  }
+                  return extracted.items;
                 }
+                : null;
+              const { items, meta } = await fetchSourcePage(page, source, query, pageNo, {
+                pacer,
+                aiExtract,
+                maxCards: MAX_CARDS_PER_PAGE
+              });
+              if (meta.strategy && meta.strategy !== 'none') strategiesSeen.add(meta.strategy);
+              if (meta.rejected > 0) {
+                rejectedTotal += meta.rejected;
+                rejectReasonLists.push(meta.rejectReasons);
+                addLog(`[${source.name}] ${meta.rejected} card(s) rejected before saving${meta.rejectReasons[0] ? `: ${meta.rejectReasons[0]}` : ''}`, 'agent1');
               }
-              if (combined.length > MAX_CARDS_PER_PAGE) combined = combined.slice(0, MAX_CARDS_PER_PAGE);
-
-              // Silent zero on the first page of the first query: give the
-              // extractor one chance (shared budget) and use its cards instead.
-              if (extractOnFirstPage && pageNo === 1 && combined.length === 0
-                  && !meta.blocked && !meta.error && allowExtract && extractLeft > 0) {
-                extractLeft -= 1;
-                const extracted = await extractJobsFromPage(profile, page, source, query);
-                if (extracted.items.length) {
-                  addLog(`[${source.name}] AI extractor recovered ${extracted.items.length} card(s)`, 'agent1');
-                  combined = tagOrigin(extracted.items, 'extract');
-                  extractSupplied = true;
-                }
-              }
-
-              return { items: combined, meta };
+              return { items, meta };
             },
             maxPages,
             shouldStop: () => Boolean(getHunterState().stopRequested),
@@ -590,17 +488,13 @@ async function runHunt() {
             if (meta.error) lastError = meta.error;
           }
 
-          // Raw cards for the health record: post JSON-LD/cap, de-duplicated
+          // Raw cards for the health record: post-validation, de-duplicated
           // across pages (crawlPages) and across this source's queries.
           for (const item of crawl.items) {
             const key = defaultKeyOf(item);
-            if (healthSeen.has(key)) continue;
+            if (healthSeen.has(key)) { duplicateValid += 1; continue; }
             healthSeen.add(key);
             healthItems.push(item);
-            const origin = item && item.__origin;
-            if (origin === 'extract') origins.extract += 1;
-            else if (origin === 'jsonld') origins.jsonld += 1;
-            else origins.dom += 1;
           }
           totalFound += crawl.items.length;
 
@@ -624,7 +518,7 @@ async function runHunt() {
               company: job.company,
               location: job.location,
               description: job.description || `${job.title} at ${job.company} - ${job.location}`,
-              applyUrl: job.applyUrl,
+              applyUrl: job.applyUrl || '',
               datePosted: parseDate(job.datePosted),
               matchScore,
               status: 'found',
@@ -683,14 +577,12 @@ async function runHunt() {
         continue;
       }
 
-      const via = extractSupplied
-        ? 'ai-extract'
-        : origins.jsonld > 0
-          ? (origins.dom > 0 ? 'mixed' : 'jsonld')
-          : 'dom';
+      const strategies = [...strategiesSeen].filter((name) => name && name !== 'none');
+      const via = strategies.length === 0 ? 'none' : strategies.length === 1 ? strategies[0] : 'mixed';
       const runError = threw
         ? (threw.message || String(threw))
         : (stopReason === 'error' ? lastError : null);
+      const rejectReasons = mergeRejectReasons(rejectReasonLists);
       const run = summariseRun({
         kind: 'hunt',
         items: healthItems,
@@ -701,6 +593,10 @@ async function runHunt() {
         error: runError,
         ms: Date.now() - startedAt,
         via,
+        strategy: strategies.length === 1 ? strategies[0] : (strategies.length ? 'mixed' : 'none'),
+        valid: healthItems.length + duplicateValid,
+        rejected: rejectedTotal,
+        rejectReasons,
         stopReason,
         expectsUrl: !source.linkless
       });
@@ -765,14 +661,9 @@ export async function setupBrowserSession() {
   addLog('Opening browser for manual login setup. Sign in to all SA job sites, then close the window.', 'system');
   addLog('Sites opening: LinkedIn, Indeed SA, PNet, CareerJunction, Gumtree SA', 'system');
 
-  const launchOpts = { headless: false, args: ['--start-maximized'], viewport: null };
   let context;
   try {
-    try {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...launchOpts, channel: 'chrome' });
-    } catch {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, launchOpts);
-    }
+    context = await openProfileContext({ headless: false, viewport: null });
 
     // Open a tab for every site that benefits from a logged-in session.
     // Government/public sites (NationalGovernment, Adzuna, Google) don't need login.
@@ -869,18 +760,7 @@ export async function checkLoginStatuses() {
   const statuses = {};
   let context;
   try {
-    try {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, {
-        headless: true,
-        channel: 'chrome',
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-    } catch {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-    }
+    context = await openProfileContext({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
 
     await Promise.all(LOGIN_CHECK_SITES.map(async (site) => {
       const page = await context.newPage();

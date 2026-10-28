@@ -30,6 +30,12 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
     setTracked(trackerFingerprints(jobs));
   }, [jobs]);
 
+  // The profile can arrive after the first render; adopt its saved default once
+  // it does, without overriding a toggle the user has already made.
+  useEffect(() => {
+    if (typeof profile?.feedSaOnly === 'boolean') setSaOnly(profile.feedSaOnly);
+  }, [profile?.feedSaOnly]);
+
   const load = useCallback(async ({ force = false } = {}) => {
     setLoading(true);
     try {

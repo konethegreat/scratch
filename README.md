@@ -41,8 +41,8 @@ A React dashboard sits on top: live agent terminal, KPI tiles, job pipeline, pro
 
 ## Features
 
-- **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, and a shared South Africa location classifier that rejects foreign jobs from every source and feed.
-- **South Africa first, with real filters** — foreign jobs are hidden by default and counted, never deleted; filter the tracker by province, source, status, match score, link health, remote and date, and the choice persists across reloads.
+- **AI job search (grounded)**: Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, and a shared South Africa location classifier that rejects foreign jobs from every source and feed.
+- **South Africa first, with real filters**: foreign jobs are hidden by default and counted, never deleted; filter the tracker by province, source, status, match score, link health, remote and date, and the choice persists across reloads.
 - **AI tailoring** — Claude (Anthropic only; Sonnet 5.5 by default, per-task model overrides); ATS-friendly CVs + cover letters in SA English, rendered to PDF.
 - **Ask Documents.** Ask questions and draft application answers from your own CV, letters, saved answers and notes. Answers cite the retrieved passage or refuse. A document check lists claims your sources do not support.
 - **Persistent Apply Copilot** — a floating HUD that survives navigation and follows new tabs/popups (e.g. PNet's "I'm interested").

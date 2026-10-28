@@ -13,7 +13,7 @@ import { computeStatus, shouldSkip, summariseRun, baselineRaw } from '../hunter/
 import { getHealthEntry, recordRun } from '../hunter/healthStore.js';
 import { extractJobsFromPage } from '../hunter/aiExtract.js';
 import { tryAcquireBrowser, browserOwner } from '../hunter/browserLock.js';
-import { gateJobsByLocation } from './jobLocationGate.js';
+import { describeRejected, gateJobsByLocation } from './jobLocationGate.js';
 
 // Max AI link-repair attempts per run (each is a billed grounded search), only
 // when profile.useLinkRepair is on AND an Anthropic key is present.
@@ -407,7 +407,7 @@ async function runHunt() {
         const { kept: aiKept, rejected: aiRejected } = gateJobsByLocation(aiJobs, 'soft');
         if (aiRejected.length > 0) {
           const sample = aiRejected.slice(0, 2).map((job) => `"${job.title}" (${job.location})`).join(', ');
-          addLog(`[AI Search] Rejected ${aiRejected.length} job(s) outside South Africa. Samples: ${sample}`, 'agent1');
+          addLog(`[AI Search] Rejected ${describeRejected(aiRejected)}. Samples: ${sample}`, 'agent1');
         }
 
         // Build scored candidates first, then validate their links as a batch.
@@ -643,7 +643,7 @@ async function runHunt() {
           await finalizeAndSave(kept, dropped.length, source.name);
           if (notSA.length > 0) {
             const sample = notSA.slice(0, 2).map((job) => `"${job.title}" (${job.location})`).join(', ');
-            addLog(`[${source.name}] Rejected ${notSA.length} job(s) outside South Africa. Samples: ${sample}`, 'agent1');
+            addLog(`[${source.name}] Rejected ${describeRejected(notSA)}. Samples: ${sample}`, 'agent1');
           }
           if (belowThreshold > 0) {
             addLog(`[${source.name}] ${belowThreshold} card(s) below score ${SCORE_THRESHOLD}. Samples: ${belowSamples.join(', ')}`, 'agent1');

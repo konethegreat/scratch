@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gateJobsByLocation } from './jobLocationGate.js';
+import { describeRejected, gateJobsByLocation } from './jobLocationGate.js';
 
 const job = (location, over = {}) => ({ title: 'Engineer', company: 'Acme', location, ...over });
 
@@ -45,4 +45,14 @@ test('the gate does not mutate the input', () => {
 test('an omitted or unknown policy behaves like soft', () => {
   assert.equal(gateJobsByLocation([job('Somewhereville')], undefined).kept.length, 1);
   assert.equal(gateJobsByLocation([job('Somewhereville')], 'weird').kept.length, 1);
+});
+
+test('the rejection summary separates foreign from unconfirmed', () => {
+  const { rejected } = gateJobsByLocation(
+    [job('London, UK'), job('Somewhereville'), job('Nowhere Co')],
+    'strict'
+  );
+  assert.equal(describeRejected(rejected), '1 outside South Africa and 2 with an unconfirmed location');
+  assert.equal(describeRejected([rejected[0]]), '1 outside South Africa');
+  assert.equal(describeRejected([]), '');
 });

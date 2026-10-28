@@ -97,6 +97,17 @@ test('ambiguous SA names are SA without a foreign signal and foreign with one', 
   }
 });
 
+test('US and Canadian trailing state codes are foreign but SA province codes are not', () => {
+  for (const raw of ['Worcester, MA', 'Springs, CO', 'Richmond, BC', 'Phoenix, AZ',
+    'Richmond, VA', 'Springs, Ontario']) {
+    assert.equal(verdict(raw), 'foreign', raw);
+  }
+  for (const raw of ['Kimberley, NC', 'Cape Town, WC', 'Durban, KZN', 'Pretoria, GP',
+    'Bloemfontein, FS', 'Polokwane, LP', 'Mbombela, MP', 'Rustenburg, NW', 'Mthatha, EC']) {
+    assert.equal(verdict(raw), 'sa', raw);
+  }
+});
+
 test('worldwide is foreign and bare remote is unknown', () => {
   assert.equal(verdict('Remote (Worldwide)'), 'foreign');
   assert.equal(classifyLocation('Remote (Worldwide)').reason, 'worldwide');
@@ -106,6 +117,12 @@ test('worldwide is foreign and bare remote is unknown', () => {
   assert.equal(classifyLocation('Remote').reason, 'remote-unstated');
   assert.equal(verdict('Hybrid'), 'unknown');
   assert.equal(verdict('Work from home'), 'unknown');
+});
+
+test('a standalone US token makes a remote role foreign', () => {
+  for (const raw of ['Remote (US)', 'US Remote', 'Remote - US', 'Remote, U.S.']) {
+    assert.equal(verdict(raw), 'foreign', raw);
+  }
 });
 
 test('token matching never fires inside an unrelated word', () => {

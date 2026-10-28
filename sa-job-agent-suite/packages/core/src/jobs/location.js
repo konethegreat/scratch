@@ -129,6 +129,17 @@ const FOREIGN_CITIES = Object.freeze([
   'rio de janeiro', 'buenos aires', 'santiago', 'bogota', 'lima', 'mexico city'
 ]);
 
+// Two-letter US and Canadian state and province codes that are safe to read as
+// a trailing address code. South African province abbreviations (EC, FS, GP,
+// KZN, LP, MP, NC, NW, WC) are absent on purpose, so "Kimberley, NC" stays SA.
+const FOREIGN_TRAILING_CODES = Object.freeze([
+  'al', 'ak', 'az', 'ar', 'ca', 'co', 'ct', 'de', 'fl', 'hi', 'id', 'il', 'in',
+  'ia', 'ks', 'ky', 'la', 'me', 'md', 'ma', 'mi', 'mn', 'ms', 'mo', 'mt', 'ne',
+  'nv', 'nh', 'nj', 'nm', 'ny', 'nd', 'oh', 'ok', 'or', 'pa', 'ri', 'sc', 'sd',
+  'tn', 'tx', 'ut', 'vt', 'va', 'wa', 'wv', 'wi', 'wy', 'dc',
+  'ab', 'bc', 'mb', 'nb', 'nl', 'ns', 'nt', 'nu', 'on', 'pe', 'qc', 'sk', 'yt'
+]);
+
 const WORLDWIDE_TERMS = Object.freeze(['worldwide', 'anywhere', 'global']);
 const REMOTE_TERMS = Object.freeze([
   'remote', 'work from home', 'wfh', 'hybrid', 'telecommute', 'home based'
@@ -184,8 +195,15 @@ function ambiguousPlaceOf(text) {
   return null;
 }
 
+function hasForeignTrailingCode(raw) {
+  const parts = String(raw == null ? '' : raw).split(',');
+  if (parts.length < 2) return false;
+  return FOREIGN_TRAILING_CODES.includes(normalizeText(parts[parts.length - 1]));
+}
+
 function strongForeign(text, raw) {
-  return text === 'us' || hasAny(text, FOREIGN_STRONG) || hasTrailingCode(raw, 'us');
+  return hasPhrase(text, 'us') || hasPhrase(text, 'u s') ||
+    hasAny(text, FOREIGN_STRONG) || hasTrailingCode(raw, 'us') || hasForeignTrailingCode(raw);
 }
 
 function anyForeign(text, raw) {

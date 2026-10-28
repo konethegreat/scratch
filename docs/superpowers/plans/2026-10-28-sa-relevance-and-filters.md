@@ -28,35 +28,35 @@
 
 Create:
 
-- `sa-job-agent-suite/packages/core/src/text.js` — shared normalization used by feeds and jobs.
-- `sa-job-agent-suite/packages/core/src/jobs/location.js` — SA location classifier and job helpers.
-- `sa-job-agent-suite/packages/core/src/jobs/location.test.js` — 40+ classifier cases.
-- `sa-job-agent-suite/packages/core/src/jobs/viewFilters.js` — filter state contract and pure filtering.
-- `sa-job-agent-suite/packages/core/src/jobs/viewFilters.test.js` — filter matrix and malformed input.
-- `sa-job-agent-suite/packages/core/src/jobs/index.js` — subpath barrel.
-- `sa-job-agent-suite/server/src/agents/jobLocationGate.js` — hunter gate.
-- `sa-job-agent-suite/server/src/agents/jobLocationGate.test.js` — strict/soft/none matrix.
-- `sa-job-agent-suite/client/src/jobFilters.js` — localStorage load/save.
-- `sa-job-agent-suite/client/src/JobFilters.jsx` — filter bar.
-- `sa-job-agent-suite/scripts/web-filters.mjs` — browser proof.
+- `sa-job-agent-suite/packages/core/src/text.js`: shared normalization used by feeds and jobs.
+- `sa-job-agent-suite/packages/core/src/jobs/location.js`: SA location classifier and job helpers.
+- `sa-job-agent-suite/packages/core/src/jobs/location.test.js`: 40+ classifier cases.
+- `sa-job-agent-suite/packages/core/src/jobs/viewFilters.js`: filter state contract and pure filtering.
+- `sa-job-agent-suite/packages/core/src/jobs/viewFilters.test.js`: filter matrix and malformed input.
+- `sa-job-agent-suite/packages/core/src/jobs/index.js`: subpath barrel.
+- `sa-job-agent-suite/server/src/agents/jobLocationGate.js`: hunter gate.
+- `sa-job-agent-suite/server/src/agents/jobLocationGate.test.js`: strict/soft/none matrix.
+- `sa-job-agent-suite/client/src/jobFilters.js`: localStorage load/save.
+- `sa-job-agent-suite/client/src/JobFilters.jsx`: filter bar.
+- `sa-job-agent-suite/scripts/web-filters.mjs`: browser proof.
 
 Modify:
 
-- `sa-job-agent-suite/packages/core/package.json` — add `./jobs` export.
-- `sa-job-agent-suite/packages/core/src/feeds/match.js` — import shared normalize, add `saOnly`.
-- `sa-job-agent-suite/packages/core/src/feeds/match.test.js` — new default.
-- `sa-job-agent-suite/server/src/agents/agent1-hunter.js` — remove old location list, gate AI and source jobs.
-- `sa-job-agent-suite/server/src/db/helper.js` — `feedSaOnly: true`.
-- `sa-job-agent-suite/server/src/index.js` — profile whitelist.
-- `sa-job-agent-suite/server/src/errorRoutes.test.js` — profile round trip.
-- `sa-job-agent-suite/client/src/App.jsx` — filter state, table, empty state.
-- `sa-job-agent-suite/client/src/index.css` — filter bar styles.
-- `sa-job-agent-suite/client/src/JobFeeds.jsx` — SA only control and count.
-- `sa-job-agent-suite/scripts/web-feeds.mjs` — new default assertions.
-- `sa-job-agent-suite/package.json` — add `web-filters` to `test:web`.
-- `README.md` — feature bullet.
-- `docs/superpowers/specs/2026-10-27-post-m3a3-pipeline.md` — insert Arc 6 and 7, renumber.
-- `docs/superpowers/specs/2026-10-28-sa-relevance-and-filters-design.md` — status to shipped after deploy.
+- `sa-job-agent-suite/packages/core/package.json`: add `./jobs` export.
+- `sa-job-agent-suite/packages/core/src/feeds/match.js`: import shared normalize, add `saOnly`.
+- `sa-job-agent-suite/packages/core/src/feeds/match.test.js`: new default.
+- `sa-job-agent-suite/server/src/agents/agent1-hunter.js`: remove old location list, gate AI and source jobs.
+- `sa-job-agent-suite/server/src/db/helper.js`: `feedSaOnly: true`.
+- `sa-job-agent-suite/server/src/index.js`: profile whitelist.
+- `sa-job-agent-suite/server/src/errorRoutes.test.js`: profile round trip.
+- `sa-job-agent-suite/client/src/App.jsx`: filter state, table, empty state.
+- `sa-job-agent-suite/client/src/index.css`: filter bar styles.
+- `sa-job-agent-suite/client/src/JobFeeds.jsx`: SA only control and count.
+- `sa-job-agent-suite/scripts/web-feeds.mjs`: new default assertions.
+- `sa-job-agent-suite/package.json`: add `web-filters` to `test:web`.
+- `README.md`: feature bullet.
+- `docs/superpowers/specs/2026-10-27-post-m3a3-pipeline.md`: insert Arc 6 and 7, renumber.
+- `docs/superpowers/specs/2026-10-28-sa-relevance-and-filters-design.md`: status to shipped after deploy.
 
 ---
 
@@ -2003,8 +2003,8 @@ Expected: `web-filters: PASS` and `web-feeds: PASS`.
 In `README.md`, replace the `AI job search (grounded)` feature bullet with:
 
 ```markdown
-- **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 13 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, and a shared South Africa location classifier that rejects foreign jobs from every source and feed.
-- **South Africa first, with real filters** — foreign jobs are hidden by default and counted, never deleted; filter the tracker by province, source, status, match score, link health, remote and date, and the choice persists across reloads.
+- **AI job search (grounded)**: Claude's live web search returns real vacancies with real apply links; the 13 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, and a shared South Africa location classifier that rejects foreign jobs from every source and feed.
+- **South Africa first, with real filters**: foreign jobs are hidden by default and counted, never deleted; filter the tracker by province, source, status, match score, link health, remote and date, and the choice persists across reloads.
 ```
 
 In `docs/superpowers/specs/2026-10-27-post-m3a3-pipeline.md`:

@@ -1215,7 +1215,8 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
       }
       for (let wait = 0; wait < 30; wait++) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        if (await detectChallenge(p)) return { status: 'challenge', fields, files, pending };
+        const challenge = await detectChallenge(p);
+        if (challenge.present) return { status: 'challenge', fields, files, pending };
         if (await detectSubmissionConfirmation(p)) return { status: 'confirmed', fields, files, pending };
       }
       return { status: 'timeout', fields, files, pending };

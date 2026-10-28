@@ -1,5 +1,7 @@
 import { addLog } from '../db/helper.js';
 import { detectBlock } from './blockDetect.js';
+import { collectPageData, createCollector, installCapture } from './capture.js';
+import { extractPage } from './extract.js';
 
 /**
  * Fetches ONE results page of a HunterSource and extracts its raw cards.
@@ -16,12 +18,18 @@ import { detectBlock } from './blockDetect.js';
  * Must not import agent1-hunter.js (the hunter imports this, not the reverse).
  *
  * @returns {Promise<{ items: object[], meta: { url: string, title: string, httpStatus: number|null,
- *   ms: number, blocked: boolean, blockKind: string|null, blockHint: string|null, error: string|null } }>}
+ *   ms: number, blocked: boolean, blockKind: string|null, blockHint: string|null, error: string|null,
+ *   strategy: string|null, valid: number, rejected: number, rejectReasons: string[],
+ *   strategies: object|null } }>}
  */
 export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}) {
   const started = Date.now();
-  const meta = { url: '', title: '', httpStatus: null, ms: 0, blocked: false, blockKind: null, blockHint: null, error: null };
+  const meta = {
+    url: '', title: '', httpStatus: null, ms: 0, blocked: false, blockKind: null, blockHint: null,
+    error: null, strategy: null, valid: 0, rejected: 0, rejectReasons: [], strategies: null
+  };
   let items = [];
+  let detachCapture = () => {};
   const name = source?.name ?? 'source';
 
   try {
@@ -34,12 +42,17 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
     meta.url = source.buildUrl(query, pageNo);
     addLog(`[${name}] Searching: "${kw}"${where}${pageTag}`, 'agent1');
 
+    const collector = opts.collector ?? createCollector({ origin: source.origin });
+    detachCapture = installCapture(page, collector);
+
     const response = await page.goto(meta.url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
     meta.httpStatus = response ? response.status() : null;
 
     if (source.waitIdleMs > 0) {
       await page.waitForLoadState('networkidle', { timeout: source.waitIdleMs }).catch(() => {});
     }
+
+    const captured = await collectPageData({ page, collector, origin: source.origin });
 
     meta.title = await page.title();
     addLog(`[${name}] Page loaded: "${meta.title}"${pageTag}`, 'agent1');
@@ -66,8 +79,20 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
       meta.error = `HTTP ${status}`;
       addLog(`[${name}] Error: ${meta.error}${pageTag}`, 'error');
     } else {
-      const raw = await page.evaluate(source.extractInPage, { keyword: kw, location, origin: source.origin });
-      items = Array.isArray(raw) ? raw : [];
+      const result = await extractPage({
+        page,
+        source,
+        query,
+        captured,
+        aiExtract: typeof opts.aiExtract === 'function' ? opts.aiExtract : null,
+        maxCards: Number.isFinite(opts.maxCards) && opts.maxCards > 0 ? opts.maxCards : 80
+      });
+      items = result.items;
+      meta.strategy = result.strategy;
+      meta.valid = result.valid;
+      meta.rejected = result.rejected;
+      meta.rejectReasons = result.rejectReasons;
+      meta.strategies = result.strategies;
       if (soft) {
         if (items.length >= 1) {
           meta.blockHint = 'text signal ignored: items were found';
@@ -75,12 +100,14 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
           markBlocked();
         }
       }
-      addLog(`[${name}] Found ${items.length} raw cards for "${kw}"${where}${pageTag}`, 'agent1');
+      addLog(`[${name}] Found ${items.length} valid card(s) via ${result.strategy} for "${kw}"${where}${pageTag}`, 'agent1');
     }
   } catch (err) {
     meta.error = err?.message || String(err);
     items = [];
     try { addLog(`[${name}] Error: ${meta.error}`, 'error'); } catch { /* logging must not throw */ }
+  } finally {
+    detachCapture();
   }
 
   meta.ms = Date.now() - started;

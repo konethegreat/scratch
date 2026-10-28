@@ -302,33 +302,33 @@ test('a source skipped by the circuit breaker is not browsed and is reported as 
   assert.equal(healthStore.getHealthEntry(id).runs.length, 3, 'a skip does not append a run');
 });
 
-test('a source returning cards with no titles is recorded and shows broken afterwards', async (t) => {
+test('a source returning only untitled cards saves nothing and shows broken afterwards', async (t) => {
   const id = 'untitled-board';
   const source = fixtureSource({
     id,
     name: 'Untitled Board',
     scope: 'oncePerKeyword',
-    extractInPage: () => [{
+    extractInPage: () => Array.from({ length: 5 }, () => ({
       title: '',
       company: 'Acme',
       location: 'Johannesburg',
       description: '',
       applyUrl: 'https://fixture.test/jobs/untitled',
       datePosted: 'Recently'
-    }]
+    }))
   });
   const result = await runHunter(t, {
     sources: [source],
+    seed: () => seedGoodBaseline(id),
     handler: (route) => route.fulfill({ status: 200, contentType: 'text/html', body: pageHtml([]) })
   });
   if (!result) return;
 
-  assert.equal(result.totalFound, 1);
+  assert.equal(result.totalFound, 0);
   assert.equal(result.totalSaved, 0);
   assert.equal(result.perSourceStats['Untitled Board'].status, 'broken');
   const entry = healthStore.getHealthEntry(id);
   const run = entry.runs.at(-1);
-  assert.equal(run.raw, 1);
   assert.equal(run.withTitle, 0);
   assert.equal(health.computeStatus(entry).status, 'broken');
 });

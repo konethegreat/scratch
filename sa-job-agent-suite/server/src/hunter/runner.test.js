@@ -280,3 +280,82 @@ test('runner: fetchSourcePage never throws, even with a missing source or query'
     assert.equal(typeof meta.error, 'string');
   }
 });
+
+test('runner: embedded JSON-LD yields structured items even when the DOM extractor throws', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const source = {
+    ...fakeSource,
+    extractInPage: () => { throw new Error('selectors changed'); },
+  };
+  await withPage(
+    (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: html('Jobs', '<script type="application/ld+json">{"@type":"JobPosting","title":"Senior Developer","url":"https://fixture.test/j/7","hiringOrganization":{"name":"Acme"},"jobLocation":{"address":{"addressLocality":"Cape Town"}}}</script>'),
+    }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, source, { keyword: 'developer', location: null }, 1);
+      assert.equal(meta.strategy, 'structured');
+      assert.equal(meta.valid, 1);
+      assert.equal(meta.rejected, 0);
+      assert.equal(items.length, 1);
+      assert.equal(items[0].title, 'Senior Developer');
+      assert.match(meta.strategies.dom.error, /selectors changed/);
+    },
+  );
+});
+
+test('runner: invalid DOM rows are counted and never returned', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  const source = {
+    ...fakeSource,
+    extractInPage: () => [{ title: 'Dev' }, { title: 'Backend Developer', applyUrl: 'javascript:alert(1)' }, { title: 'Frontend Developer', applyUrl: 'https://fixture.test/j/2' }],
+  };
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<p>rendered</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, source, { keyword: 'developer', location: null }, 1);
+      assert.equal(meta.strategy, 'dom');
+      assert.equal(meta.valid, 1);
+      assert.equal(meta.rejected, 2);
+      assert.equal(items.length, 1);
+      assert.equal(meta.rejectReasons.length >= 1, true);
+    },
+  );
+});
+
+test('runner: the injected AI callback runs only after all free strategies are empty', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let calls = 0;
+  const source = { ...fakeSource, extractInPage: () => [] };
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<p>nothing</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, source, { keyword: 'developer', location: null }, 1, {
+        aiExtract: async () => {
+          calls += 1;
+          return [{ title: 'Backend Developer', applyUrl: 'https://fixture.test/ai', company: 'Acme', location: 'Cape Town' }];
+        },
+      });
+      assert.equal(calls, 1);
+      assert.equal(meta.strategy, 'ai');
+      assert.equal(items.length, 1);
+    },
+  );
+});
+
+test('runner: a blocked page never calls the AI callback', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let calls = 0;
+  await withPage(
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html('Just a moment...', '<p>challenge</p>') }),
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        aiExtract: async () => { calls += 1; return []; },
+      });
+      assert.deepEqual(items, []);
+      assert.equal(meta.blocked, true);
+      assert.equal(calls, 0);
+    },
+  );
+});

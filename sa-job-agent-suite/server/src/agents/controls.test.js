@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { listControls, findAdvanceControl, clickControl } from './controls.js';
+import { listControls, findAdvanceControl, clickControl, clickSubmitControl } from './controls.js';
 import { launchTestBrowser } from '../testSupport/browser.js';
 import { listingPage, formPage, reviewPage } from '../testSupport/fixturePages.js';
 
@@ -147,5 +147,54 @@ withBrowser('clickControl re-applies the policy itself, whatever it was handed',
     assert.equal((await clickControl(page, null)).reason, 'no-control');
     assert.equal((await clickControl(page, { text: 'Next' })).reason, 'no-control');
     assert.deepEqual(await clicks(page), []);
+  });
+});
+withBrowser('clickSubmitControl refuses without explicit confirmation and clicks once with it', async () => {
+  await withPage(reviewPage({ finalLabel: 'Submit application' }), async (page) => {
+    const controls = await listControls(page);
+    const submit = controls.find((control) => control.text === 'Submit application');
+
+    assert.equal((await clickSubmitControl(page, submit)).reason, 'not-confirmed');
+    assert.deepEqual(await clicks(page), []);
+
+    const result = await clickSubmitControl(page, submit, { confirmed: true });
+    assert.deepEqual({ clicked: result.clicked, text: result.text }, { clicked: true, text: 'Submit application' });
+    assert.deepEqual(await clicks(page), ['Submit application']);
+  });
+});
+
+withBrowser('clickSubmitControl refuses a relabelled or moved final button', async () => {
+  await withPage(reviewPage({ finalLabel: 'Submit application' }), async (page) => {
+    const controls = await listControls(page);
+    const submit = controls.find((control) => control.text === 'Submit application');
+    await page.evaluate(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((entry) => entry.textContent.trim() === 'Submit application');
+      button.textContent = 'Send application';
+    });
+    assert.equal((await clickSubmitControl(page, submit, { confirmed: true })).reason, 'changed');
+    assert.deepEqual(await clicks(page), []);
+  });
+});
+
+withBrowser('the copilot HUD is never treated as a page control', async () => {
+  // The HUD's own "Mark Application as Submitted" button matches the
+  // final-submit wording. If the control scan saw it, the copilot could
+  // "submit" the HUD instead of the site's real button.
+  const html = reviewPage({ finalLabel: 'Submit application' }).replace('</body>', `
+    <div id="sajas-copilot-hud">
+      <button id="sajas-btn-applied">✓ Mark Application as Submitted!</button>
+      <button id="sajas-btn-autopilot">Next</button>
+    </div>
+  </body>`);
+  await withPage(html, async (page) => {
+    const controls = await listControls(page);
+    assert.equal(controls.some((control) => control.text.includes('Mark Application')), false);
+    assert.equal(controls.some((control) => control.text === 'Next'), false);
+
+    const submit = controls.find((control) => control.text === 'Submit application');
+    const result = await clickSubmitControl(page, submit, { confirmed: true });
+    assert.deepEqual({ clicked: result.clicked, text: result.text }, { clicked: true, text: 'Submit application' });
+    assert.deepEqual(await clicks(page), ['Submit application']);
+    assert.equal((await page.evaluate(() => Boolean(window.sajasApplied))), false);
   });
 });

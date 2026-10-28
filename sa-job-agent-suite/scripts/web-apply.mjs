@@ -122,7 +122,8 @@ async function main() {
     assert.ok(application.fields.some((field) => field.label === 'Notice period' && field.value === '30 days'));
 
     assert.deepEqual(errors, [], `console errors: ${errors.join(' | ')}`);
-    assert.equal(requests.some((url) => /anthropic\.com|openrouter|openai\.com/.test(url)), false, 'an AI host was contacted');
+    const external = requests.filter((url) => /^https?:\/\//.test(url) && !url.startsWith(origin));
+    assert.deepEqual(external, [], 'a request left the local origin');
 
     console.log('web-apply: ok');
   } finally {

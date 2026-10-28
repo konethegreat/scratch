@@ -73,6 +73,7 @@ import { canaryStartRefusal, runCanarySession } from './hunter/canary.js';
 import { revalidateJobLinks } from './agents/linkValidator.js';
 import { runDocumentTailorAgent } from './agents/agent2-tailor.js';
 import { runApplyAssistantAgent, closeDemoBrowsers } from './agents/agent3-applier.js';
+import { confirmationDecision } from './agents/applyConfirmation.js';
 import { startScheduler, runRoutineNow } from './agents/routineRunner.js';
 import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
@@ -857,6 +858,27 @@ app.post('/api/jobs/:id/apply', (req, res) => {
     setApplyState({ isRunning: false, jobId: null, startedAt: null });
     release();
   });
+});
+
+app.post('/api/apply/confirm', (req, res) => {
+  const current = getApplyState().pendingConfirmation || null;
+  const decision = confirmationDecision(current, req.body || {});
+  if (decision.action === 'ignore') {
+    if (!current) return conflict(res, 'There is nothing waiting to submit.', { hint: 'Open the copilot final review first.' });
+    return conflict(res, 'That confirmation does not match the open application.', { hint: 'Use the confirmation shown in SA-JAS.' });
+  }
+  if (decision.action === 'expired') {
+    setApplyState({ pendingConfirmation: null });
+    return conflict(res, 'This confirmation expired. The copilot will offer the final button again if it is still on the page.', { retryable: true });
+  }
+  if (decision.action === 'cancel') {
+    setApplyState({ pendingConfirmation: { ...current, status: 'cancelled' } });
+    addLog('Submit cancelled in SA-JAS. Nothing was pressed.', 'agent3');
+    return res.json({ success: true, cancelled: true });
+  }
+  setApplyState({ pendingConfirmation: { ...current, status: 'approved' } });
+  addLog('Submit confirmed in SA-JAS. The copilot will press the final button once.', 'agent3');
+  res.json({ success: true, approved: true });
 });
 
 // -------------------- Referral pipeline (post-application outreach) --------------------

@@ -371,6 +371,9 @@ export default function App() {
   const [hunterRunning, setHunterRunning] = useState(false);
   const [hunterResult, setHunterResult] = useState(null); // lastResult: {totalFound,totalSaved,perSource,stopped}
   const [answerBank, setAnswerBank] = useState([]);
+  const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const submitButtonRef = useRef(null);
 
   const [tailoringJobId, setTailoringJobId] = useState(null);
   const [copilotJobId, setCopilotJobId] = useState(null);
@@ -462,6 +465,8 @@ export default function App() {
       const data = await res.json();
       setHunterRunning(Boolean(data?.hunter?.isRunning));
       setHunterResult(data?.hunter?.lastResult || null);
+      const pending = data?.apply?.pendingConfirmation || null;
+      setPendingSubmit(pending && pending.status === 'pending' ? pending : null);
     } catch (err) {
       // ignore: server may be booting
     }
@@ -747,6 +752,30 @@ export default function App() {
       fail(err, 'open copilot', 'Network error.');
     } finally {
       setTimeout(() => setCopilotJobId(null), 1500);
+    }
+  };
+
+  const resolveSubmit = async (cancel) => {
+    if (!pendingSubmit) return;
+    setSubmitBusy(true);
+    try {
+      const response = await fetch(`${API_BASE}/apply/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nonce: pendingSubmit.nonce, ...(cancel ? { cancel: true } : {}) })
+      });
+      if (!response.ok) throw await readResponseError(response, 'Could not reach the copilot.');
+      if (cancel) {
+        toasts.info('Submission cancelled. The copilot will keep the page open.');
+        setPendingSubmit(null);
+      } else {
+        toasts.success('Confirmed. The copilot is submitting now.');
+        setPendingSubmit(null);
+      }
+    } catch (err) {
+      fail(err, 'confirm submit', 'Could not confirm the submission.');
+    } finally {
+      setSubmitBusy(false);
     }
   };
 
@@ -1260,6 +1289,32 @@ export default function App() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm({ open: false })}
       />
+      <Dialog
+        open={Boolean(pendingSubmit)}
+        labelledBy="submit-confirm-title"
+        onClose={submitBusy ? () => {} : () => resolveSubmit(true)}
+        initialFocus={submitButtonRef}
+      >
+        <h3 id="submit-confirm-title" style={{ fontSize: '18px', marginBottom: '8px' }}>Submit this application?</h3>
+        <p className="muted" style={{ fontSize: '13px', marginBottom: '12px' }}>
+          The copilot is at the final review. It will press one button, once, and record what was sent. Nothing else on the page is pressed.
+        </p>
+        {pendingSubmit && (
+          <div className="tiny" style={{ display: 'grid', gap: 4, marginBottom: '16px' }}>
+            <span><strong>{pendingSubmit.jobTitle}</strong> at {pendingSubmit.company}</span>
+            <span>Site: {pendingSubmit.site}</span>
+            <span>Button: {pendingSubmit.controlText}</span>
+            <span>{pendingSubmit.fieldsFilled} field(s) filled. {pendingSubmit.documents.length} document(s) attached.</span>
+            {pendingSubmit.documents.length > 0 && <span>{pendingSubmit.documents.join(', ')}</span>}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <button type="button" className="btn-ghost" onClick={() => resolveSubmit(true)} disabled={submitBusy}>Keep reviewing</button>
+          <button type="button" className="btn-primary" ref={submitButtonRef} onClick={() => resolveSubmit(false)} disabled={submitBusy}>
+            {submitBusy ? 'Submitting...' : 'Submit application'}
+          </button>
+        </div>
+      </Dialog>
       <AddJobModal open={addJobOpen} onClose={() => setAddJobOpen(false)} onSubmit={handleAddJob} />
 
       {/* Sidebar */}

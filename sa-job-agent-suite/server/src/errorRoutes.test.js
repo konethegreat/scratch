@@ -190,3 +190,44 @@ test('site consent starts empty and an unknown site is NOT_FOUND', async () => {
   assert.equal(missing.status, 404);
   assert.equal((await json(missing)).code, 'NOT_FOUND');
 });
+
+test('submit confirmation rejects a missing or mismatched nonce and accepts the open one', async () => {
+  const empty = await postJson('/api/apply/confirm', { nonce: 'nope' });
+  assert.equal(empty.status, 409);
+  assert.equal((await json(empty)).code, 'CONFLICT');
+
+  const created = await json(await postJson('/api/jobs', { title: 'Confirmation job', company: 'Example' }));
+  const dbPath = path.join(runtime.directory, 'db.json');
+  const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+  db.applyState = {
+    isRunning: true,
+    jobId: created.job.id,
+    startedAt: new Date().toISOString(),
+    pendingConfirmation: {
+      nonce: 'nonce-open',
+      jobId: created.job.id,
+      jobTitle: 'Confirmation job',
+      company: 'Example',
+      site: 'https://example.co.za',
+      pageUrl: 'https://example.co.za/review',
+      controlText: 'Submit application',
+      controlIndex: 1,
+      fieldsFilled: 3,
+      documents: [],
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+      status: 'pending'
+    }
+  };
+  await fs.writeFile(dbPath, JSON.stringify(db, null, 2));
+
+  const wrong = await postJson('/api/apply/confirm', { nonce: 'other' });
+  assert.equal(wrong.status, 409);
+
+  const approved = await postJson('/api/apply/confirm', { nonce: 'nonce-open' });
+  assert.equal(approved.status, 200);
+  assert.equal((await json(approved)).approved, true);
+
+  const again = await postJson('/api/apply/confirm', { nonce: 'nonce-open' });
+  assert.equal(again.status, 409);
+});

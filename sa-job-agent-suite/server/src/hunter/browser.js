@@ -34,3 +34,22 @@ export async function openProfileContext({ headless = true, args, viewport, laun
     return await start(BROWSER_PROFILE_PATH, options);
   }
 }
+
+/**
+ * A throwaway browser for sites the user has not connected. It shares no
+ * cookies or storage with the persistent profile, so a site without consent
+ * can never see another site's saved login.
+ */
+export async function openEphemeralContext({ headless = false, args, viewport, serviceWorkers, launch } = {}) {
+  const options = profileLaunchOptions({ headless, args, viewport });
+  const start = launch || chromium.launch.bind(chromium);
+  const browser = await start({ headless: options.headless, args: options.args });
+  const context = await browser.newContext({
+    ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+    viewport: options.viewport || { width: 1440, height: 1100 },
+    locale: options.locale || 'en-ZA',
+    timezoneId: options.timezoneId || 'Africa/Johannesburg',
+    ...(serviceWorkers ? { serviceWorkers } : {})
+  });
+  return { context, browser };
+}

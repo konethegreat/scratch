@@ -1,11 +1,6 @@
-export function normalizeText(value) {
-  return String(value == null ? '' : value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
+import { normalizeText } from '../text.js';
+
+export { normalizeText };
 
 const LEGAL_SUFFIX = /(?:^|\s)(?:pty\s+ltd|pty|ltd|inc|llc|cc|co|corp)$/;
 

@@ -1,6 +1,6 @@
 # Scraper Resilience: Design
 
-**Status:** approved 2026-10-28, implementation starting
+**Status:** shipped 2026-10-28 (PR #17)
 **Date:** 2026-10-28
 **Arc:** 7 of the post-M3a-3 pipeline
 **Sources of truth:** the user's scraping brief of 2026-10-28, [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md) section "Arc 7", and [`POLICY.md`](../../../sa-job-agent-suite/POLICY.md) section 4.

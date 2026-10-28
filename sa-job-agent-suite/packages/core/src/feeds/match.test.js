@@ -47,8 +47,25 @@ test('filters match keywords and locations, including remote', () => {
   assert.equal(filterJobs(rows, { keywords: ['react'], locations: [] }).length, 1);
   assert.equal(filterJobs(rows, { keywords: [], locations: ['Cape Town'] }).length, 1);
   const remote = job({ location: 'Worldwide', remote: true });
-  assert.equal(filterJobs([remote], { locations: ['remote'] }).length, 1);
+  assert.equal(filterJobs([remote], { locations: ['remote'] }).length, 0);
+  assert.equal(filterJobs([remote], { locations: ['remote'], saOnly: false }).length, 1);
   assert.equal(filterJobs(rows, { keywords: ['react'], locations: [], onlyMatches: false }).length, 2);
+  assert.equal(filterJobs(rows, { keywords: [], locations: [], onlyMatches: false, saOnly: false }).length, 2);
+});
+
+test('the South Africa gate drops foreign rows and keeps unknown rows', () => {
+  const rows = [
+    job({ location: 'Cape Town' }),
+    job({ title: 'Designer', company: 'Berlin Co', location: 'Berlin' }),
+    job({ title: 'Analyst', company: 'Nowhere Co', location: 'Somewhereville' })
+  ];
+  const kept = filterJobs(rows, { keywords: [], locations: [] });
+  assert.equal(kept.length, 2);
+  assert.deepEqual(
+    kept.map((row) => row.location).sort(),
+    ['Cape Town', 'Somewhereville']
+  );
+  assert.equal(kept.some((row) => row.company === 'Berlin Co'), false);
 });
 
 test('trackerFingerprints exposes a set of existing jobs', () => {

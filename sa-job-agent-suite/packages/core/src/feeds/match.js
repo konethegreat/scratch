@@ -1,4 +1,5 @@
 import { normalizeText } from '../text.js';
+import { isSouthAfrican } from '../jobs/location.js';
 
 export { normalizeText };
 
@@ -76,10 +77,11 @@ function byScore(a, b) {
   return String(a.title).localeCompare(String(b.title));
 }
 
-export function filterJobs(jobs = [], { keywords = [], locations = [], onlyMatches = true } = {}) {
+export function filterJobs(jobs = [], { keywords = [], locations = [], onlyMatches = true, saOnly = true } = {}) {
   const keywordList = keywords.map((value) => String(value).trim()).filter(Boolean);
   const locationList = locations.map((value) => String(value).trim()).filter(Boolean);
-  const scored = jobs.map((job) => ({ ...job, matchScore: scoreJob(job, keywordList) }));
+  const scoped = saOnly ? jobs.filter((job) => isSouthAfrican(job.location)) : jobs;
+  const scored = scoped.map((job) => ({ ...job, matchScore: scoreJob(job, keywordList) }));
   const kept = onlyMatches
     ? scored.filter((job) => matchesKeywords(job, keywordList) && matchesLocations(job, locationList))
     : scored;

@@ -41,7 +41,8 @@ A React dashboard sits on top: live agent terminal, KPI tiles, job pipeline, pro
 
 ## Features
 
-- **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, lenient SA-location filter.
+- **AI job search (grounded)** — Claude's live web search returns real vacancies with real apply links; the 12 scrapers run as a best-effort fallback. Token-aware scoring 0–100, saves ≥ 18, and a shared South Africa location classifier that rejects foreign jobs from every source and feed.
+- **South Africa first, with real filters** — foreign jobs are hidden by default and counted, never deleted; filter the tracker by province, source, status, match score, link health, remote and date, and the choice persists across reloads.
 - **AI tailoring** — Claude (Anthropic only; Sonnet 5.5 by default, per-task model overrides); ATS-friendly CVs + cover letters in SA English, rendered to PDF.
 - **Ask Documents.** Ask questions and draft application answers from your own CV, letters, saved answers and notes. Answers cite the retrieved passage or refuse. A document check lists claims your sources do not support.
 - **Persistent Apply Copilot** — a floating HUD that survives navigation and follows new tabs/popups (e.g. PNet's "I'm interested").
@@ -202,7 +203,7 @@ Save, return to the **Dashboard**, and click **Run Hunter**.
 ## How it works
 
 ### Agent 1 — Job Hunter
-Runs Claude grounded web search first (`jobSearchAI.js`, SA-localized, real source URLs, no invented jobs), then the 12 Playwright scrapers as fallback — each with a schema.org/JobPosting JSON-LD net. Token-aware scoring keeps anything ≥ 18; foreign-only locations are rejected. Cancellable mid-run.
+Runs Claude grounded web search first (`jobSearchAI.js`, SA-localized, real source URLs, no invented jobs), then the 12 Playwright scrapers as fallback — each with a schema.org/JobPosting JSON-LD net. Token-aware scoring keeps anything ≥ 18; the shared South Africa classifier rejects foreign locations for every source, and an unconfirmed location stays visible with a label. Cancellable mid-run.
 
 ### Source health
 

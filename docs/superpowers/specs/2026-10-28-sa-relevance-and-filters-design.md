@@ -1,6 +1,6 @@
 # South Africa First and Search Filters: Design
 
-**Status:** proposed 2026-10-28, awaiting review
+**Status:** implemented 2026-10-28, shipped after the live check
 **Date:** 2026-10-28
 **Arc:** 6 of the post-M3a-3 pipeline (inserted before real-browser auto-apply)
 **Sources of truth:** [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md) sections "Arc 6" and "Arc 7", and the user's request of 2026-10-28.

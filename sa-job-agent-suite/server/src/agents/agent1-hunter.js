@@ -13,6 +13,7 @@ import { getHealthEntry, recordRun } from '../hunter/healthStore.js';
 import { extractJobsFromPage } from '../hunter/aiExtract.js';
 import { tryAcquireBrowser, browserOwner } from '../hunter/browserLock.js';
 import { openProfileContext } from '../hunter/browser.js';
+import { LOGIN_SITES } from '../hunter/loginSites.js';
 import { createPacer } from '../hunter/pacing.js';
 import { mergeRejectReasons } from '../hunter/extract.js';
 import { describeRejected, gateJobsByLocation } from './jobLocationGate.js';
@@ -667,21 +668,13 @@ export async function setupBrowserSession() {
 
     // Open a tab for every site that benefits from a logged-in session.
     // Government/public sites (NationalGovernment, Adzuna, Google) don't need login.
-    const loginSites = [
-      { name: 'LinkedIn',        url: 'https://www.linkedin.com/login' },
-      { name: 'Indeed SA',       url: 'https://za.indeed.com/account/login' },
-      { name: 'PNet',            url: 'https://www.pnet.co.za' },
-      { name: 'CareerJunction',  url: 'https://www.careerjunction.co.za' },
-      { name: 'Gumtree SA',      url: 'https://www.gumtree.co.za/t-login-register.html' },
-    ];
-
-    for (const site of loginSites) {
+    for (const site of LOGIN_SITES) {
       try {
         const tab = await context.newPage();
-        await tab.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        addLog(`Opened ${site.name} login tab.`, 'system');
+        await tab.goto(site.loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        addLog(`Opened ${site.label} login tab.`, 'system');
       } catch (err) {
-        addLog(`Could not open ${site.name}: ${err.message}`, 'error');
+        addLog(`Could not open ${site.label}: ${err.message}`, 'error');
       }
     }
 
@@ -699,57 +692,6 @@ export async function setupBrowserSession() {
   }
 }
 
-// Sites and their login-detection strategy used by checkLoginStatuses()
-const LOGIN_CHECK_SITES = [
-  {
-    key: 'linkedin',
-    name: 'LinkedIn',
-    url: 'https://www.linkedin.com/feed/',
-    isLoggedIn: (page) => {
-      const u = page.url();
-      return !u.includes('/login') && !u.includes('/authwall') && !u.includes('/uas/');
-    },
-  },
-  {
-    key: 'indeedSa',
-    name: 'Indeed SA',
-    url: 'https://za.indeed.com/account/view?hl=en',
-    isLoggedIn: (page) => {
-      const u = page.url();
-      return !u.includes('/account/login') && !u.includes('/account/register');
-    },
-  },
-  {
-    key: 'pnet',
-    name: 'PNet',
-    url: 'https://www.pnet.co.za',
-    isLoggedIn: (page) => page.evaluate(() => {
-      const header = document.querySelector('nav, header');
-      if (!header) return true;
-      return !Array.from(header.querySelectorAll('a, button'))
-        .some(el => /^(sign\s?in|log\s?in)$/i.test(el.textContent.trim()));
-    }),
-  },
-  {
-    key: 'careerJunction',
-    name: 'CareerJunction',
-    url: 'https://www.careerjunction.co.za',
-    isLoggedIn: (page) => page.evaluate(() =>
-      !Array.from(document.querySelectorAll('a, button'))
-        .some(el => /^(sign\s?in|log\s?in)$/i.test(el.textContent.trim()))
-    ),
-  },
-  {
-    key: 'gumtreeSa',
-    name: 'Gumtree SA',
-    url: 'https://www.gumtree.co.za/t-account.html',
-    isLoggedIn: (page) => {
-      const u = page.url();
-      return !u.includes('login') && !u.includes('register');
-    },
-  },
-];
-
 /**
  * Checks login status for the SA job sites that benefit from a session, by
  * launching a headless browser with the persistent profile and navigating to
@@ -762,10 +704,10 @@ export async function checkLoginStatuses() {
   try {
     context = await openProfileContext({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
 
-    await Promise.all(LOGIN_CHECK_SITES.map(async (site) => {
+    await Promise.all(LOGIN_SITES.map(async (site) => {
       const page = await context.newPage();
       try {
-        await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 12000 });
+        await page.goto(site.checkUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
         statuses[site.key] = Boolean(await site.isLoggedIn(page));
       } catch {
         statuses[site.key] = false;

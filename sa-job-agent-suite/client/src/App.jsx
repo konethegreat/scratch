@@ -30,6 +30,7 @@ import {
   FileText,
   Filter,
   Brain,
+  ClipboardList,
   Home,
   Clock,
   Network,
@@ -49,6 +50,7 @@ import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import JobFeeds from './JobFeeds.jsx';
 import JobFilters from './JobFilters.jsx';
+import ApplyPacket from './ApplyPacket.jsx';
 import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
@@ -368,15 +370,20 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [hunterRunning, setHunterRunning] = useState(false);
   const [hunterResult, setHunterResult] = useState(null); // lastResult: {totalFound,totalSaved,perSource,stopped}
+  const [answerBank, setAnswerBank] = useState([]);
+  const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const submitButtonRef = useRef(null);
 
   const [tailoringJobId, setTailoringJobId] = useState(null);
   const [copilotJobId, setCopilotJobId] = useState(null);
 
   const [selectedJob, setSelectedJob] = useState(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isBrowserSetupOpen, setIsBrowserSetupOpen] = useState(false);
   const [loginStatuses, setLoginStatuses] = useState(null); // null = never checked
   const [isCheckingLogins, setIsCheckingLogins] = useState(false);
+  const [sites, setSites] = useState(null);
+  const [siteBusy, setSiteBusy] = useState('');
 
   // Search/filter on the job list. The table is windowed client-side (50 rows
   // at a time) because GET /api/jobs still sends the full array here.
@@ -458,8 +465,21 @@ export default function App() {
       const data = await res.json();
       setHunterRunning(Boolean(data?.hunter?.isRunning));
       setHunterResult(data?.hunter?.lastResult || null);
+      const pending = data?.apply?.pendingConfirmation || null;
+      setPendingSubmit(pending && pending.status === 'pending' ? pending : null);
     } catch (err) {
       // ignore: server may be booting
+    }
+  }, []);
+
+  // Saved answers feed the web Apply packet so the copy sheet includes them.
+  const fetchAnswers = useCallback(async () => {
+    if (!IS_WEB) return;
+    try {
+      const res = await fetch(`${API_BASE}/application/bank`);
+      if (res.ok) setAnswerBank(await res.json());
+    } catch {
+      // The copy sheet still works without saved answers.
     }
   }, []);
 
@@ -491,7 +511,7 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : []))
       .then((list) => setModels(Array.isArray(list) ? list : []))
       .catch(() => setModels([]));
-    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments()]);
+    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments(), fetchAnswers(), fetchSites()]);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live polling for active state
@@ -735,22 +755,45 @@ export default function App() {
     }
   };
 
-  const markApplied = async (jobId) => {
+  const resolveSubmit = async (cancel) => {
+    if (!pendingSubmit) return;
+    setSubmitBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
-        method: 'PATCH',
+      const response = await fetch(`${API_BASE}/apply/confirm`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'applied' })
+        body: JSON.stringify({ nonce: pendingSubmit.nonce, ...(cancel ? { cancel: true } : {}) })
       });
-      if (res.ok) {
-        toasts.success('Marked as applied.');
-        fetchJobs();
-        if (selectedJob && selectedJob.id === jobId) {
-          setSelectedJob({ ...selectedJob, status: 'applied' });
-        }
+      if (!response.ok) throw await readResponseError(response, 'Could not reach the copilot.');
+      if (cancel) {
+        toasts.info('Submission cancelled. The copilot will keep the page open.');
+        setPendingSubmit(null);
+      } else {
+        toasts.success('Confirmed. The copilot is submitting now.');
+        setPendingSubmit(null);
       }
     } catch (err) {
-      fail(err, 'update job', 'Could not update job.');
+      fail(err, 'confirm submit', 'Could not confirm the submission.');
+    } finally {
+      setSubmitBusy(false);
+    }
+  };
+
+  const markApplied = async (jobId) => {
+    try {
+      const res = await fetch(`${API_BASE}/jobs/${jobId}/applied`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delivery: 'web-guided', submittedBy: 'user' })
+      });
+      if (!res.ok) throw await readResponseError(res, 'Could not mark this job as applied.');
+      toasts.success('Marked as applied.');
+      fetchJobs();
+      if (selectedJob && selectedJob.id === jobId) {
+        setSelectedJob({ ...selectedJob, status: 'applied' });
+      }
+    } catch (err) {
+      fail(err, 'mark applied', 'Could not mark this job as applied.');
     }
   };
 
@@ -845,24 +888,53 @@ export default function App() {
     }
   };
 
-  const setupBrowserLogins = async () => {
-    setIsBrowserSetupOpen(true);
+  const fetchSites = useCallback(async () => {
+    if (IS_WEB) return;
     try {
-      const res = await fetch(`${API_BASE}/browser/setup`, { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        toasts.info('Browser opened with LinkedIn and Indeed sign-in pages. Log in, then close the window. Your sessions will be saved for all future scraping runs.', 'Login browser open');
-        setActiveTab('logs');
-      } else {
-        fail(contractFromBody(data, res.status, 'Could not open browser.'), 'browser setup');
-        setIsBrowserSetupOpen(false);
-      }
+      const response = await fetch(`${API_BASE}/sites`);
+      if (!response.ok) throw await readResponseError(response, 'Could not read your site logins.');
+      setSites(await response.json());
     } catch (err) {
-      fail(err, 'browser setup', 'Network error.');
-      setIsBrowserSetupOpen(false);
+      fail(err, 'load site logins', 'Could not read your site logins.');
     }
-    // The browser stays open on the user's desktop; reset state after a delay
-    setTimeout(() => setIsBrowserSetupOpen(false), 8000);
+  }, []);
+
+  const connectSiteLogin = async (key) => {
+    setSiteBusy(key);
+    try {
+      const response = await fetch(`${API_BASE}/sites/${key}/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (!response.ok) throw await readResponseError(response, 'Sign-in was not detected before the window closed.');
+      toasts.success('Site connected.');
+      await fetchSites();
+      await fetchLoginStatuses();
+    } catch (err) {
+      fail(err, 'connect site', 'Could not connect this site.');
+    } finally {
+      setSiteBusy('');
+    }
+  };
+
+  const disconnectSiteLogin = async (key) => {
+    setSiteBusy(key);
+    try {
+      const response = await fetch(`${API_BASE}/sites/${key}/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (!response.ok) throw await readResponseError(response, 'Could not disconnect this site.');
+      toasts.success('Site disconnected. Its saved login was cleared.');
+      await fetchSites();
+      await fetchLoginStatuses();
+    } catch (err) {
+      fail(err, 'disconnect site', 'Could not disconnect this site.');
+    } finally {
+      setSiteBusy('');
+    }
   };
 
   const fetchLoginStatuses = async () => {
@@ -1158,6 +1230,7 @@ export default function App() {
     hunter:    { title: 'Job Hunter',          subtitle: 'Claude web search first, then 12 South African job boards, with link checks.' },
     feeds:     { title: 'Job Feeds',           subtitle: 'Public job feeds fetched by your browser. Filter them, then add the ones worth tracking. No key needed.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
+    apply:     { title: 'Apply',               subtitle: 'A copy sheet for the job site, with your details, answers, documents and a checklist.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message for you to review and send.' },
     routines:  { title: 'Routines',            subtitle: 'Schedule unattended hunts that find jobs, and optionally tailor them, while you sleep. They never apply for you.' },
@@ -1184,6 +1257,8 @@ export default function App() {
           setWebForceEnter(false);
           setWebKeyTick((t) => t + 1);
           fetchProfile();
+          fetchJobs();
+          fetchAnswers();
         }}
       />
     );
@@ -1214,6 +1289,32 @@ export default function App() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm({ open: false })}
       />
+      <Dialog
+        open={Boolean(pendingSubmit)}
+        labelledBy="submit-confirm-title"
+        onClose={submitBusy ? () => {} : () => resolveSubmit(true)}
+        initialFocus={submitButtonRef}
+      >
+        <h3 id="submit-confirm-title" style={{ fontSize: '18px', marginBottom: '8px' }}>Submit this application?</h3>
+        <p className="muted" style={{ fontSize: '13px', marginBottom: '12px' }}>
+          The copilot is at the final review. It will press one button, once, and record what was sent. Nothing else on the page is pressed.
+        </p>
+        {pendingSubmit && (
+          <div className="tiny" style={{ display: 'grid', gap: 4, marginBottom: '16px' }}>
+            <span><strong>{pendingSubmit.jobTitle}</strong> at {pendingSubmit.company}</span>
+            <span>Site: {pendingSubmit.site}</span>
+            <span>Button: {pendingSubmit.controlText}</span>
+            <span>{pendingSubmit.fieldsFilled} field(s) filled. {pendingSubmit.documents.length} document(s) attached.</span>
+            {pendingSubmit.documents.length > 0 && <span>{pendingSubmit.documents.join(', ')}</span>}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <button type="button" className="btn-ghost" onClick={() => resolveSubmit(true)} disabled={submitBusy}>Keep reviewing</button>
+          <button type="button" className="btn-primary" ref={submitButtonRef} onClick={() => resolveSubmit(false)} disabled={submitBusy}>
+            {submitBusy ? 'Submitting...' : 'Submit application'}
+          </button>
+        </div>
+      </Dialog>
       <AddJobModal open={addJobOpen} onClose={() => setAddJobOpen(false)} onSubmit={handleAddJob} />
 
       {/* Sidebar */}
@@ -1248,6 +1349,9 @@ export default function App() {
             <SidebarLink active={activeTab === 'feeds'} onClick={() => setActiveTab('feeds')} icon={<Rss size={16} />}>Job Feeds</SidebarLink>
           )}
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
+          {isTabVisible('apply', IS_WEB) && (
+            <SidebarLink active={activeTab === 'apply'} onClick={() => setActiveTab('apply')} icon={<ClipboardList size={16} />}>Apply</SidebarLink>
+          )}
           {isTabVisible('copilot', IS_WEB) && (
             <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
           )}
@@ -1774,6 +1878,11 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ============================== APPLY ============================== */}
+        {IS_WEB && activeTab === 'apply' && (
+          <ApplyPacket profile={profile} jobs={jobs} answerBank={answerBank} onMarkApplied={markApplied} />
         )}
 
         {/* ============================== COPILOT ============================== */}
@@ -2346,76 +2455,63 @@ export default function App() {
                 </div>
               </section>
 
-              {/* Browser session setup */}
-              <section>
-                <SectionHeader
-                  title="Job site logins"
-                  subtitle="Sign in to all 6 SA job sites at once. Sessions are saved to your persistent browser profile and reused by every future scraping run, with no need to sign in again."
-                />
-                <div className="flex-gap" style={{ alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={setupBrowserLogins}
-                    disabled={isBrowserSetupOpen}
-                  >
-                    {isBrowserSetupOpen ? <Loader2 size={14} className="spin" /> : <ExternalLink size={14} />}
-                    {isBrowserSetupOpen ? 'Browser open. Sign in, then close the window.' : 'Open login browser'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost btn-sm"
-                    onClick={fetchLoginStatuses}
-                    disabled={isCheckingLogins || isBrowserSetupOpen}
-                    title="Check which sites are currently logged in"
-                  >
-                    {isCheckingLogins ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
-                    {isCheckingLogins ? 'Checking…' : 'Check status'}
-                  </button>
-                  <span className="hint">Opens Chrome with login tabs for LinkedIn, Indeed SA, PNet, CareerJunction &amp; Gumtree SA. Do this once. Sessions are saved permanently to your browser profile.</span>
-                </div>
+              {/* Job site logins, desktop only: the hosted app has no local browser. */}
+              {!IS_WEB && (
+                <section>
+                  <SectionHeader
+                    title="Job site logins"
+                    subtitle="Connect one site at a time. The copilot reuses that site's saved login only while it is connected. Disconnecting clears that site's cookies and local storage. No passwords are stored by SA-JAS."
+                  />
+                  <div className="flex-gap" style={{ alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={fetchLoginStatuses}
+                      disabled={isCheckingLogins}
+                    >
+                      {isCheckingLogins ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
+                      {isCheckingLogins ? 'Checking...' : 'Check sign-in status'}
+                    </button>
+                    <span className="hint">A temporary browser session is used when a site is not connected.</span>
+                  </div>
 
-                {/* Per-site login status badges */}
-                {loginStatuses && (() => {
-                  const sites = [
-                    { key: 'linkedin',       label: 'LinkedIn' },
-                    { key: 'indeedSa',       label: 'Indeed SA' },
-                    { key: 'pnet',           label: 'PNet' },
-                    { key: 'careerJunction', label: 'CareerJunction' },
-                    { key: 'gumtreeSa',      label: 'Gumtree SA' },
-                  ];
-                  return (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {sites.map(({ key, label }) => {
-                        const ok = loginStatuses[key];
-                        return (
-                          <span
-                            key={key}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 5,
-                              padding: '4px 10px',
-                              borderRadius: 20,
-                              fontSize: 12,
-                              fontWeight: 500,
-                              background: ok ? 'transparent' : 'var(--bg-surface-2)',
-                              border: `1px solid ${ok ? 'var(--color-success)' : 'var(--border)'}`,
-                              color: ok ? 'var(--color-success)' : 'var(--text-muted)',
-                            }}
-                          >
-                            {ok
-                              ? <CheckCircle2 size={12} color="var(--color-success)" />
-                              : <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--text-muted)', display: 'inline-block' }} />
-                            }
-                            {label}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </section>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {(sites || []).map((site) => {
+                      const signedIn = loginStatuses ? loginStatuses[site.key] : null;
+                      return (
+                        <div key={site.key} className="panel" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px' }}>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ margin: 0, fontWeight: 600 }}>{site.label}</p>
+                            <p className="tiny" style={{ margin: 0 }}>
+                              {site.connected ? 'Connected' : 'Not connected'}
+                              {signedIn === true ? '. Signed in.' : signedIn === false ? '. Not signed in.' : '.'}
+                            </p>
+                          </div>
+                          {site.connected ? (
+                            <button
+                              type="button"
+                              className="btn-ghost btn-sm"
+                              onClick={() => disconnectSiteLogin(site.key)}
+                              disabled={siteBusy === site.key}
+                            >
+                              {siteBusy === site.key ? 'Disconnecting...' : 'Disconnect'}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              onClick={() => connectSiteLogin(site.key)}
+                              disabled={Boolean(siteBusy)}
+                            >
+                              {siteBusy === site.key ? 'Waiting for sign-in...' : 'Connect'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
             </>)}
 
             {settingsTab === 'answers' && (

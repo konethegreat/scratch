@@ -31,8 +31,10 @@ const LABEL_LIMIT = 80;
 export async function listControls(page) {
   try {
     return await page.evaluate(({ selector, limit }) => {
+      const hud = document.getElementById('sajas-copilot-hud');
       const out = [];
       document.querySelectorAll(selector).forEach((el, index) => {
+        if (hud && hud.contains(el)) return;
         const raw = el.innerText || el.value || el.getAttribute('aria-label') || '';
         const text = raw.replace(/\s+/g, ' ').trim();
         if (!text) return;
@@ -78,8 +80,9 @@ export async function clickControl(page, control, { onFormPage = false, planned 
   let handle = null;
   try {
     handle = await page.evaluateHandle(({ selector, index, expected, limit }) => {
+      const hud = document.getElementById('sajas-copilot-hud');
       const el = document.querySelectorAll(selector)[index];
-      if (!el) return null;
+      if (!el || (hud && hud.contains(el))) return null;
       const raw = el.innerText || el.value || el.getAttribute('aria-label') || '';
       const now = raw.replace(/\s+/g, ' ').trim().slice(0, limit);
       return now === expected ? el : null;
@@ -90,6 +93,45 @@ export async function clickControl(page, control, { onFormPage = false, planned 
     return { clicked: true, text };
   } catch (err) {
     return { clicked: false, text, reason: 'click-failed', error: err.message };
+  } finally {
+    if (handle) await handle.dispose().catch(() => {});
+  }
+}
+
+/**
+ * Clicks a final-submit control exactly once, after an explicit confirmation.
+ * This is the only path in the copilot that presses Submit. It refuses without
+ * `confirmed: true`, refuses anything that is not final-submit wording, and
+ * re-reads the control (position and label) immediately before clicking.
+ */
+export async function clickSubmitControl(page, control, { confirmed = false, timeout = 5000 } = {}) {
+  if (!confirmed) return { clicked: false, reason: 'not-confirmed' };
+  if (!control || !Number.isInteger(control.index)) return { clicked: false, reason: 'no-control' };
+  const text = control.text ?? '';
+  if (classifyControl(text, { onFormPage: true }) !== 'final-submit') {
+    return { clicked: false, reason: 'refused', text };
+  }
+
+  const fresh = await listControls(page);
+  const current = fresh.find((entry) => entry.index === control.index);
+  if (!current || current.text !== text) return { clicked: false, reason: 'changed', text };
+
+  let handle = null;
+  try {
+    handle = await page.evaluateHandle(({ selector, index, expected, limit }) => {
+      const hud = document.getElementById('sajas-copilot-hud');
+      const el = document.querySelectorAll(selector)[index];
+      if (!el || (hud && hud.contains(el))) return null;
+      const raw = el.innerText || el.value || el.getAttribute('aria-label') || '';
+      const now = raw.replace(/\s+/g, ' ').trim().slice(0, limit);
+      return now === expected ? el : null;
+    }, { selector: CONTROL_SELECTOR, index: control.index, expected: text, limit: LABEL_LIMIT });
+    const el = handle.asElement();
+    if (!el) return { clicked: false, reason: 'changed', text };
+    await el.click({ timeout });
+    return { clicked: true, text };
+  } catch (error) {
+    return { clicked: false, reason: 'click-failed', text, error: error.message };
   } finally {
     if (handle) await handle.dispose().catch(() => {});
   }

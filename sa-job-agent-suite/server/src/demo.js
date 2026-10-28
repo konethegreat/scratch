@@ -49,9 +49,19 @@ export function installDemo(app) {
     <script>document.querySelector('#continue').onclick=()=>{const f=document.querySelector('#application');if(f.reportValidity()){sessionStorage.setItem('demoApplicant',JSON.stringify(Object.fromEntries(new FormData(f))));location.href='/demo/review';}};</script>`)));
   app.get('/demo/review', (_req, res) => res.send(shell('Review application', `
     <h1>Review your fictional application</h1><p>Step 2 of 2 · The copilot must leave the final button for you. Check the applicant details before proceeding.</p>
-    <section><h2>Ready for your review</h2><pre id="details" style="white-space:pre-wrap"></pre>
+    <section><h2>Ready for your review</h2>
+    <form onsubmit="return false">
+      <label for="review-name">Full name</label><input id="review-name" name="fullName" readonly>
+      <label for="review-email">Email address</label><input id="review-email" name="email" type="email" readonly>
+      <label for="review-phone">Phone number</label><input id="review-phone" name="phone" readonly>
+      <label for="review-notice">Notice period</label><input id="review-notice" name="notice" readonly>
+      <label for="review-work">Right to work in South Africa</label><input id="review-work" name="work" readonly>
+      <label for="review-project">${DEMO_QUESTION}</label><textarea id="review-project" name="project" readonly></textarea>
+    </form>
+    <pre id="details" style="white-space:pre-wrap"></pre>
     <button type="button" id="submit">Submit application</button><p id="result" role="status"></p></section>
     <script>const d=JSON.parse(sessionStorage.getItem('demoApplicant')||'{}');document.querySelector('#details').textContent=Object.entries(d).filter(([k])=>k!=='cv').map(([k,v])=>k+': '+v).join('\\n');
+    document.querySelector('#review-name').value=d.fullName||'';document.querySelector('#review-email').value=d.email||'';document.querySelector('#review-phone').value=d.phone||'';document.querySelector('#review-notice').value=d.notice||'';document.querySelector('#review-work').value=d.work||'';document.querySelector('#review-project').value=d.project||'';
     document.querySelector('#submit').onclick=async()=>{const r=await fetch('/api/demo/submit',{method:'POST',headers:{'X-SAJAS-Client':'1'}});if(r.ok)location.href='/demo/confirmation';};</script>`)));
   app.post('/api/demo/submit', (_req, res) => { submissions++; res.json({ synthetic: true }); });
   app.get('/demo/confirmation', (_req, res) => {
@@ -63,11 +73,12 @@ export function installDemo(app) {
   const reads = new Set(['/api/profile', '/api/jobs', '/api/logs', '/api/status',
     '/api/documents', '/api/memory', '/api/routines', '/api/usage', '/api/health',
     '/api/application/bank', '/api/application/pending', '/api/backup', '/api/models',
-    '/api/hunter/sources']);
+    '/api/hunter/sources', '/api/sites']);
   app.use('/api', (req, res, next) => {
     const fullPath = '/api' + req.path;
     if (req.method === 'GET' && reads.has(fullPath)) return next();
     if (req.method === 'POST' && (fullPath === `/api/jobs/${DEMO_JOB_ID}/apply` ||
+        fullPath === '/api/apply/confirm' ||
         /^\/api\/application\/pending\/[^/]+\/resolve$/.test(fullPath))) return next();
     forbidden(res, 'Synthetic demo: live searches, AI calls, profile changes and other actions are disabled. Use the fictional copilot and answer manager.');
   });

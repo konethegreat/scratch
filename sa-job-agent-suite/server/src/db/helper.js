@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { estimateCostUSD } from './costs.js';
 import { currentTask } from './taskContext.js';
 import { scrubSecrets, MODEL_IDS, CAPABILITIES, normalizeKeyInput, isAnthropicKeyShape, isAdminKeyShape } from '@sajas/core';
+import { cleanSubmission } from '@sajas/core/apply';
 import { migrateProfile, PROFILE_SCHEMA_VERSION, LEGACY_KEY_FIELDS, LEGACY_PROFILE_FIELDS } from './migrations.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -226,8 +227,13 @@ const DEFAULT_DB = {
   applyState: {
     isRunning: false,
     jobId: null,
-    startedAt: null
+    startedAt: null,
+    pendingConfirmation: null
   },
+  // Per-domain permission to reuse the persistent browser profile's saved login.
+  // No passwords are stored; disconnecting clears the cookies and local storage
+  // for that origin and removes this record.
+  siteConsent: {},
   // ── AI usage ledger ─────────────────────────────────────────────────────────
   // Per-day token/search tallies + ESTIMATED USD cost, bucketed by feature
   // ('ai-search', 'research', 'core', …) so the user can see exactly what is
@@ -319,6 +325,7 @@ export function readDb() {
       },
       hunterState: { ...DEFAULT_DB.hunterState, ...(parsed.hunterState || {}) },
       applyState:  { ...DEFAULT_DB.applyState,  ...(parsed.applyState  || {}) },
+      siteConsent: (parsed.siteConsent && typeof parsed.siteConsent === 'object' && !Array.isArray(parsed.siteConsent)) ? parsed.siteConsent : {},
       usage: (parsed.usage && typeof parsed.usage === 'object' && parsed.usage.days)
         ? parsed.usage
         : { days: {} },
@@ -734,7 +741,20 @@ export function upsertEmployerNote({ company, note }) {
  * Records (or updates) an application in the outcome log, keyed by jobId. Bumps
  * the employer's application count the first time a given job is recorded.
  */
-export function recordApplication({ jobId, title, company, salarySnapshot = null, transcript = [], outcome = 'applied' }) {
+export function recordApplication({
+  jobId,
+  title,
+  company,
+  salarySnapshot = null,
+  transcript = [],
+  outcome = 'applied',
+  delivery = null,
+  submittedBy = null,
+  site = '',
+  documents = [],
+  fields = [],
+  confirmation = null
+}) {
   const db = readDb();
   const mem = db.candidateMemory;
   if (!Array.isArray(mem.applications)) mem.applications = [];
@@ -743,12 +763,22 @@ export function recordApplication({ jobId, title, company, salarySnapshot = null
         .filter((t) => t && t.question && t.answer)
         .map((t) => ({ question: String(t.question).slice(0, 300), answer: String(t.answer).slice(0, 1500) }))
     : [];
+  const cleaned = cleanSubmission({ documents, fields, confirmation });
+  const submission = {};
+  if (delivery) submission.delivery = String(delivery).slice(0, 40);
+  if (submittedBy) submission.submittedBy = String(submittedBy).slice(0, 40);
+  if (site) submission.site = String(site).toLowerCase().slice(0, 200);
+  if (cleaned.documents.length) submission.documents = cleaned.documents;
+  if (cleaned.fields.length) submission.fields = cleaned.fields;
+  if (cleaned.confirmation) submission.confirmation = cleaned.confirmation;
+
   let rec = jobId ? mem.applications.find((a) => a.jobId === jobId) : null;
   const isNew = !rec;
   if (!rec) {
     rec = {
       id: randomUUID(), jobId: jobId || null, title: title || '', company: company || '',
-      appliedAt: new Date().toISOString(), outcome, salarySnapshot, transcript: cleanTranscript
+      appliedAt: new Date().toISOString(), outcome, salarySnapshot, transcript: cleanTranscript,
+      ...submission
     };
     mem.applications.push(rec);
   } else {
@@ -757,6 +787,7 @@ export function recordApplication({ jobId, title, company, salarySnapshot = null
     if (outcome) rec.outcome = outcome;
     if (salarySnapshot) rec.salarySnapshot = salarySnapshot;
     if (cleanTranscript.length) rec.transcript = cleanTranscript;
+    Object.assign(rec, submission);
   }
   if (isNew && company && String(company).trim()) {
     const normalized = normalizeQuestion(company);
@@ -977,6 +1008,34 @@ export function setApplyState(updates) {
   db.applyState = { ...db.applyState, ...updates };
   writeDb(db);
   return db.applyState;
+}
+
+// ── Site login consent ──────────────────────────────────────────────────────
+export function getSiteConsent() {
+  return readDb().siteConsent || {};
+}
+
+export function setSiteConsent({ siteKey, label, origin, method = 'login' }) {
+  const db = readDb();
+  db.siteConsent = db.siteConsent && typeof db.siteConsent === 'object' ? db.siteConsent : {};
+  db.siteConsent[siteKey] = {
+    siteKey,
+    label,
+    origin,
+    connectedAt: new Date().toISOString(),
+    method
+  };
+  writeDb(db);
+  return db.siteConsent[siteKey];
+}
+
+export function clearSiteConsent(siteKey) {
+  const db = readDb();
+  if (db.siteConsent && db.siteConsent[siteKey]) {
+    delete db.siteConsent[siteKey];
+    writeDb(db);
+  }
+  return true;
 }
 
 // ── Routines (T1): unattended, recurring Hunter/Tailor runs ───────────────────

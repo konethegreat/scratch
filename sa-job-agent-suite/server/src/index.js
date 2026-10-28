@@ -36,6 +36,8 @@ import {
   saveSupportingDocument,
   deleteSupportingDocument,
   getCandidateMemory,
+  getSiteConsent,
+  recordApplication,
   addInsight,
   deleteInsight,
   upsertEmployerNote,
@@ -62,6 +64,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 import { runJobHunterAgent, setupBrowserSession, checkLoginStatuses } from './agents/agent1-hunter.js';
 import { tryAcquireBrowser, browserOwner } from './hunter/browserLock.js';
+import { LOGIN_SITES, loginSite } from './hunter/loginSites.js';
+import { connectSite, disconnectSite } from './hunter/siteSessions.js';
 import { SOURCES, getSource } from './hunter/registry.js';
 import { computeStatus, baselineRaw, emptyEntry } from './hunter/health.js';
 import { getAllHealth, getHealthEntry, setEnabled, resetCircuit } from './hunter/healthStore.js';
@@ -69,6 +73,7 @@ import { canaryStartRefusal, runCanarySession } from './hunter/canary.js';
 import { revalidateJobLinks } from './agents/linkValidator.js';
 import { runDocumentTailorAgent } from './agents/agent2-tailor.js';
 import { runApplyAssistantAgent, closeDemoBrowsers } from './agents/agent3-applier.js';
+import { confirmationDecision } from './agents/applyConfirmation.js';
 import { startScheduler, runRoutineNow } from './agents/routineRunner.js';
 import { tailorJobsConcurrently } from './agents/subAgents.js';
 import { dreamOverMemory } from './agents/memoryReflect.js';
@@ -79,6 +84,7 @@ import { localGuard } from './localGuard.js';
 import { requestContext, sendError, badRequest, notFound, conflict, errorHandler } from './httpErrors.js';
 import { createSingleFlight } from './singleFlight.js';
 import { MODELS, AppError, ERROR_CODES } from '@sajas/core';
+import { buildApplyPacket, summariseSubmission } from '@sajas/core/apply';
 
 const app = express();
 app.use(requestContext);
@@ -784,6 +790,46 @@ app.post('/api/jobs/tailor-batch', (req, res) => {
   });
 });
 
+app.post('/api/jobs/:id/applied', (req, res) => {
+  try {
+    const job = getJobs().find((entry) => entry.id === req.params.id);
+    if (!job) return notFound(res, 'Job not found.');
+    const profile = getProfile();
+    const packet = buildApplyPacket({
+      profile,
+      job,
+      answerBank: getAnswerBank(),
+      // getSupportingDocuments() reports `uploaded`; the packet uses `available`.
+      supportingDocs: [
+        ...(job.tailoredCvPath
+          ? [{ key: 'cv', label: 'Tailored CV', fileName: path.basename(job.tailoredCvPath), available: true }]
+          : []),
+        ...getSupportingDocuments()
+          .filter((doc) => doc.uploaded)
+          .map((doc) => ({ key: doc.key, label: doc.label, fileName: doc.fileName || '', available: true }))
+      ]
+    });
+    const submission = summariseSubmission(packet, { delivery: 'web-guided', submittedBy: 'user' });
+    const application = recordApplication({
+      jobId: job.id,
+      title: job.title,
+      company: job.company,
+      salarySnapshot: {
+        current: (profile.applicationProfile || {}).currentSalary || '',
+        expected: (profile.applicationProfile || {}).expectedSalary || ''
+      },
+      transcript: [],
+      outcome: 'applied',
+      ...submission
+    });
+    const updated = updateJob(job.id, { status: 'applied', appliedAt: application.appliedAt });
+    addLog(`Marked "${job.title}" as applied.`, 'system');
+    res.json({ success: true, application, job: updated });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/jobs/:id/apply', (req, res) => {
   const jobId = req.params.id;
 
@@ -812,6 +858,27 @@ app.post('/api/jobs/:id/apply', (req, res) => {
     setApplyState({ isRunning: false, jobId: null, startedAt: null });
     release();
   });
+});
+
+app.post('/api/apply/confirm', (req, res) => {
+  const current = getApplyState().pendingConfirmation || null;
+  const decision = confirmationDecision(current, req.body || {});
+  if (decision.action === 'ignore') {
+    if (!current) return conflict(res, 'There is nothing waiting to submit.', { hint: 'Open the copilot final review first.' });
+    return conflict(res, 'That confirmation does not match the open application.', { hint: 'Use the confirmation shown in SA-JAS.' });
+  }
+  if (decision.action === 'expired') {
+    setApplyState({ pendingConfirmation: null });
+    return conflict(res, 'This confirmation expired. The copilot will offer the final button again if it is still on the page.', { retryable: true });
+  }
+  if (decision.action === 'cancel') {
+    setApplyState({ pendingConfirmation: { ...current, status: 'cancelled' } });
+    addLog('Submit cancelled in SA-JAS. Nothing was pressed.', 'agent3');
+    return res.json({ success: true, cancelled: true });
+  }
+  setApplyState({ pendingConfirmation: { ...current, status: 'approved' } });
+  addLog('Submit confirmed in SA-JAS. The copilot will press the final button once.', 'agent3');
+  res.json({ success: true, approved: true });
 });
 
 // -------------------- Referral pipeline (post-application outreach) --------------------
@@ -867,6 +934,62 @@ app.post('/api/browser/login-status', async (req, res) => {
     res.json({ success: true, statuses: result.value });
   } catch (err) {
     sendError(res, err, { success: false });
+  } finally {
+    release();
+  }
+});
+
+// -------------------- Per-site login consent --------------------
+app.get('/api/sites', (_req, res) => {
+  try {
+    const consent = getSiteConsent();
+    res.json(LOGIN_SITES.map((site) => ({
+      key: site.key,
+      label: site.label,
+      origin: site.origin,
+      connected: Boolean(consent[site.key]),
+      connectedAt: consent[site.key]?.connectedAt || null
+    })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/sites/:key/connect', async (req, res) => {
+  const site = loginSite(req.params.key);
+  if (!site) return notFound(res, 'That job site is not supported.');
+  const release = tryAcquireBrowser('site login');
+  if (!release) return conflict(res, `A browser job is already running (${browserOwner()}).`);
+  try {
+    addLog(`Opening ${site.label} for sign-in. Sign in in the browser window.`, 'system');
+    const entry = await connectSite(site.key);
+    if (!entry) {
+      return sendError(res, new AppError(ERROR_CODES.CONFLICT, 'Sign-in was not detected before the window closed.', {
+        status: 408,
+        retryable: true,
+        hint: 'Connect again when you are ready to sign in. Nothing was saved.'
+      }));
+    }
+    addLog(`${site.label} is connected. The copilot will reuse this login.`, 'system');
+    res.json({ success: true, site: entry });
+  } catch (error) {
+    sendError(res, error);
+  } finally {
+    release();
+  }
+});
+
+app.post('/api/sites/:key/disconnect', async (req, res) => {
+  const site = loginSite(req.params.key);
+  if (!site) return notFound(res, 'That job site is not supported.');
+  const release = tryAcquireBrowser('site disconnect');
+  if (!release) return conflict(res, `A browser job is already running (${browserOwner()}).`);
+  try {
+    await disconnectSite(site.key);
+    addLog(`${site.label} disconnected. Its saved login was cleared.`, 'system');
+    res.json({ success: true });
+  } catch (error) {
+    sendError(res, error);
   } finally {
     release();
   }

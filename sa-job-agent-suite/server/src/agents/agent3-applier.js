@@ -1,10 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { chromium } from 'playwright';
-import { getProfile, updateJob, addLog, readDb, getAnswerBank, addPendingQuestion, normalizeQuestion, buildMemoryDigest, recordApplication, getSupportingDocuments, getSupportingDocPath, isRealPdfFile, SUPPORTING_DOC_TYPES, BROWSER_PROFILE_PATH, GENERATED_DOCS_PATH } from '../db/helper.js';
+import { getProfile, updateJob, addLog, readDb, getAnswerBank, addPendingQuestion, normalizeQuestion, buildMemoryDigest, recordApplication, getSupportingDocuments, getSupportingDocPath, isRealPdfFile, SUPPORTING_DOC_TYPES, GENERATED_DOCS_PATH, getApplyState, setApplyState, getSiteConsent } from '../db/helper.js';
+import { siteForHost } from '../hunter/loginSites.js';
+import { openProfileContext, openEphemeralContext } from '../hunter/browser.js';
 import { callLlm, extractJson, hasAnthropicKey } from './llm.js';
 import { planPage, lookWithVision, clickButtonByText } from './pageBrain.js';
-import { findAdvanceControl, clickControl } from './controls.js';
+import { findAdvanceControl, clickControl, clickSubmitControl } from './controls.js';
+import { createPendingConfirmation, pageOrigin } from './applyConfirmation.js';
+import { scanSubmitControls, captureFieldSnapshot, attachedFileNames, documentsFromFiles, confirmationExcerpt } from './submission.js';
 import { computerUseFillForm, computerUseSupported } from './computerUse.js';
 import { reflectOnApplication } from './memoryReflect.js';
 import { demoOrigin } from '../demo.js';
@@ -980,13 +983,31 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
   addLog(`Launching visual browser for: ${job.title} at ${job.company}...`, 'agent3');
 
   let context;
+  let ephemeralBrowser = null;
+  let targetSite = null;
+  let siteLabel = '';
   try {
-    const launchOpts = { headless, args: ['--start-maximized'], viewport: headless ? { width: 1440, height: 1100 } : null,
-      ...(fixtureOrigin ? { serviceWorkers: 'block' } : {}) };
-    try {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, { ...launchOpts, channel: 'chrome' });
-    } catch {
-      context = await chromium.launchPersistentContext(BROWSER_PROFILE_PATH, launchOpts);
+    const host = new URL(job.applyUrl).hostname;
+    siteLabel = host.toLowerCase();
+    targetSite = siteForHost(host);
+  } catch { /* no usable link */ }
+  const consent = targetSite ? getSiteConsent()[targetSite.key] : null;
+  const reuseSession = Boolean(targetSite && consent);
+  if (!reuseSession && !fixtureOrigin) {
+    addLog('This site is not connected. The copilot is using a temporary session; connect the site under Job site logins to reuse your login.', 'agent3');
+  }
+
+  try {
+    const launchOpts = { headless, args: ['--start-maximized'], viewport: headless ? { width: 1440, height: 1100 } : null };
+    if (reuseSession) {
+      context = await openProfileContext(launchOpts);
+    } else {
+      const opened = await openEphemeralContext({
+        ...launchOpts,
+        ...(fixtureOrigin ? { serviceWorkers: 'block' } : {})
+      });
+      context = opened.context;
+      ephemeralBrowser = opened.browser;
     }
     if (fixtureOrigin) {
       demoContexts.add(context);
@@ -1093,7 +1114,7 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
         return urlHit || textHit;
       });
       if (loginWall) {
-        addLog('⚠️ This portal looks like it needs you to sign in. Use "Open login browser" in Settings first, or log in on this window, then continue.', 'agent3');
+        addLog('⚠️ This portal looks like it needs you to sign in. Connect this site under Job site logins, or sign in on this window, then continue.', 'agent3');
       }
     } catch {}
 
@@ -1142,9 +1163,64 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
     let isApplied = false;
     let autoConfirmed = false;
     let confirmationShotPath = null;
+    let confirmationText = '';
+    let submittedSnapshot = null;
+    let pendingSubmit = null;
+    const cancelledSubmitKeys = new Set();
+    // Review pages usually show the uploaded file name as text, not as a file
+    // input, so remember every file the copilot attached earlier in the flow.
+    const sessionFileNames = new Set();
     // Accumulates every Q&A the copilot fills across the (possibly multi-step)
     // flow. Fed into the evolving candidate memory once the application confirms.
     const sessionTranscript = [];
+
+    const saveConfirmationShot = async (p) => {
+      try {
+        const target = path.join(GENERATED_DOCS_PATH, `${jobId}-confirmation.png`);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        await p.screenshot({ path: target, fullPage: true });
+        return target;
+      } catch (error) {
+        addLog(`Could not save confirmation screenshot: ${error.message}`, 'error');
+        return null;
+      }
+    };
+
+    const rememberAttached = async (p) => {
+      for (const name of await attachedFileNames(p)) sessionFileNames.add(name);
+    };
+
+    // A review step usually has no file input, so combine what is attached on
+    // the current page with what was attached earlier in the same flow.
+    const collectedFileNames = async (p) =>
+      [...new Set([...sessionFileNames, ...(await attachedFileNames(p))])];
+
+    const confirmedSubmitOutcome = async (p, pending, stored) => {
+      if (pageOrigin(p.url()) !== pageOrigin(pending.pageUrl)) {
+        return { status: 'changed', reason: 'The page changed before you confirmed. Nothing was submitted.' };
+      }
+      const { submit } = await scanSubmitControls(p);
+      if (!submit || submit.text !== pending.controlText) {
+        return { status: 'changed', reason: 'The final button changed before you confirmed. Nothing was submitted.' };
+      }
+      const fields = await captureFieldSnapshot(p);
+      const files = await collectedFileNames(p);
+      setApplyState({ pendingConfirmation: { ...stored, status: 'clicking' } });
+      const result = await clickSubmitControl(p, { index: pending.controlIndex, text: pending.controlText }, { confirmed: true });
+      if (!result.clicked) {
+        return {
+          status: 'failed',
+          reason: `Nothing was submitted: the final button ${result.reason === 'changed' ? 'changed' : 'could not be clicked'}.`
+        };
+      }
+      for (let wait = 0; wait < 30; wait++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const challenge = await detectChallenge(p);
+        if (challenge.present) return { status: 'challenge', fields, files, pending };
+        if (await detectSubmissionConfirmation(p)) return { status: 'confirmed', fields, files, pending };
+      }
+      return { status: 'timeout', fields, files, pending };
+    };
 
     for (let i = 0; i < 400; i++) {
       try {
@@ -1206,6 +1282,7 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
           const n = await attachCvFile(p, job.tailoredCvPath);
           const d = await attachSupportingDocs(p);
           const total = n + d;
+          await rememberAttached(p);
           await p.evaluate((c) => window.sajasNotify && window.sajasNotify(
             c > 0 ? `Attached ${c} document(s). Review every upload before submitting.` : 'No matching upload field found - attach manually.'
           ), total).catch(() => {});
@@ -1218,6 +1295,46 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
         }
 
 
+        // ── Final review handshake ─────────────────────────────────────────
+        if (pendingSubmit) {
+          const stored = getApplyState().pendingConfirmation;
+          if (!stored) {
+            pendingSubmit = null;
+          } else if (stored.status === 'cancelled') {
+            cancelledSubmitKeys.add(`${pendingSubmit.pageUrl}::${pendingSubmit.controlText}`);
+            addLog('Submit cancelled. The copilot will not offer that button again this session.', 'agent3');
+            pendingSubmit = null;
+            setApplyState({ pendingConfirmation: null });
+          } else if (stored.status === 'approved' && !challenge.present) {
+            // Wait for a verification wall to clear: clicking Submit through a
+            // challenge would be both useless and unsafe.
+            const outcome = await confirmedSubmitOutcome(p, pendingSubmit, stored);
+            if (outcome.status === 'confirmed') {
+              submittedSnapshot = {
+                fields: outcome.fields,
+                documents: documentsFromFiles(outcome.files),
+                pending: outcome.pending
+              };
+              confirmationText = await confirmationExcerpt(p);
+              confirmationShotPath = await saveConfirmationShot(p);
+              autoConfirmed = true;
+              isApplied = true;
+              setApplyState({ pendingConfirmation: null });
+              break;
+            }
+            if (outcome.status === 'timeout') {
+              addLog('Submit was clicked but the site did not confirm it. Check the page yourself; nothing was recorded.', 'error');
+            } else if (outcome.status === 'challenge') {
+              addLog('Submit was clicked and the site showed a verification step. Check the page yourself; nothing was recorded.', 'error');
+            } else {
+              addLog(outcome.reason, 'error');
+            }
+            setApplyState({ pendingConfirmation: null });
+            pendingSubmit = null;
+            break;
+          }
+        }
+
         // Auto-pilot. Order of intelligence:
         //  1) Real application form -> smart-fill it (deterministic + LLM).
         //  2) Otherwise -> the PLANNER (one cheap LLM call per URL, capped)
@@ -1225,7 +1342,7 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
         //  3) Vision fallback (opt-in) when the planner is unsure.
         //  4) Keyword heuristic as a last resort.
         // Never clicks the final Submit; paused during verification.
-        if (autopilot && !challenge.present && !isApplied) {
+        if (autopilot && !challenge.present && !isApplied && !pendingSubmit) {
           const url = p.url();
           const looksLikeForm = await isApplicationForm(p);
           // Once a form has been filled in this session we are inside the
@@ -1240,6 +1357,7 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
             if (n > 0) {
               await attachCvFile(p, job.tailoredCvPath);
               await attachSupportingDocs(p);
+              await rememberAttached(p);
               await p.evaluate((c) => window.sajasNotify && window.sajasNotify(
                 `Auto-pilot filled ${c} field(s). Review before you submit.`
               ), n).catch(() => {});
@@ -1260,6 +1378,7 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
                 if (n > 0) {
                   await attachCvFile(p, job.tailoredCvPath);
                   await attachSupportingDocs(p);
+                  await rememberAttached(p);
                   await p.evaluate((c) => window.sajasNotify && window.sajasNotify(
                     `Auto-pilot filled ${c} field(s). Review before you submit.`
                   ), n).catch(() => {});
@@ -1289,17 +1408,35 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
           }
         }
 
+        // Offer the final button once, when the page has no step-forward control
+        // left and the human has not cancelled this exact button on this URL.
+        if (!isApplied && !pendingSubmit && !challenge.present) {
+          const url = p.url();
+          const inApplication = (await isApplicationForm(p)) || filledPages.size > 0;
+          if (inApplication) {
+            const { submit, advance } = await scanSubmitControls(p);
+            const key = submit ? `${url}::${submit.text}` : '';
+            if (submit && !advance && !cancelledSubmitKeys.has(key)) {
+              const fields = await captureFieldSnapshot(p);
+              const files = await collectedFileNames(p);
+              pendingSubmit = createPendingConfirmation({
+                job,
+                pageUrl: url,
+                control: submit,
+                fieldsFilled: fields.length,
+                fileNames: files
+              });
+              setApplyState({ pendingConfirmation: pendingSubmit });
+              addLog('Final review reached. Confirm in SA-JAS to submit this application.', 'agent3');
+              try { await p.bringToFront(); } catch {}
+            }
+          }
+        }
+
         // Auto-detect a submission confirmation (supervised: we record + prove
         // it, we never click Submit for you).
         if (!isApplied && await detectSubmissionConfirmation(p)) {
-          try {
-            confirmationShotPath = path.join(GENERATED_DOCS_PATH, `${jobId}-confirmation.png`);
-            fs.mkdirSync(path.dirname(confirmationShotPath), { recursive: true });
-            await p.screenshot({ path: confirmationShotPath, fullPage: true });
-          } catch (e) {
-            confirmationShotPath = null;
-            addLog(`Could not save confirmation screenshot: ${e.message}`, 'error');
-          }
+          confirmationShotPath = await saveConfirmationShot(p);
           autoConfirmed = true;
           isApplied = true;
           await p.evaluate(() => window.sajasNotify && window.sajasNotify('Submission confirmed and recorded.')).catch(() => {});
@@ -1333,7 +1470,15 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
           company: job.company,
           salarySnapshot: { current: appProfile.currentSalary || '', expected: appProfile.expectedSalary || '' },
           transcript: sessionTranscript,
-          outcome: 'applied'
+          outcome: 'applied',
+          delivery: 'desktop-copilot',
+          submittedBy: submittedSnapshot ? 'copilot-confirmed' : 'user',
+          site: submittedSnapshot?.pending?.site || siteLabel,
+          documents: submittedSnapshot?.documents || [],
+          fields: submittedSnapshot?.fields || [],
+          confirmation: autoConfirmed
+            ? { confirmedAt: new Date().toISOString(), text: confirmationText }
+            : null
         });
         await reflectOnApplication(profile, { job, transcript: sessionTranscript });
       } catch (err) {
@@ -1348,10 +1493,19 @@ async function runApplyAssistantAgentInner(jobId, { headless = false, pollInterv
     console.error(error);
     throw error;
   } finally {
+    // A pending offer belongs to this run. Clear it so a closed or finished
+    // session cannot leave a confirmation dialog pointing at a dead page.
+    try {
+      const pending = getApplyState().pendingConfirmation;
+      if (pending && pending.jobId === jobId) setApplyState({ pendingConfirmation: null });
+    } catch {}
     if (context) {
       try { await context.close(); } catch {}
       demoContexts.delete(context);
       addLog('Browser session ended.', 'agent3');
+    }
+    if (ephemeralBrowser) {
+      try { await ephemeralBrowser.close(); } catch {}
     }
   }
 }

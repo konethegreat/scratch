@@ -82,6 +82,8 @@ const postJson = (route, body) => fetch(runtime.origin + route, {
   body: JSON.stringify(body)
 });
 
+const json = (response) => response.json();
+
 // Key-shaped fixtures are assembled from fragments so this file never contains
 // a literal that looks like a credential.
 const malformedKey = ['sk', 'ant', 'api03', 'F'.repeat(12)].join('-');
@@ -151,4 +153,81 @@ test('profile stores the feed South Africa default as a boolean', async () => {
 
   const on = await postJson('/api/profile', { feedSaOnly: true });
   assert.equal((await on.json()).profile.feedSaOnly, true);
+});
+
+test('marking a job applied records a web-guided submission without leaking undeclared profile fields', async () => {
+  const created = await json(await postJson('/api/jobs', {
+    title: 'Developer', company: 'Example', applyUrl: 'https://example.co.za/apply'
+  }));
+  await postJson('/api/profile', {
+    fullName: 'Alex Example',
+    email: 'alex@example.test',
+    applicationProfile: { noticePeriod: '30 days', idNumber: '9001015000000' }
+  });
+  const res = await postJson(`/api/jobs/${created.job.id}/applied`, { delivery: 'web-guided' });
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.application.delivery, 'web-guided');
+  assert.equal(body.application.site, 'example.co.za');
+  assert.deepEqual(body.application.fields, [
+    { label: 'Full name', value: 'Alex Example' },
+    { label: 'Email address', value: 'alex@example.test' },
+    { label: 'Notice period', value: '30 days' }
+  ]);
+  assert.equal(JSON.stringify(body).includes('9001015000000'), false, 'an ID number was recorded');
+
+  const jobs = await json(await fetch(`${runtime.origin}/api/jobs`));
+  const job = jobs.find((entry) => entry.id === created.job.id);
+  assert.equal(job.status, 'applied');
+});
+
+test('site consent starts empty and an unknown site is NOT_FOUND', async () => {
+  const sites = await json(await fetch(`${runtime.origin}/api/sites`));
+  assert.deepEqual(sites.map((site) => site.key), ['linkedin', 'indeedSa', 'pnet', 'careerJunction', 'gumtreeSa']);
+  assert.equal(sites.every((site) => site.connected === false), true);
+
+  const missing = await postJson('/api/sites/unknown/connect', {});
+  assert.equal(missing.status, 404);
+  assert.equal((await json(missing)).code, 'NOT_FOUND');
+});
+
+test('submit confirmation rejects a missing or mismatched nonce and accepts the open one', async () => {
+  const empty = await postJson('/api/apply/confirm', { nonce: 'nope' });
+  assert.equal(empty.status, 409);
+  assert.equal((await json(empty)).code, 'CONFLICT');
+
+  const created = await json(await postJson('/api/jobs', { title: 'Confirmation job', company: 'Example' }));
+  const dbPath = path.join(runtime.directory, 'db.json');
+  const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+  db.applyState = {
+    isRunning: true,
+    jobId: created.job.id,
+    startedAt: new Date().toISOString(),
+    pendingConfirmation: {
+      nonce: 'nonce-open',
+      jobId: created.job.id,
+      jobTitle: 'Confirmation job',
+      company: 'Example',
+      site: 'https://example.co.za',
+      pageUrl: 'https://example.co.za/review',
+      controlText: 'Submit application',
+      controlIndex: 1,
+      fieldsFilled: 3,
+      documents: [],
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+      status: 'pending'
+    }
+  };
+  await fs.writeFile(dbPath, JSON.stringify(db, null, 2));
+
+  const wrong = await postJson('/api/apply/confirm', { nonce: 'other' });
+  assert.equal(wrong.status, 409);
+
+  const approved = await postJson('/api/apply/confirm', { nonce: 'nonce-open' });
+  assert.equal(approved.status, 200);
+  assert.equal((await json(approved)).approved, true);
+
+  const again = await postJson('/api/apply/confirm', { nonce: 'nonce-open' });
+  assert.equal(again.status, 409);
 });

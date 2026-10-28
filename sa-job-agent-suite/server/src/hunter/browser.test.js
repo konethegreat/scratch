@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { profileLaunchOptions, openProfileContext, SCRAPE_LAUNCH_OPTS, LOGIN_LAUNCH_OPTS } from './browser.js';
+import { profileLaunchOptions, openProfileContext, openEphemeralContext, SCRAPE_LAUNCH_OPTS, LOGIN_LAUNCH_OPTS } from './browser.js';
 
 test('headless scrape options keep the South African locale and timezone', () => {
   const options = profileLaunchOptions();
@@ -38,4 +38,20 @@ test('openProfileContext tries Chrome first, then bundled Chromium, with one opt
   assert.equal(calls[0].channel, 'chrome');
   assert.equal(calls[1].channel, undefined);
   assert.equal(calls[0].locale, calls[1].locale);
+});
+
+test('openEphemeralContext creates a throwaway context without the persistent profile', async () => {
+  const seen = [];
+  const browser = {
+    newContext: async (options) => { seen.push(options); return { kind: 'ephemeral' }; },
+    close: async () => { seen.push('closed'); }
+  };
+  const { context, browser: started } = await openEphemeralContext({
+    headless: false,
+    launch: async (options) => { seen.push(options.headless); return browser; }
+  });
+  assert.deepEqual(context, { kind: 'ephemeral' });
+  assert.equal(started, browser);
+  assert.equal(seen[0], false);
+  assert.equal(seen[1].locale, 'en-ZA');
 });

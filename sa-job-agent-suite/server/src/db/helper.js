@@ -227,8 +227,13 @@ const DEFAULT_DB = {
   applyState: {
     isRunning: false,
     jobId: null,
-    startedAt: null
+    startedAt: null,
+    pendingConfirmation: null
   },
+  // Per-domain permission to reuse the persistent browser profile's saved login.
+  // No passwords are stored; disconnecting clears the cookies and local storage
+  // for that origin and removes this record.
+  siteConsent: {},
   // ── AI usage ledger ─────────────────────────────────────────────────────────
   // Per-day token/search tallies + ESTIMATED USD cost, bucketed by feature
   // ('ai-search', 'research', 'core', …) so the user can see exactly what is
@@ -320,6 +325,7 @@ export function readDb() {
       },
       hunterState: { ...DEFAULT_DB.hunterState, ...(parsed.hunterState || {}) },
       applyState:  { ...DEFAULT_DB.applyState,  ...(parsed.applyState  || {}) },
+      siteConsent: (parsed.siteConsent && typeof parsed.siteConsent === 'object' && !Array.isArray(parsed.siteConsent)) ? parsed.siteConsent : {},
       usage: (parsed.usage && typeof parsed.usage === 'object' && parsed.usage.days)
         ? parsed.usage
         : { days: {} },
@@ -1002,6 +1008,34 @@ export function setApplyState(updates) {
   db.applyState = { ...db.applyState, ...updates };
   writeDb(db);
   return db.applyState;
+}
+
+// ── Site login consent ──────────────────────────────────────────────────────
+export function getSiteConsent() {
+  return readDb().siteConsent || {};
+}
+
+export function setSiteConsent({ siteKey, label, origin, method = 'login' }) {
+  const db = readDb();
+  db.siteConsent = db.siteConsent && typeof db.siteConsent === 'object' ? db.siteConsent : {};
+  db.siteConsent[siteKey] = {
+    siteKey,
+    label,
+    origin,
+    connectedAt: new Date().toISOString(),
+    method
+  };
+  writeDb(db);
+  return db.siteConsent[siteKey];
+}
+
+export function clearSiteConsent(siteKey) {
+  const db = readDb();
+  if (db.siteConsent && db.siteConsent[siteKey]) {
+    delete db.siteConsent[siteKey];
+    writeDb(db);
+  }
+  return true;
 }
 
 // ── Routines (T1): unattended, recurring Hunter/Tailor runs ───────────────────

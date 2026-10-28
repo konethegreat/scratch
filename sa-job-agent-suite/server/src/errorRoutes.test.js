@@ -180,3 +180,13 @@ test('marking a job applied records a web-guided submission without leaking unde
   const job = jobs.find((entry) => entry.id === created.job.id);
   assert.equal(job.status, 'applied');
 });
+
+test('site consent starts empty and an unknown site is NOT_FOUND', async () => {
+  const sites = await json(await fetch(`${runtime.origin}/api/sites`));
+  assert.deepEqual(sites.map((site) => site.key), ['linkedin', 'indeedSa', 'pnet', 'careerJunction', 'gumtreeSa']);
+  assert.equal(sites.every((site) => site.connected === false), true);
+
+  const missing = await postJson('/api/sites/unknown/connect', {});
+  assert.equal(missing.status, 404);
+  assert.equal((await json(missing)).code, 'NOT_FOUND');
+});

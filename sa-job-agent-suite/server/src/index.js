@@ -36,6 +36,7 @@ import {
   saveSupportingDocument,
   deleteSupportingDocument,
   getCandidateMemory,
+  getSiteConsent,
   recordApplication,
   addInsight,
   deleteInsight,
@@ -63,6 +64,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 import { runJobHunterAgent, setupBrowserSession, checkLoginStatuses } from './agents/agent1-hunter.js';
 import { tryAcquireBrowser, browserOwner } from './hunter/browserLock.js';
+import { LOGIN_SITES, loginSite } from './hunter/loginSites.js';
+import { connectSite, disconnectSite } from './hunter/siteSessions.js';
 import { SOURCES, getSource } from './hunter/registry.js';
 import { computeStatus, baselineRaw, emptyEntry } from './hunter/health.js';
 import { getAllHealth, getHealthEntry, setEnabled, resetCircuit } from './hunter/healthStore.js';
@@ -909,6 +912,62 @@ app.post('/api/browser/login-status', async (req, res) => {
     res.json({ success: true, statuses: result.value });
   } catch (err) {
     sendError(res, err, { success: false });
+  } finally {
+    release();
+  }
+});
+
+// -------------------- Per-site login consent --------------------
+app.get('/api/sites', (_req, res) => {
+  try {
+    const consent = getSiteConsent();
+    res.json(LOGIN_SITES.map((site) => ({
+      key: site.key,
+      label: site.label,
+      origin: site.origin,
+      connected: Boolean(consent[site.key]),
+      connectedAt: consent[site.key]?.connectedAt || null
+    })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/sites/:key/connect', async (req, res) => {
+  const site = loginSite(req.params.key);
+  if (!site) return notFound(res, 'That job site is not supported.');
+  const release = tryAcquireBrowser('site login');
+  if (!release) return conflict(res, `A browser job is already running (${browserOwner()}).`);
+  try {
+    addLog(`Opening ${site.label} for sign-in. Sign in in the browser window.`, 'system');
+    const entry = await connectSite(site.key);
+    if (!entry) {
+      return sendError(res, new AppError(ERROR_CODES.CONFLICT, 'Sign-in was not detected before the window closed.', {
+        status: 408,
+        retryable: true,
+        hint: 'Connect again when you are ready to sign in. Nothing was saved.'
+      }));
+    }
+    addLog(`${site.label} is connected. The copilot will reuse this login.`, 'system');
+    res.json({ success: true, site: entry });
+  } catch (error) {
+    sendError(res, error);
+  } finally {
+    release();
+  }
+});
+
+app.post('/api/sites/:key/disconnect', async (req, res) => {
+  const site = loginSite(req.params.key);
+  if (!site) return notFound(res, 'That job site is not supported.');
+  const release = tryAcquireBrowser('site disconnect');
+  if (!release) return conflict(res, `A browser job is already running (${browserOwner()}).`);
+  try {
+    await disconnectSite(site.key);
+    addLog(`${site.label} disconnected. Its saved login was cleared.`, 'system');
+    res.json({ success: true });
+  } catch (error) {
+    sendError(res, error);
   } finally {
     release();
   }

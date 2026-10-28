@@ -63,7 +63,7 @@ export function installDemo(app) {
   const reads = new Set(['/api/profile', '/api/jobs', '/api/logs', '/api/status',
     '/api/documents', '/api/memory', '/api/routines', '/api/usage', '/api/health',
     '/api/application/bank', '/api/application/pending', '/api/backup', '/api/models',
-    '/api/hunter/sources']);
+    '/api/hunter/sources', '/api/sites']);
   app.use('/api', (req, res, next) => {
     const fullPath = '/api' + req.path;
     if (req.method === 'GET' && reads.has(fullPath)) return next();

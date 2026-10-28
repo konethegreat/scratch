@@ -30,6 +30,7 @@ import {
   FileText,
   Filter,
   Brain,
+  ClipboardList,
   Home,
   Clock,
   Network,
@@ -49,6 +50,7 @@ import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import JobFeeds from './JobFeeds.jsx';
 import JobFilters from './JobFilters.jsx';
+import ApplyPacket from './ApplyPacket.jsx';
 import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
@@ -368,6 +370,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [hunterRunning, setHunterRunning] = useState(false);
   const [hunterResult, setHunterResult] = useState(null); // lastResult: {totalFound,totalSaved,perSource,stopped}
+  const [answerBank, setAnswerBank] = useState([]);
 
   const [tailoringJobId, setTailoringJobId] = useState(null);
   const [copilotJobId, setCopilotJobId] = useState(null);
@@ -463,6 +466,17 @@ export default function App() {
     }
   }, []);
 
+  // Saved answers feed the web Apply packet so the copy sheet includes them.
+  const fetchAnswers = useCallback(async () => {
+    if (!IS_WEB) return;
+    try {
+      const res = await fetch(`${API_BASE}/application/bank`);
+      if (res.ok) setAnswerBank(await res.json());
+    } catch {
+      // The copy sheet still works without saved answers.
+    }
+  }, []);
+
   // Supporting documents (ID, matric, degree, academic record).
   const fetchDocuments = useCallback(async () => {
     try {
@@ -491,7 +505,7 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : []))
       .then((list) => setModels(Array.isArray(list) ? list : []))
       .catch(() => setModels([]));
-    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments()]);
+    Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments(), fetchAnswers()]);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live polling for active state
@@ -1157,6 +1171,7 @@ export default function App() {
     hunter:    { title: 'Job Hunter',          subtitle: 'Claude web search first, then 12 South African job boards, with link checks.' },
     feeds:     { title: 'Job Feeds',           subtitle: 'Public job feeds fetched by your browser. Filter them, then add the ones worth tracking. No key needed.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
+    apply:     { title: 'Apply',               subtitle: 'A copy sheet for the job site, with your details, answers, documents and a checklist.' },
     copilot:   { title: 'Apply Copilot',       subtitle: 'Launch a guided browser session with autofill and one-click paste.' },
     referrals: { title: 'Direct Outreach',     subtitle: 'After you apply, reach a real engineer at the company. Finds a senior contact and drafts a peer-to-peer message for you to review and send.' },
     routines:  { title: 'Routines',            subtitle: 'Schedule unattended hunts that find jobs, and optionally tailor them, while you sleep. They never apply for you.' },
@@ -1183,6 +1198,8 @@ export default function App() {
           setWebForceEnter(false);
           setWebKeyTick((t) => t + 1);
           fetchProfile();
+          fetchJobs();
+          fetchAnswers();
         }}
       />
     );
@@ -1247,6 +1264,9 @@ export default function App() {
             <SidebarLink active={activeTab === 'feeds'} onClick={() => setActiveTab('feeds')} icon={<Rss size={16} />}>Job Feeds</SidebarLink>
           )}
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
+          {isTabVisible('apply', IS_WEB) && (
+            <SidebarLink active={activeTab === 'apply'} onClick={() => setActiveTab('apply')} icon={<ClipboardList size={16} />}>Apply</SidebarLink>
+          )}
           {isTabVisible('copilot', IS_WEB) && (
             <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
           )}
@@ -1773,6 +1793,11 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ============================== APPLY ============================== */}
+        {IS_WEB && activeTab === 'apply' && (
+          <ApplyPacket profile={profile} jobs={jobs} answerBank={answerBank} onMarkApplied={markApplied} />
         )}
 
         {/* ============================== COPILOT ============================== */}

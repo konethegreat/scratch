@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   SERVER_ONLY_TABS,
   SERVER_ONLY_SETTINGS,
+  WEB_ONLY_TABS,
   isTabVisible,
   filterSettingsTabs
 } from './mode.js';
@@ -37,4 +38,10 @@ test('server-only settings are a known subset', () => {
   for (const id of SERVER_ONLY_SETTINGS) {
     assert.ok(['answers', 'data'].includes(id), id);
   }
+});
+
+test('the apply tab is web-only', () => {
+  assert.deepEqual([...WEB_ONLY_TABS], ['apply']);
+  assert.equal(isTabVisible('apply', true), true);
+  assert.equal(isTabVisible('apply', false), false);
 });

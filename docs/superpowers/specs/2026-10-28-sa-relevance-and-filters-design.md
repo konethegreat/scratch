@@ -60,21 +60,28 @@ The classifier is pure, has no I/O, and never throws. Rules run in this order:
 | Order | Condition | Verdict | Reason |
 |---|---|---|---|
 | 1 | Blank or whitespace | `unknown` | `blank` |
-| 2 | South Africa country signal (`south africa`, `south african`, `rsa`, `za` as a country token) | `sa` | `country` |
-| 3 | Province name, including `kzn` and `kwazulu natal` | `sa` | `province` |
-| 4 | Recognised SA city or town | `sa` | `city` |
-| 5 | Explicit foreign country, region, or major city (`united states`, `usa`, `uk`, `london`, `new york`, `berlin`, `lagos`, `dubai`, `india`, `europe`, `emea`, and a widened list) | `foreign` | `foreign` |
-| 6 | Worldwide remote (`worldwide`, `anywhere`, `global`, `work from anywhere`) | `foreign` | `worldwide` |
-| 7 | Bare remote or hybrid (`remote`, `work from home`, `hybrid`) | `unknown` | `remote-unstated` |
-| 8 | Anything else | `unknown` | `unrecognised` |
+| 2 | South Africa country signal (`south africa`, `south african`, `rsa`, `za`, or `sa` as a standalone token) | `sa` | `country` |
+| 3 | Unambiguous SA province (`gauteng`, `western cape`, `eastern cape`, `kwazulu natal`, `kzn`, `free state`, `limpopo`, `mpumalanga`, `northern cape`) | `sa` | `province` |
+| 4 | A unique SA city plus a strong foreign signal (country, region, or foreign state or province such as `uk`, `england`, `california`, `british columbia`) | `foreign` | `foreign` |
+| 5 | A unique SA city or town (`johannesburg`, `cape town`, `durban`, `pretoria`, `east london`, `sandton`, `midrand`, `centurion`, `gqeberha`, `bloemfontein`, `polokwane`, `mbombela`, and the rest of the unique list) | `sa` | `city` |
+| 6 | Any other foreign signal, including a foreign city (`london`, `berlin`, `lagos`, `dubai`, `new york`, `palm springs`) | `foreign` | `foreign` |
+| 7 | Ambiguous SA name (`north west`, `springs`, `george`, `worcester`, `kimberley`, `middelburg`, `queenstown`, `newcastle`, `ladysmith`, `richmond`, `phoenix`, `wellington`, `bethlehem`, `heidelberg`) and no foreign signal matched above | `sa` | `ambiguous` |
+| 8 | Worldwide remote (`worldwide`, `anywhere`, `global`, `work from anywhere`) | `foreign` | `worldwide` |
+| 9 | Bare remote or hybrid (`remote`, `work from home`, `hybrid`) | `unknown` | `remote-unstated` |
+| 10 | Anything else | `unknown` | `unrecognised` |
+
+The order is doing real work, not decoration:
+
+- **A strong foreign signal beats a unique SA city.** `East London, UK` and `Durban, France` are foreign. `East London` alone is SA, and `East London, Eastern Cape` is SA by the province rule.
+- **A unique SA city beats a foreign city.** `Johannesburg or London` is SA, because a job that can be done from South Africa is useful to this candidate and London on its own is not a region claim.
+- **Ambiguous names are a separate data list.** They are real SA places, but each one is also a well-known place elsewhere. They only classify as SA when no foreign signal appears. `Springs, California` and `Richmond, Virginia` are foreign; `Springs, Gauteng` and `Springs` are SA. `Georgia` is not ambiguous at all: the country and the US state are both outside South Africa, so it is foreign.
+- **South Africa and its provinces win outright.** A listing that says `South Africa` or names a province is SA, even if a mixed string also mentions another place.
 
 Additional rules:
 
-- **South Africa wins a mixed location.** `Johannesburg or London` is `sa`. A listing that can be done from South Africa is useful to this candidate, and the strict policy below still rejects pure foreign listings.
-- **Matching is token and phrase aware, not raw substring.** `us` never matches inside `business`, and `uk` never matches inside a word. Two-letter country codes only count when they appear as a comma separated last token (`Cape Town, ZA`) or as the standalone token `za`.
-- **Ambiguous names are handled deliberately.** `Georgia` is foreign, because the country and the US state are both outside South Africa. `Newcastle` and `Queenstown` are not in the SA city list because they are also large foreign cities. They resolve to `unknown` and stay visible with a badge.
-- **The SA city list covers the current list plus the main metros and mining and industrial towns.** Each city maps to its province. The full list lives in the module and in its tests, not in this document.
-- **The foreign list covers all continents.** Country names, major cities, and region names. The list is data, kept next to the SA list, so it can grow without touching logic.
+- **Matching is token and phrase aware, not raw substring.** `us` never matches inside `business`, and `uk` never matches inside a word. Two-letter country codes only count when they appear as a comma separated last token (`Cape Town, ZA`), as the standalone token (`za`), or as a final token (`Remote, SA`).
+- **The SA city list is split into unique and ambiguous names.** Unique names map to their province. Ambiguous names also map to a province, but they are checked after foreign signals. The full lists live in the module and in its tests, not in this document.
+- **The foreign list covers all continents.** Country names, major cities, region names, and large subdivisions such as US states and Canadian provinces. The list is data, kept next to the SA lists, so it can grow without touching logic.
 
 Policy is separate from classification:
 
@@ -104,7 +111,7 @@ isSouthAfrican(raw, { strict = false }) -> boolean
 ### Feeds, web and desktop
 
 - `filterJobs(jobs, { keywords, locations, onlyMatches, saOnly })` gains `saOnly`, default `true`.
-- With `saOnly`, foreign rows are removed from the visible results and counted. Unknown rows stay and carry the `Unconfirmed location` badge.
+- With `saOnly`, foreign rows are removed from the visible results and counted. Unknown rows stay and carry the `Location not confirmed` badge.
 - The Job Feeds tab gains a `South Africa only` checkbox, on by default, next to the existing keyword, location, and only-matches controls. The count of hidden foreign rows is shown under the list.
 - Saving feed defaults stores `saOnly` with the other filters.
 - This changes the current default. Existing feed tests and fixtures that expect foreign rows to pass are updated to assert the new behaviour, so the change is visible in the diff rather than silently absorbed.
@@ -113,7 +120,7 @@ isSouthAfrican(raw, { strict = false }) -> boolean
 
 - Add a pure helper `jobLocationVerdict(job)` in core that trusts `job.locationVerdict` when present and valid, and classifies `job.location` otherwise.
 - Both the desktop Jobs tab and the web Jobs tab default `saOnly` to on.
-- Foreign jobs are hidden, never deleted. The filter bar shows `N non-SA job(s) hidden` and a `Show them` control that turns `saOnly` off for the session.
+- Foreign jobs are hidden, never deleted. The filter bar shows `3 jobs outside South Africa hidden` and a `Show them` control that turns `saOnly` off for the session.
 - A bulk cleanup action is deliberately out of scope. Deleting stored jobs is irreversible and needs a separate, explicit confirmation flow.
 
 ## Filters
@@ -156,11 +163,12 @@ Rules:
 - One filter row above the job table: search, province, source, status, minimum match, link, date, and a South Africa only checkbox.
 - Secondary chips for `Remote`, `Live link`, `Strong match (80+)`, and `Added this week`, mapped to the same state. They are shortcuts, not a second filter system.
 - The row collapses behind a `Filters` button below 720 px, with the active filter count on the button.
-- `Showing X of Y` stays visible. `N non-SA job(s) hidden` appears when `hiddenForeign > 0`.
+- `Showing X of Y` stays visible. `3 jobs outside South Africa hidden` appears when `hiddenForeign > 0`.
 - `Clear filters` resets to `DEFAULT_VIEW_FILTERS`.
 - Empty state names the active filters and offers `Clear filters`, instead of a generic "no jobs" message.
 - Filter state is saved to `localStorage` under `sajas.jobFilters.v1` on every change, and validated with `normalizeViewFilters` on load. Invalid data is discarded silently and the defaults apply.
 - Province and source options are built from the jobs present plus the nine provinces, so the controls never offer an empty choice.
+- The filter row lives in a new `client/src/JobFilters.jsx` component. `App.jsx` keeps the state and passes it down, so the already large shell does not absorb another hundred lines of controls.
 
 ## Data changes
 
@@ -172,9 +180,9 @@ Rules:
 ## Error handling and copy
 
 - A saved filter value that cannot be read is discarded, never surfaced as an error. The candidate sees the default view.
-- Location copy is plain: `Unconfirmed location` for unknown, `N non-SA job(s) hidden` for foreign, `Show them` to reveal.
+- Location copy is plain: `Location not confirmed` for unknown, `3 jobs outside South Africa hidden` for foreign, `Show them` to reveal.
 - No em dashes. No blame. No technical jargon in the UI.
-- The hunter log uses the existing plain style: `[PNet] Rejected 3 non-SA location job(s). Samples: "Engineer (London, UK)".`
+- The hunter log uses the existing plain style: `[PNet] Rejected 3 job(s) outside South Africa. Samples: "Engineer (London, UK)".`
 
 ## Non-goals
 

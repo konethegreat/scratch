@@ -88,6 +88,7 @@ const DEFAULT_DB = {
     portfolioUrl: '',
     keywords: 'Software Engineer, Software Developer, Full Stack Developer, IT Specialist',
     locations: 'Johannesburg, Pretoria, Gauteng, Remote',
+    feedSaOnly: true,
     maxKeywords: 3,
     maxLocations: 2,
     // Performance mode: which preset bundle ('saver' | 'balanced' | 'max') was

@@ -13,6 +13,7 @@ import { computeStatus, shouldSkip, summariseRun, baselineRaw } from '../hunter/
 import { getHealthEntry, recordRun } from '../hunter/healthStore.js';
 import { extractJobsFromPage } from '../hunter/aiExtract.js';
 import { tryAcquireBrowser, browserOwner } from '../hunter/browserLock.js';
+import { describeRejected, gateJobsByLocation } from './jobLocationGate.js';
 
 // Max AI link-repair attempts per run (each is a billed grounded search), only
 // when profile.useLinkRepair is on AND an Anthropic key is present.
@@ -148,45 +149,6 @@ function parseDate(dateStr) {
 // description-only matches need more. Kept low on purpose — the prior threshold
 // of 25 with exact-phrase matching filtered out almost everything.
 const SCORE_THRESHOLD = 18;
-
-const SA_LOCATION_TERMS = [
-  'south africa', 'johannesburg', 'cape town', 'durban', 'pretoria',
-  'port elizabeth', 'gqeberha', 'bloemfontein', 'east london', 'nelspruit',
-  'polokwane', 'sandton', 'midrand', 'centurion', 'soweto', 'roodepoort',
-  'boksburg', 'germiston', 'benoni', 'rustenburg', 'pietermaritzburg',
-  'gauteng', 'western cape', 'kwazulu-natal', 'kwazulu natal', 'eastern cape',
-  'limpopo', 'mpumalanga', 'north west', 'free state', 'northern cape',
-  'stellenbosch', 'paarl', 'george, south', 'alberton', 'kimberley',
-  'welkom', 'thohoyandou', 'mthatha', 'potchefstroom', 'vereeniging',
-  'vanderbijlpark', 'randburg', 'tembisa', 'edenvale', 'springs',
-  ' za', '(za)', ', za'
-];
-
-// Obvious non-SA markers. If a location names one of these AND no SA term is
-// present, the listing is rejected even from an SA-domain source. This catches
-// "Remote, United States", "London, UK", "Lagos, Nigeria" cross-posts.
-const FOREIGN_LOCATION_TERMS = [
-  'united states', ' usa', '(usa)', ', us', 'united kingdom', ' uk', '(uk)',
-  'london', 'india', 'bangalore', 'bengaluru', 'mumbai', 'nigeria', 'lagos',
-  'kenya', 'nairobi', 'ghana', 'accra', 'egypt', 'cairo', 'australia',
-  'canada', 'germany', 'netherlands', 'amsterdam', 'dubai', 'uae',
-  'singapore', 'philippines', 'pakistan', 'europe', 'worldwide', 'anywhere',
-  'emea', 'global'
-];
-
-// strict=true  → unknown locations are rejected (global sources).
-// strict=false → unknown locations are accepted; only explicit foreign places
-//                are rejected (SA-domain sources guarding against cross-posts).
-function isSouthAfricanLocation(location, strict = true) {
-  const loc = (location || '').toLowerCase().trim();
-  // Blank, "Remote" or "South Africa" → pass through
-  if (!loc || loc === 'remote' || loc === 'south africa') return true;
-  if (SA_LOCATION_TERMS.some(term => loc.includes(term))) return true;
-  // Explicit foreign marker → always reject.
-  if (FOREIGN_LOCATION_TERMS.some(term => loc.includes(term))) return false;
-  // Unknown location: reject for strict (global) sources, accept otherwise.
-  return !strict;
-}
 
 // Words too generic to count as a keyword signal on their own.
 const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'a', 'an', 'of', 'in', 'to', 'jobs', 'job', 'role', 'position', 'vacancy']);
@@ -441,9 +403,16 @@ async function runHunt() {
         const aiJobs = await huntViaClaudeSearch(profile, keyword, aiLocations);
         totalFound += aiJobs.length;
 
+        // The prompt asks for South Africa; this gate is the guarantee.
+        const { kept: aiKept, rejected: aiRejected } = gateJobsByLocation(aiJobs, 'soft');
+        if (aiRejected.length > 0) {
+          const sample = aiRejected.slice(0, 2).map((job) => `"${job.title}" (${job.location})`).join(', ');
+          addLog(`[AI Search] Rejected ${describeRejected(aiRejected)}. Samples: ${sample}`, 'agent1');
+        }
+
         // Build scored candidates first, then validate their links as a batch.
         const candidates = [];
-        for (const job of aiJobs) {
+        for (const job of aiKept) {
           if (!job.title || job.title.length < 4) continue;
           const matchScore = calculateMatchScore(job.title, job.description, profile.keywords);
           if (matchScore < SCORE_THRESHOLD) continue;
@@ -458,6 +427,8 @@ async function runHunt() {
             matchScore,
             status: 'found',
             source: job.source,
+            locationVerdict: job.locationVerdict,
+            province: job.province,
             tailoredCvText: '',
             tailoredCoverLetterText: '',
             dateAdded: new Date().toISOString().split('T')[0]
@@ -634,18 +605,11 @@ async function runHunt() {
           totalFound += crawl.items.length;
 
           let belowThreshold = 0;
-          let notSA = 0;
           const belowSamples = [];
           const candidates = [];
-          for (const job of crawl.items) {
+          const { kept: located, rejected: notSA } = gateJobsByLocation(crawl.items, source.saCheck || 'soft');
+          for (const job of located) {
             if (!job.title || job.title.length < 4) continue;
-
-            // Both 'strict' and 'soft' use today's lenient check: reject only
-            // when a foreign place is EXPLICITLY named. 'none' skips it.
-            if (source.saCheck && source.saCheck !== 'none' && !isSouthAfricanLocation(job.location, false)) {
-              notSA++;
-              continue;
-            }
 
             const matchScore = calculateMatchScore(job.title, job.description, profile.keywords);
             if (matchScore < SCORE_THRESHOLD) {
@@ -665,6 +629,8 @@ async function runHunt() {
               matchScore,
               status: 'found',
               source: job.source,
+              locationVerdict: job.locationVerdict,
+              province: job.province,
               tailoredCvText: '',
               tailoredCoverLetterText: '',
               dateAdded: new Date().toISOString().split('T')[0]
@@ -675,7 +641,10 @@ async function runHunt() {
           // confirmed-dead links; search/category links kept as linkless leads).
           const { kept, dropped } = await validateJobs(candidates, { checkLiveness: linkCheck, requestContext: probeRequest, label: source.name });
           await finalizeAndSave(kept, dropped.length, source.name);
-          if (notSA > 0) addLog(`[${source.name}] Rejected ${notSA} non-SA location job(s)`, 'agent1');
+          if (notSA.length > 0) {
+            const sample = notSA.slice(0, 2).map((job) => `"${job.title}" (${job.location})`).join(', ');
+            addLog(`[${source.name}] Rejected ${describeRejected(notSA)}. Samples: ${sample}`, 'agent1');
+          }
           if (belowThreshold > 0) {
             addLog(`[${source.name}] ${belowThreshold} card(s) below score ${SCORE_THRESHOLD}. Samples: ${belowSamples.join(', ')}`, 'agent1');
           }

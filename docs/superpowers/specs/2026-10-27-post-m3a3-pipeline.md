@@ -22,10 +22,12 @@ A second request on the same day chose the next four capabilities, in order: web
 | 3 | UI/UX refresh | Shipped 2026-10-27 (PR #11) | Light mode, copy sweep and the new home page pass the acceptance list below |
 | 4 | Web tailoring and support | Shipped 2026-10-27 (PR #12, `aff14da`) | A visitor tailors CV and letter in the browser, spend is tracked and capped, and support is reachable |
 | 5 | Agentic RAG over candidate documents | Shipped 2026-10-28 (PR #13, `c9aa0a3`) | Answers cite retrieved passages, refuse when unsupported, and pass the grounding eval |
-| 6 | Real-browser auto-apply | Planned | A feasibility gate picks the delivery form, then the chosen form passes an end-to-end apply rehearsal |
-| 7 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
+| 6 | South Africa relevance and search filters | In progress 2026-10-28 | Foreign jobs are hidden and counted, and the filter bar persists in the web and desktop views |
+| 7 | Scraper resilience | Planned | API and hydration interception, resilient selectors, schema gates and anti-bot baseline land with a debugging guide |
+| 8 | Real-browser auto-apply | Planned | A feasibility gate picks the delivery form, then the chosen form passes an end-to-end apply rehearsal |
+| 9 | Inbox and MCP integration | Planned | A feasibility gate picks the delivery form, then the chosen form passes an offline integration test |
 
-Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing. Arc 4 depends on Arc 3 because tailoring uses the refreshed document pane and the shared design tokens. Arc 5 depends on Arc 4 because retrieval is applied to the documents that web tailoring produces. Arcs 6 and 7 depend on Arc 5 because both need grounded candidate and employer context.
+Arcs run in order. Arc 2 depends on Arc 1 because retry and error behaviour shape what the isolation tests can assert. Arc 3 depends on Arc 2 because the redesign should not land on top of a shell that is still changing. Arc 4 depends on Arc 3 because tailoring uses the refreshed document pane and the shared design tokens. Arc 5 depends on Arc 4 because retrieval is applied to the documents that web tailoring produces. Arc 6 depends on Arc 5 because relevance uses the candidate and employer context retrieval produced. Arc 7 depends on Arc 6 because resilient scrapers replace the gates Arc 6 put around the fragile ones. Arcs 8 and 9 depend on Arc 7 because both need a scraper layer that survives bot walls.
 
 ## Arc 1: API compliance
 
@@ -180,7 +182,7 @@ Acceptance criteria:
 
 Out of scope: a hosted vector database, server-side document storage, cross-user retrieval, and any automatic ingest of employer pages.
 
-## Arc 6: Real-browser auto-apply
+## Arc 8: Real-browser auto-apply
 
 **Goal:** help the candidate complete a real application form without taking control away from them.
 
@@ -201,7 +203,7 @@ Acceptance criteria:
 
 Out of scope: solving CAPTCHAs, bulk applications, and any automation that hides its actions from the user.
 
-## Arc 7: Inbox and MCP integration
+## Arc 9: Inbox and MCP integration
 
 **Goal:** let the candidate pull application replies into the tracker and let their own tools read SA-JAS data safely.
 

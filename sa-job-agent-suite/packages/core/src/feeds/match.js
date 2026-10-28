@@ -1,11 +1,7 @@
-export function normalizeText(value) {
-  return String(value == null ? '' : value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
+import { normalizeText } from '../text.js';
+import { isSouthAfrican } from '../jobs/location.js';
+
+export { normalizeText };
 
 const LEGAL_SUFFIX = /(?:^|\s)(?:pty\s+ltd|pty|ltd|inc|llc|cc|co|corp)$/;
 
@@ -81,10 +77,11 @@ function byScore(a, b) {
   return String(a.title).localeCompare(String(b.title));
 }
 
-export function filterJobs(jobs = [], { keywords = [], locations = [], onlyMatches = true } = {}) {
+export function filterJobs(jobs = [], { keywords = [], locations = [], onlyMatches = true, saOnly = true } = {}) {
   const keywordList = keywords.map((value) => String(value).trim()).filter(Boolean);
   const locationList = locations.map((value) => String(value).trim()).filter(Boolean);
-  const scored = jobs.map((job) => ({ ...job, matchScore: scoreJob(job, keywordList) }));
+  const scoped = saOnly ? jobs.filter((job) => isSouthAfrican(job.location)) : jobs;
+  const scored = scoped.map((job) => ({ ...job, matchScore: scoreJob(job, keywordList) }));
   const kept = onlyMatches
     ? scored.filter((job) => matchesKeywords(job, keywordList) && matchesLocations(job, locationList))
     : scored;

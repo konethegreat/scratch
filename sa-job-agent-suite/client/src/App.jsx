@@ -48,6 +48,7 @@ import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import JobFeeds from './JobFeeds.jsx';
+import JobFilters from './JobFilters.jsx';
 import SettingsBackup from './SettingsBackup.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
@@ -72,6 +73,10 @@ import { isTabVisible, filterSettingsTabs, SERVER_ONLY_SETTINGS } from './web/mo
 import WebStartup from './web/WebStartup.jsx';
 import WebKeyPanel from './web/WebKeyPanel.jsx';
 import { webRuntime } from './web/runtime.js';
+import {
+  DEFAULT_VIEW_FILTERS, PROVINCES, activeFilterCount, filterJobsForView, jobLocationVerdict
+} from '@sajas/core/jobs';
+import { loadJobFilters, saveJobFilters } from './jobFilters.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
@@ -324,6 +329,7 @@ export default function App() {
     portfolioUrl: '',
     keywords: '',
     locations: '',
+    feedSaOnly: true,
     maxKeywords: 3,
     maxLocations: 2,
     useAiSearch: true,
@@ -374,8 +380,7 @@ export default function App() {
 
   // Search/filter on the job list. The table is windowed client-side (50 rows
   // at a time) because GET /api/jobs still sends the full array here.
-  const [jobQuery, setJobQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [viewFilters, setViewFilters] = useState(loadJobFilters);
   const [visibleJobCount, setVisibleJobCount] = useState(50);
   const [notesJobId, setNotesJobId] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
@@ -1129,19 +1134,24 @@ export default function App() {
   const setupWarnings = setupChecks.filter((c) => !c.ok && c.warn);
   const setupComplete = setupBlockers.length === 0;
 
-  const filteredJobs = useMemo(() => {
-    const q = jobQuery.trim().toLowerCase();
-    return jobs.filter((j) => {
-      if (statusFilter !== 'all' && j.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        j.title?.toLowerCase().includes(q) ||
-        j.company?.toLowerCase().includes(q) ||
-        j.location?.toLowerCase().includes(q) ||
-        j.source?.toLowerCase().includes(q)
-      );
-    });
-  }, [jobs, jobQuery, statusFilter]);
+  const updateViewFilters = useCallback((patch) => {
+    setViewFilters((current) => ({ ...current, ...patch }));
+    setVisibleJobCount(50);
+  }, []);
+
+  useEffect(() => {
+    saveJobFilters(viewFilters);
+  }, [viewFilters]);
+
+  const { visible: filteredJobs, hiddenForeign } = useMemo(
+    () => filterJobsForView(jobs, viewFilters),
+    [jobs, viewFilters]
+  );
+
+  const sourceOptions = useMemo(
+    () => [...new Set(jobs.map((job) => job.source).filter(Boolean))].sort(),
+    [jobs]
+  );
 
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
@@ -1490,27 +1500,15 @@ export default function App() {
             {/* Filters */}
             <div className="flex-between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
               <h3 style={{ fontSize: 15 }}>All discovered opportunities ({filteredJobs.length})</h3>
-              <div className="flex-gap">
-                <div style={{ position: 'relative' }}>
-                  <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                  <input
-                    placeholder="Search jobs…"
-                    value={jobQuery}
-                    onChange={(e) => { setJobQuery(e.target.value); setVisibleJobCount(50); }}
-                    style={{ paddingLeft: 28, width: 220, fontSize: 12 }}
-                  />
-                </div>
-                <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setVisibleJobCount(50); }} style={{ width: 150, fontSize: 12 }}>
-                  <option value="all">All statuses</option>
-                  <option value="found">Discovered</option>
-                  <option value="tailored">Tailored</option>
-                  <option value="applied">Applied</option>
-                  <option value="interviewing">Interviewing</option>
-                  <option value="offer">Offer</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </div>
             </div>
+            <JobFilters
+              filters={viewFilters}
+              onChange={updateViewFilters}
+              provinceOptions={PROVINCES}
+              sourceOptions={sourceOptions}
+              hiddenForeign={hiddenForeign}
+              activeCount={activeFilterCount(viewFilters)}
+            />
 
             <div style={{ overflowX: 'auto' }}>
               <table className="data-table">
@@ -1527,7 +1525,7 @@ export default function App() {
                 <tbody>
                   {filteredJobs.slice(0, visibleJobCount).map((job) => (
                     <React.Fragment key={job.id}>
-                      <tr>
+                      <tr data-testid="job-row">
                         <td>
                           <div style={{ fontWeight: 600 }}>{job.title}</div>
                           <div className="tiny">{job.company}</div>
@@ -1536,6 +1534,11 @@ export default function App() {
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             <MapPin size={12} color="var(--text-muted)" /> {job.location}
                           </span>
+                          {jobLocationVerdict(job) === 'unknown' && (
+                            <div>
+                              <span className="badge badge-warning" data-testid="location-unconfirmed">Location not confirmed</span>
+                            </div>
+                          )}
                         </td>
                         <td><span className="badge badge-info">{job.source || 'Unknown'}</span></td>
                         <td>
@@ -1631,7 +1634,18 @@ export default function App() {
                         ? (IS_WEB
                           ? 'No records yet. Add a job manually or pull one from Job Feeds.'
                           : 'No records harvested yet. Set parameters and start your crawler!')
-                        : 'No jobs match your current filter.'}
+                        : (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                            <span>No jobs match these filters.</span>
+                            <button
+                              className="btn-secondary btn-sm"
+                              data-testid="job-empty-clear"
+                              onClick={() => updateViewFilters({ ...DEFAULT_VIEW_FILTERS })}
+                            >
+                              Clear filters
+                            </button>
+                          </div>
+                        )}
                     </td></tr>
                   )}
                 </tbody>

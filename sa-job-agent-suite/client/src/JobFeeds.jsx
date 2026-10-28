@@ -5,6 +5,7 @@ import { AlertTriangle, Check, ExternalLink, Loader2, MapPin, Plus, RefreshCw, R
 import {
   FEED_SOURCES, dedupeJobs, filterJobs, fingerprint, sourceLabel, splitList, trackerFingerprints
 } from '@sajas/core/feeds';
+import { countForeignJobs, jobLocationVerdict } from '@sajas/core/jobs';
 import { getFeedClient } from './web/feeds.js';
 import { readResponseError, recordError } from './errors.js';
 
@@ -16,6 +17,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
   const [keywords, setKeywords] = useState(profile?.keywords || '');
   const [locations, setLocations] = useState(profile?.locations || '');
   const [onlyMatches, setOnlyMatches] = useState(true);
+  const [saOnly, setSaOnly] = useState(profile?.feedSaOnly !== false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [errors, setErrors] = useState([]);
@@ -27,6 +29,12 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
   useEffect(() => {
     setTracked(trackerFingerprints(jobs));
   }, [jobs]);
+
+  // The profile can arrive after the first render; adopt its saved default once
+  // it does, without overriding a toggle the user has already made.
+  useEffect(() => {
+    if (typeof profile?.feedSaOnly === 'boolean') setSaOnly(profile.feedSaOnly);
+  }, [profile?.feedSaOnly]);
 
   const load = useCallback(async ({ force = false } = {}) => {
     setLoading(true);
@@ -48,8 +56,14 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
   const visible = useMemo(() => filterJobs(results, {
     keywords: splitList(keywords),
     locations: splitList(locations),
-    onlyMatches
-  }), [results, keywords, locations, onlyMatches]);
+    onlyMatches,
+    saOnly
+  }), [results, keywords, locations, onlyMatches, saOnly]);
+
+  const hiddenForeign = useMemo(
+    () => (saOnly ? countForeignJobs(results) : 0),
+    [results, saOnly]
+  );
 
   async function addOne(job) {
     const key = rowKey(job);
@@ -127,7 +141,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
       const response = await fetch(`${API_BASE}/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keywords, locations })
+        body: JSON.stringify({ keywords, locations, feedSaOnly: saOnly })
       });
       if (!response.ok) throw await readResponseError(response, 'Could not save these filters.');
       toasts.success('Feed filters saved as your defaults.');
@@ -175,6 +189,16 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
             <input type="checkbox" checked={onlyMatches} onChange={(event) => setOnlyMatches(event.target.checked)} style={{ width: 16, height: 16 }} />
             <span style={{ fontSize: 13 }}>Only show matches</span>
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+            <input
+              type="checkbox"
+              data-testid="feed-sa-only"
+              checked={saOnly}
+              onChange={(event) => setSaOnly(event.target.checked)}
+              style={{ width: 16, height: 16 }}
+            />
+            <span style={{ fontSize: 13 }}>South Africa only</span>
+          </label>
           <button className="btn-ghost btn-sm" onClick={saveDefaults}>Save as defaults</button>
           {notice && <span className="tiny">{notice}</span>}
         </div>
@@ -215,11 +239,17 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
         <h3 style={{ fontSize: 15, marginBottom: 12 }}>
           {visible.length} matching {visible.length === 1 ? 'job' : 'jobs'}
         </h3>
+        {hiddenForeign > 0 && (
+          <p className="tiny" data-testid="feed-hidden-foreign" style={{ marginBottom: 10 }}>
+            {hiddenForeign} {hiddenForeign === 1 ? 'job' : 'jobs'} outside South Africa hidden.
+            <button type="button" className="btn-ghost btn-xs" data-testid="feed-show-foreign" onClick={() => setSaOnly(false)}>Show them</button>
+          </p>
+        )}
         {visible.length === 0 ? (
           <p className="tiny" style={{ padding: '24px 0', textAlign: 'center' }}>
             {loading ? 'Fetching feeds...' : results.length === 0
               ? 'No feeds returned jobs. Retry above, or check your connection.'
-              : 'No jobs match these filters. Loosen the keywords, add a location, or turn off Only show matches.'}
+              : 'No jobs match these filters. Loosen the keywords, add a location, turn off Only show matches, or turn off South Africa only.'}
           </p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -248,6 +278,9 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
                         <span className="tiny" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           <MapPin size={12} /> {job.location || 'Not stated'}
                           {job.remote && <span className="badge badge-info">Remote</span>}
+                          {jobLocationVerdict(job) === 'unknown' && (
+                            <span className="badge badge-warning">Location not confirmed</span>
+                          )}
                         </span>
                       </td>
                       <td><span className="badge badge-info">{(job.sources || [job.source]).map(sourceLabel).join(', ')}</span></td>

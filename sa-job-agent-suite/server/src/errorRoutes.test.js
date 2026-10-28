@@ -135,3 +135,20 @@ test('RAG ask without a key answers KEY_INVALID', async () => {
   assert.equal(response.status, 400);
   assert.equal(body.code, 'KEY_INVALID');
 });
+
+test('profile stores the feed South Africa default as a boolean', async () => {
+  const before = await fetch(runtime.origin + '/api/profile');
+  assert.equal(before.status, 200);
+  assert.equal((await before.json()).feedSaOnly, true);
+
+  const off = await postJson('/api/profile', { feedSaOnly: false });
+  assert.equal(off.status, 200);
+  assert.equal((await off.json()).profile.feedSaOnly, false);
+
+  const kept = await postJson('/api/profile', { feedSaOnly: 'yes' });
+  assert.equal(kept.status, 200);
+  assert.equal((await kept.json()).profile.feedSaOnly, false);
+
+  const on = await postJson('/api/profile', { feedSaOnly: true });
+  assert.equal((await on.json()).profile.feedSaOnly, true);
+});

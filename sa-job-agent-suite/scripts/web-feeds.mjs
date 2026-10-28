@@ -185,6 +185,14 @@ async function main() {
     }
     await page.getByTestId('feed-row-0').waitFor({ timeout: 15_000 });
 
+    at('foreign feed rows are hidden by default');
+    await page.getByTestId('feed-hidden-foreign').waitFor({ timeout: 15_000 });
+    assert.match(await page.getByTestId('feed-hidden-foreign').innerText(), /2 jobs outside South Africa hidden/);
+    await page.getByTestId('feed-show-foreign').click();
+    await page.getByText('Remote (Worldwide)').first().waitFor({ timeout: 15_000 });
+    await page.getByTestId('feed-sa-only').check();
+    await page.getByText('Remote (Worldwide)').first().waitFor({ state: 'detached', timeout: 15_000 });
+
     at('one failed feed is isolated');
     const failedCard = page.getByTestId('feed-source-jobicy');
     await failedCard.getByText(/HTTP 503/).waitFor({ timeout: 20_000 });

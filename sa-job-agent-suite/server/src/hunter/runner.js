@@ -48,6 +48,16 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
     const collector = opts.collector ?? createCollector({ origin: source.origin });
     detachCapture = installCapture(page, collector);
 
+    // A retry gets a clean slate: JSON captured from a failed attempt must not
+    // be read as if it described the page that finally loaded.
+    const clearCapture = () => {
+      try {
+        if (Array.isArray(collector.payloads)) collector.payloads.length = 0;
+        const state = collector.state;
+        if (state) Object.assign(state, { malformed: 0, skipped: 0, totalBytes: 0, stopped: false });
+      } catch { /* a custom collector without this shape is left alone */ }
+    };
+
     if (opts.pacer && typeof opts.pacer.wait === 'function') {
       await opts.pacer.wait(new URL(meta.url).host);
     }
@@ -68,11 +78,13 @@ export async function fetchSourcePage(page, source, query, pageNo = 1, opts = {}
         if (!plan.retry) break;
         addLog(`[${name}] Retrying after HTTP ${response.status()} in ${plan.delayMs}ms${pageTag}`, 'agent1');
         await pause(plan.delayMs);
+        clearCapture();
       } catch (err) {
         const plan = retryPlan({ error: err, attempt, maxRetries: retryCount });
         if (!plan.retry) throw err;
         addLog(`[${name}] Retrying after a network error in ${plan.delayMs}ms${pageTag}`, 'agent1');
         await pause(plan.delayMs);
+        clearCapture();
       }
     }
     meta.httpStatus = response ? response.status() : null;

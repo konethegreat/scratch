@@ -382,6 +382,32 @@ test('runner: a 503 is retried and the recovered page is used', async (t) => {
   );
 });
 
+test('runner: JSON captured from a failed attempt never reaches the retried page', async (t) => {
+  if (!browser) return t.skip('no browser available');
+  let requests = 0;
+  await withPage(
+    (route) => {
+      requests += 1;
+      return requests === 1
+        ? route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ jobs: [{ title: 'Stale Job', applyUrl: 'https://fixture.test/stale' }] }),
+        })
+        : route.fulfill({ status: 200, contentType: 'text/html', body: html('Jobs', '<ul><li class="job" data-id="1">Dev One</li></ul>') });
+    },
+    async (page) => {
+      const { items, meta } = await fetchSourcePage(page, fakeSource, { keyword: 'developer', location: null }, 1, {
+        sleep: async () => {},
+      });
+      assert.equal(requests, 2);
+      assert.deepEqual(items.map((item) => item.title), ['Dev One']);
+      assert.equal(meta.strategy, 'dom');
+      assert.equal(meta.strategies.structured.valid, 0);
+    },
+  );
+});
+
 test('runner: a persistent 429 is retried twice and then reads as blocked', async (t) => {
   if (!browser) return t.skip('no browser available');
   let requests = 0;

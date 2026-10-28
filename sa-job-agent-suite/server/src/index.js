@@ -151,6 +151,7 @@ app.post('/api/profile', (req, res) => {
       portfolioUrl:    incoming.portfolioUrl    ?? currentProfile.portfolioUrl,
       keywords:        incoming.keywords        ?? currentProfile.keywords,
       locations:       incoming.locations       ?? currentProfile.locations,
+      feedSaOnly:      typeof incoming.feedSaOnly === 'boolean' ? incoming.feedSaOnly : currentProfile.feedSaOnly,
       maxKeywords:     incoming.maxKeywords     ?? currentProfile.maxKeywords,
       maxLocations:    incoming.maxLocations    ?? currentProfile.maxLocations,
       useAiSearch:     incoming.useAiSearch     ?? currentProfile.useAiSearch,

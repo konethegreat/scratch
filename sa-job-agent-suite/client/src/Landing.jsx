@@ -80,7 +80,7 @@ const PRINCIPLES = [
   }
 ];
 
-export default function Landing({ onEnter }) {
+export default function Landing({ onEnter, onTryDemo }) {
   const railRef = useRef(null);
 
   useEffect(() => {
@@ -115,6 +115,11 @@ export default function Landing({ onEnter }) {
         </nav>
         <div className="landing-actions">
           <ThemeToggle />
+          {onTryDemo && (
+            <button type="button" className="btn-ghost btn-sm" data-testid="try-demo-landing" onClick={onTryDemo}>
+              Try the live demo
+            </button>
+          )}
           <button type="button" className="btn-secondary" onClick={onEnter}>Open the app</button>
         </div>
       </header>
@@ -135,6 +140,11 @@ export default function Landing({ onEnter }) {
             <button type="button" className="btn-primary btn-lg" onClick={onEnter}>
               Enter the Suite <ArrowRight size={16} aria-hidden="true" />
             </button>
+            {onTryDemo && (
+              <button type="button" className="btn-secondary btn-lg" onClick={onTryDemo}>
+                Try the live demo
+              </button>
+            )}
             <a className="btn-secondary btn-lg" href="#work">See selected work</a>
           </div>
           <div className="hero-meta">

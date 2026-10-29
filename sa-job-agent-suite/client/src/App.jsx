@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Briefcase,
   Wand2,
@@ -74,7 +74,9 @@ import { IS_WEB } from './web/env.js';
 import { isTabVisible, filterSettingsTabs, SERVER_ONLY_SETTINGS } from './web/mode.js';
 import WebStartup from './web/WebStartup.jsx';
 import WebKeyPanel from './web/WebKeyPanel.jsx';
-import { webRuntime } from './web/runtime.js';
+import { webRuntime, enterDemo, exitDemo } from './web/runtime.js';
+import { isDemoMode, storageAvailable, subscribeMode } from './web/demo/mode.js';
+import { clearFeedCache } from './web/feeds.js';
 import {
   DEFAULT_VIEW_FILTERS, PROVINCES, activeFilterCount, filterJobsForView, jobLocationVerdict
 } from '@sajas/core/jobs';
@@ -82,6 +84,12 @@ import { loadJobFilters, saveJobFilters } from './jobFilters.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const SYNTHETIC_DEMO = import.meta.env.VITE_SAJAS_DEMO === '1';
+
+// The demo UI stays out of the entry chunk.
+const DemoBanner = lazy(() => import('./web/demo/DemoBanner.jsx'));
+const DemoTrialStrip = lazy(() => import('./web/demo/DemoTrialStrip.jsx'));
+const SimulatedHunter = lazy(() => import('./web/demo/SimulatedHunter.jsx'));
+const SimulatedCopilot = lazy(() => import('./web/demo/SimulatedCopilot.jsx'));
 
 /* ---------------------------------------------------------------- */
 /* Toast system                                                     */
@@ -312,13 +320,16 @@ export default function App() {
     return info;
   };
 
-  const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO ? 'dashboard' : 'landing');
+  const [activeTab, setActiveTab] = useState(SYNTHETIC_DEMO || (IS_WEB && isDemoMode()) ? 'dashboard' : 'landing');
   const [askSeed, setAskSeed] = useState(null);
 
   // Web builds gate the whole shell behind onboarding/unlock. Desktop starts ready.
-  const [webReady, setWebReady] = useState(!IS_WEB);
+  const [webReady, setWebReady] = useState(!IS_WEB || (IS_WEB && isDemoMode()));
   const [webKeyTick, setWebKeyTick] = useState(0);
   const [webForceEnter, setWebForceEnter] = useState(false);
+  const [demoMode, setDemoMode] = useState(() => IS_WEB && isDemoMode());
+  const [demoPersistent, setDemoPersistent] = useState(() => (IS_WEB && isDemoMode() ? storageAvailable() : true));
+  const [demoBusy, setDemoBusy] = useState(false);
 
   const [profile, setProfile] = useState({
     selectedModel: '',
@@ -362,9 +373,10 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState('ai');
 
   useEffect(() => {
-    if (!isTabVisible(activeTab, IS_WEB) && activeTab !== 'landing') setActiveTab('dashboard');
+    if (!isTabVisible(activeTab, IS_WEB, demoMode) && activeTab !== 'landing') setActiveTab('dashboard');
     if (IS_WEB && SERVER_ONLY_SETTINGS.includes(settingsTab)) setSettingsTab('ai');
-  }, [activeTab, settingsTab]);
+    if (demoMode && settingsTab === 'backup') setSettingsTab('ai');
+  }, [activeTab, settingsTab, demoMode]);
 
   const [jobs, setJobs] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -505,6 +517,46 @@ export default function App() {
     setRefreshTick((t) => t + 1);
   }, [fetchProfile, fetchJobs, fetchLogs, fetchStatus, fetchDocuments]);
 
+  const startDemo = useCallback(async () => {
+    if (!IS_WEB || demoBusy) return;
+    setDemoBusy(true);
+    try {
+      const { persistent } = await enterDemo();
+      setDemoPersistent(persistent);
+      setDemoMode(true);
+      setWebReady(true);
+      setWebForceEnter(false);
+      setSelectedJob(null);
+      setActiveTab('dashboard');
+      clearFeedCache();
+      refreshAll();
+      fetchAnswers();
+    } catch (err) {
+      fail(err, 'start the demo');
+    } finally {
+      setDemoBusy(false);
+    }
+  }, [demoBusy, refreshAll, fetchAnswers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stopDemo = useCallback(async () => {
+    if (demoBusy) return;
+    setDemoBusy(true);
+    try {
+      await exitDemo();
+      setDemoMode(false);
+      setSelectedJob(null);
+      setJobs([]);
+      setLogs([]);
+      setAnswerBank([]);
+      setWebForceEnter(false);
+      setWebReady(false);
+      setActiveTab('landing');
+      clearFeedCache();
+    } finally {
+      setDemoBusy(false);
+    }
+  }, [demoBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Initial load
   useEffect(() => {
     fetch(`${API_BASE}/models`, { cache: 'no-store' })
@@ -513,6 +565,11 @@ export default function App() {
       .catch(() => setModels([]));
     Promise.all([fetchProfile(), fetchJobs(), fetchLogs(), fetchStatus(), fetchDocuments(), fetchAnswers(), fetchSites()]);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!IS_WEB) return undefined;
+    return subscribeMode((mode) => setDemoMode(mode === 'demo'));
+  }, []);
 
   // Live polling for active state
   useEffect(() => {
@@ -539,7 +596,7 @@ export default function App() {
   // key events on the document reset the clock. The handler is throttled to one
   // touch per check interval so typing does not rewrite the timer constantly.
   useEffect(() => {
-    if (!IS_WEB || !webReady) return undefined;
+    if (!IS_WEB || !webReady || demoMode) return undefined;
     let alive = true;
     let lastTouch = 0;
     webRuntime.keyStore.loadIdleMinutes().catch(() => {});
@@ -576,7 +633,7 @@ export default function App() {
       document.removeEventListener('pointerdown', markActive);
       document.removeEventListener('keydown', markActive);
     };
-  }, [webReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [webReady, demoMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the terminal pinned to its newest line, but scroll ONLY the terminal's
   // own box, never the page. The old `scrollIntoView` scrolled every scrollable
@@ -1252,6 +1309,8 @@ export default function App() {
       <WebStartup
         runtime={webRuntime}
         forceEnter={webForceEnter}
+        onTryDemo={startDemo}
+        demoBusy={demoBusy}
         onReady={() => {
           setWebReady(true);
           setWebForceEnter(false);
@@ -1269,7 +1328,10 @@ export default function App() {
     return (
       <>
         <ToastStack toasts={toasts.toasts} onClose={toasts.remove} />
-        <Landing onEnter={() => setActiveTab('dashboard')} />
+        <Suspense fallback={null}>
+          {demoMode && <DemoBanner onExit={stopDemo} persistent={demoPersistent} busy={demoBusy} />}
+        </Suspense>
+        <Landing onEnter={() => setActiveTab('dashboard')} onTryDemo={IS_WEB ? startDemo : null} />
       </>
     );
   }
@@ -1349,21 +1411,21 @@ export default function App() {
             <SidebarLink active={activeTab === 'feeds'} onClick={() => setActiveTab('feeds')} icon={<Rss size={16} />}>Job Feeds</SidebarLink>
           )}
           <SidebarLink active={activeTab === 'tailor'}    onClick={() => setActiveTab('tailor')}    icon={<Wand2 size={16} />}>Document Tailor</SidebarLink>
-          {isTabVisible('apply', IS_WEB) && (
+          {isTabVisible('apply', IS_WEB, demoMode) && (
             <SidebarLink active={activeTab === 'apply'} onClick={() => setActiveTab('apply')} icon={<ClipboardList size={16} />}>Apply</SidebarLink>
           )}
-          {isTabVisible('copilot', IS_WEB) && (
+          {isTabVisible('copilot', IS_WEB, demoMode) && (
             <SidebarLink active={activeTab === 'copilot'}   onClick={() => setActiveTab('copilot')}   icon={<Send size={16} />}>Apply Copilot</SidebarLink>
           )}
-          {isTabVisible('referrals', IS_WEB) && (
+          {isTabVisible('referrals', IS_WEB, demoMode) && (
             <SidebarLink active={activeTab === 'referrals'} onClick={() => setActiveTab('referrals')} icon={<Network size={16} />}>Direct Outreach</SidebarLink>
           )}
-          {isTabVisible('routines', IS_WEB) && (
+          {isTabVisible('routines', IS_WEB, demoMode) && (
             <SidebarLink active={activeTab === 'routines'}  onClick={() => setActiveTab('routines')}  icon={<Clock size={16} />}>Routines</SidebarLink>
           )}
           <SidebarLink active={activeTab === 'memory'}    onClick={() => setActiveTab('memory')}    icon={<Brain size={16} />}>Candidate Memory</SidebarLink>
           <SidebarLink active={activeTab === 'ask'}       onClick={() => setActiveTab('ask')}       icon={<Search size={16} />}>Ask Documents</SidebarLink>
-          {isTabVisible('logs', IS_WEB) && (
+          {isTabVisible('logs', IS_WEB, demoMode) && (
             <SidebarLink active={activeTab === 'logs'}      onClick={() => setActiveTab('logs')}      icon={<Terminal size={16} />}>Activity Logs</SidebarLink>
           )}
         </nav>
@@ -1382,6 +1444,15 @@ export default function App() {
 
       {/* Main */}
       <main id="main-content" tabIndex={-1} className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+
+        <Suspense fallback={null}>
+          {demoMode && (
+            <>
+              <DemoBanner onExit={stopDemo} persistent={demoPersistent} busy={demoBusy} />
+              <DemoTrialStrip activeTab={activeTab} onGo={setActiveTab} />
+            </>
+          )}
+        </Suspense>
 
         {firstSourceError(loadErrors) && (
           <ErrorCard
@@ -1530,7 +1601,12 @@ export default function App() {
         )}
 
         {/* ============================== HUNTER ============================== */}
-        {activeTab === 'hunter' && (
+        {activeTab === 'hunter' && demoMode && (
+          <Suspense fallback={<p className="hint">Loading the simulated hunter…</p>}>
+            <SimulatedHunter onJobsChanged={fetchJobs} toasts={toasts} />
+          </Suspense>
+        )}
+        {activeTab === 'hunter' && !demoMode && (
           <div className="panel fade-in" style={{ padding: 24 }}>
             {!IS_WEB && (
               <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
@@ -1816,7 +1892,7 @@ export default function App() {
                       {(tailoringJobId === selectedJob.id || selectedJob.status === 'tailoring') ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
                       {(tailoringJobId === selectedJob.id || selectedJob.status === 'tailoring') ? 'Tailoring…' : (selectedJob.status === 'found' ? 'Optimise CV & letter' : 'Re-tailor')}
                     </button>
-                    <button className="btn-secondary" onClick={() => triggerApplyCopilot(selectedJob.id)}>
+                    <button className="btn-secondary" onClick={() => { if (demoMode) setActiveTab('copilot'); else triggerApplyCopilot(selectedJob.id); }}>
                       <Send size={14} /> Apply
                     </button>
                   </div>
@@ -1882,11 +1958,29 @@ export default function App() {
 
         {/* ============================== APPLY ============================== */}
         {IS_WEB && activeTab === 'apply' && (
-          <ApplyPacket profile={profile} jobs={jobs} answerBank={answerBank} onMarkApplied={markApplied} />
+          <ApplyPacket
+            profile={profile}
+            jobs={jobs}
+            answerBank={answerBank}
+            onMarkApplied={markApplied}
+            demo={demoMode}
+            onOpenPortal={demoMode ? () => setActiveTab('copilot') : null}
+          />
         )}
 
         {/* ============================== COPILOT ============================== */}
-        {!IS_WEB && activeTab === 'copilot' && (
+        {activeTab === 'copilot' && demoMode && (
+          <Suspense fallback={<p className="hint">Loading the simulated copilot…</p>}>
+            <SimulatedCopilot
+              profile={profile}
+              jobs={jobs}
+              answerBank={answerBank}
+              onJobsChanged={fetchJobs}
+              toasts={toasts}
+            />
+          </Suspense>
+        )}
+        {!IS_WEB && !demoMode && activeTab === 'copilot' && (
           <div className="panel fade-in" style={{ padding: 24 }}>
             <h3 style={{ fontSize: 18, marginBottom: 8 }}>Apply Copilot control room</h3>
             <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
@@ -2014,7 +2108,7 @@ export default function App() {
           />
         )}
 
-        {!IS_WEB && activeTab === 'logs' && (
+        {(demoMode || !IS_WEB) && activeTab === 'logs' && (
           <div className="panel fade-in" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: 10 }}>
               <div>
@@ -2066,7 +2160,7 @@ export default function App() {
                 { id: 'answers', label: 'Application Answers', icon: <Database size={13} /> },
                 { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> },
                 { id: 'backup',  label: 'Backup',              icon: <ShieldCheck size={13} /> }
-              ], IS_WEB)}
+              ], IS_WEB, demoMode)}
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -2132,7 +2226,11 @@ export default function App() {
                   </div>
                 )}
 
-                {IS_WEB && (
+                {IS_WEB && (demoMode ? (
+                  <p className="muted" data-testid="demo-key-note">
+                    No key is used in demo mode. Add your key after you exit.
+                  </p>
+                ) : (
                   <WebKeyPanel
                     runtime={webRuntime}
                     refreshSignal={webKeyTick}
@@ -2145,7 +2243,7 @@ export default function App() {
                       fetchProfile();
                     }}
                   />
-                )}
+                ))}
               </section>
 
               {/* Apply Copilot intelligence (planner / vision / computer-use) */}
@@ -2614,7 +2712,7 @@ export default function App() {
               </section>
             </>)}
 
-            {IS_WEB && settingsTab === 'backup' && (
+            {IS_WEB && !demoMode && settingsTab === 'backup' && (
               <SettingsBackup vault={webRuntime.vault} toasts={toasts} onImported={refreshAll} />
             )}
 

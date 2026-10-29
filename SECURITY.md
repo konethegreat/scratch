@@ -26,6 +26,20 @@ What the app never sends to our origin: the API key, the CV, profile details, ap
 
 The document corpus and the retrieval index are built in the page or the desktop process and are never uploaded to our origin. Only the passages retrieved for one question are sent inside the candidate's own Anthropic request. The index is never persisted, exported, or backed up. Saved documents are never sent to another user.
 
+### Isolation contract for demo mode
+
+The hosted demo is a separate runtime behind the same fetch seam as the real app. Its isolation is the feature, and every rule is enforced by a test.
+
+1. **No real storage.** Demo mode never reads or writes the `sajas-web` IndexedDB vault. It uses its own vault over `sessionStorage` under the prefix `sajas:demo:`, or an in-memory adapter when `sessionStorage` is unavailable.
+2. **No real key.** Demo mode never reads, holds, validates or requests a key. Its key store is a stub that reports a key is present so AI surfaces stay enabled, but returns no key material. The key panel is unreachable in demo mode.
+3. **No network.** Feeds, AI output, hunter results and the application portal are local. A full demo walk makes zero requests outside the page origin.
+4. **No bleed on exit.** Exit removes every `sajas:demo:` key, including progress, and switches the dispatcher back to the real runtime. The app then refetches from the real vault, which was never touched.
+5. **No export.** Backup and data export are hidden in demo mode, so demo data cannot be written into a real backup.
+6. **No generation path.** The demo never reaches the Anthropic SDK, `validateKey` or `keyCrypto`. Tailor, ask and check are answered by the simulation router, and a static test scans the demo module tree for forbidden imports.
+7. **No collision with the desktop fixture.** `SYNTHETIC_DEMO`, `server/src/demo.js` and the desktop copilot are unchanged.
+
+The real vault and the real key are never read by demo code. `scripts/check-demo-bundle.mjs` proves the demo bundle is lazy and absent from the entry chunk, `client/src/web/demo/isolation.test.js` enforces rules 2 and 6 and the `.test` fixture domains, and `scripts/web-demo.mjs` proves rules 1, 3, 4 and 5 in a browser, including a sentinel profile and job left untouched in the real vault.
+
 ### Free-plan limits
 
 Cloudflare Pages free plan, checked on 2026-10-27: 500 builds per month, 20,000 files per deployment, 25 MiB maximum file size, and unmetered requests for static assets. This deployment has no Functions. Requests that invoke Functions are billed as Workers, with a free daily request allowance, which is one reason the app has none.

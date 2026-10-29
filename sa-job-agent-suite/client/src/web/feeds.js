@@ -2,6 +2,7 @@
 // live in a module-level cache for this tab only.
 import { FEED_SOURCES, sourceById } from '@sajas/core/feeds';
 import { AppError, ERROR_CODES, toUserError } from '@sajas/core/errors';
+import { isDemoMode } from './demo/mode.js';
 
 const DEFAULTS = {
   timeoutMs: 20000,
@@ -139,11 +140,19 @@ export function createFeedClient(options = {}) {
 
 let shared = null;
 
-export function getFeedClient() {
+export async function getFeedClient() {
+  if (isDemoMode()) {
+    const { getDemoFeedClient } = await import('./demo/feed.js');
+    return getDemoFeedClient();
+  }
   if (!shared) shared = createFeedClient();
   return shared;
 }
 
-export function clearFeedCache() {
+export async function clearFeedCache() {
   shared?.clear();
+  if (isDemoMode()) {
+    const { clearDemoFeedCache } = await import('./demo/feed.js');
+    clearDemoFeedCache();
+  }
 }

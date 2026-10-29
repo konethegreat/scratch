@@ -70,3 +70,17 @@ test('an unknown API path is answered locally and never reaches the network', as
   assert.equal((await unsupported.json()).code, 'NOT_SUPPORTED_IN_WEB');
   assert.equal(nativeCalls.length, 0);
 });
+
+test('the dispatcher switches handlers without being reinstalled', async () => {
+  let mode = 'real';
+  const fetchImpl = installWebApi({
+    apiBase: API_BASE,
+    handler: async () => new Response(JSON.stringify({ mode })),
+    nativeFetch: async () => { throw new Error('native fetch must not run'); }
+  });
+  const first = await (await fetchImpl(`${API_BASE}/profile`)).json();
+  assert.equal(first.mode, 'real');
+  mode = 'demo';
+  const second = await (await fetchImpl(`${API_BASE}/profile`)).json();
+  assert.equal(second.mode, 'demo');
+});

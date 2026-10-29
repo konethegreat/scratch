@@ -34,7 +34,7 @@ function Row({ label, value }) {
   );
 }
 
-export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkApplied, busyJobId = null }) {
+export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkApplied, busyJobId = null, demo = false, onOpenPortal = null }) {
   const ready = useMemo(() => jobs.filter((job) => job.tailoredCvText), [jobs]);
   const [pickedId, setPickedId] = useState('');
   const job = ready.find((entry) => entry.id === pickedId) || ready[0] || null;
@@ -131,7 +131,11 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
         </div>
 
         <div className="flex-gap" style={{ flexWrap: 'wrap' }}>
-          {job.applyUrl ? (
+          {demo && onOpenPortal ? (
+            <button type="button" className="btn-primary" data-testid="open-simulated-portal" onClick={onOpenPortal}>
+              <ExternalLink size={15} /> Open the simulated portal
+            </button>
+          ) : job.applyUrl ? (
             <a className="btn-primary" href={job.applyUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink size={15} /> Open the job site
             </a>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { KeyRound, Loader2, ShieldCheck, ExternalLink } from 'lucide-react';
+import { KeyRound, Loader2, ShieldCheck, ExternalLink, Play } from 'lucide-react';
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import ErrorCard from '../ErrorCard.jsx';
 import ThemeToggle from '../ThemeToggle.jsx';
@@ -9,7 +9,7 @@ import { MIN_PASSPHRASE } from './keyStore.js';
 
 const CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
 
-export default function WebStartup({ runtime, onReady, forceEnter = false }) {
+export default function WebStartup({ runtime, onReady, forceEnter = false, onTryDemo = null, demoBusy = false }) {
   const [phase, setPhase] = useState('checking'); // checking | enter | unlock | ready | blocked
   const [blockError, setBlockError] = useState(null);
   const [key, setKey] = useState('');
@@ -215,6 +215,17 @@ export default function WebStartup({ runtime, onReady, forceEnter = false }) {
               </button>
             </div>
           </form>
+        )}
+
+        {onTryDemo && (
+          <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <p className="hint" style={{ marginBottom: 8 }}>
+              No key yet? The demo uses fictional data and never leaves this page.
+            </p>
+            <button type="button" className="btn-secondary" data-testid="try-demo" onClick={onTryDemo} disabled={demoBusy}>
+              {demoBusy ? <Loader2 size={14} className="spin" /> : <Play size={14} />} Try the live demo
+            </button>
+          </div>
         )}
       </div>
     </div>

@@ -48,7 +48,7 @@ test('the seed is versioned, onboarded and carries every store', () => {
   assert.equal(seed.meta.app.onboarded, true);
   assert.match(seed.profile.current.baseCv, /accessibility dashboard/);
   assert.equal(Object.keys(seed.jobs).length, DEMO_JOBS.length);
-  assert.ok(seed.usage.days['2026-10-28'].estCostUSD > 0);
+  assert.ok(seed.usage.days.days['2026-10-28'].estCostUSD > 0);
   assert.ok(seed.activity.length > 0);
 });
 

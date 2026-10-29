@@ -249,14 +249,16 @@ export function buildDemoSeed(now = new Date()) {
     memory: { dossier: clone(DEMO_MEMORY) },
     usage: {
       days: {
-        [today]: {
-          calls: 6, inputTokens: 14200, outputTokens: 3600,
-          cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.18,
-          byBucket: {
-            tailor: { calls: 2, inputTokens: 6000, outputTokens: 1600, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.09 },
-            rag: { calls: 4, inputTokens: 8200, outputTokens: 2000, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.09 }
-          },
-          byTask: {}
+        days: {
+          [today]: {
+            calls: 6, inputTokens: 14200, outputTokens: 3600,
+            cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.18,
+            byBucket: {
+              tailor: { calls: 2, inputTokens: 6000, outputTokens: 1600, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.09 },
+              rag: { calls: 4, inputTokens: 8200, outputTokens: 2000, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.09 }
+            },
+            byTask: {}
+          }
         }
       }
     },

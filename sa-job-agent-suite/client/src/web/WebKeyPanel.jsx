@@ -81,7 +81,7 @@ export default function WebKeyPanel({ runtime, refreshSignal = 0, onChanged, onA
     try {
       await runtime.keyStore.panicWipe();
       // Feed rows live in a memory cache; drop them so nothing survives the wipe.
-      clearFeedCache();
+      await clearFeedCache();
       window.location.reload();
     } catch (err) {
       setError(recordError(err, { where: 'panic wipe' }));

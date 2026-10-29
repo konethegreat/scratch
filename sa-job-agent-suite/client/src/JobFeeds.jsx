@@ -39,7 +39,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
   const load = useCallback(async ({ force = false } = {}) => {
     setLoading(true);
     try {
-      const outcome = await getFeedClient().loadAll({ force });
+      const outcome = await (await getFeedClient()).loadAll({ force });
       setResults(dedupeJobs(outcome.results.flatMap((entry) => entry.jobs)));
       setErrors(outcome.errors);
       setMeta(Object.fromEntries(outcome.results.map((entry) => [entry.source, entry.fetchedAt])));
@@ -118,7 +118,7 @@ export default function JobFeeds({ profile, jobs, toasts, onJobsChanged, onProfi
   async function retryOne(id) {
     setLoading(true);
     try {
-      const result = await getFeedClient().load(id, { force: true });
+      const result = await (await getFeedClient()).load(id, { force: true });
       setMeta((current) => ({ ...current, [id]: result.fetchedAt }));
       setErrors((current) => current.filter((entry) => entry.source !== id));
       setResults((current) => dedupeJobs([

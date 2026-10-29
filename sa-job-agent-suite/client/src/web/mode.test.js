@@ -45,3 +45,14 @@ test('the apply tab is web-only', () => {
   assert.equal(isTabVisible('apply', true), true);
   assert.equal(isTabVisible('apply', false), false);
 });
+
+test('demo shows copilot and logs, hides referrals, routines and backup', () => {
+  for (const tab of ['copilot', 'logs', 'apply', 'dashboard', 'tailor', 'ask']) {
+    assert.equal(isTabVisible(tab, true, true), true, tab);
+  }
+  for (const tab of ['referrals', 'routines']) {
+    assert.equal(isTabVisible(tab, true, true), false, tab);
+  }
+  const tabs = [{ id: 'ai' }, { id: 'answers' }, { id: 'data' }, { id: 'backup' }];
+  assert.deepEqual(filterSettingsTabs(tabs, true, true).map((tab) => tab.id), ['ai']);
+});

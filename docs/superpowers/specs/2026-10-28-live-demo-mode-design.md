@@ -1,6 +1,6 @@
 # Hosted Live Demo Mode: Design
 
-**Status:** proposed 2026-10-28
+**Status:** shipped 2026-10-28
 **Date:** 2026-10-28
 **Arc:** 9 of the post-M3a-3 pipeline
 **Sources of truth:** [`2026-10-27-post-m3a3-pipeline.md`](2026-10-27-post-m3a3-pipeline.md), `SECURITY.md`, and the user's decisions of 2026-10-28.

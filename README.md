@@ -119,6 +119,21 @@ web mode. Job Hunter still appears, but its crawler controls are hidden and the
 server-backed hunter actions answer with a typed "not available in the web app"
 error.
 
+### Try the live demo
+
+No key and no profile? Open the site and press **Try the live demo** on the
+startup screen or the landing page. It runs entirely in the tab on fictional
+data: feeds, tailoring, Ask Documents, the Job Hunter and a full Apply Copilot
+loop with a simulated receipt. Everything simulated is labelled, and nothing is
+sent to an employer.
+
+The demo keeps its own `sessionStorage` namespace, never reads your IndexedDB
+vault or your key, and makes no request outside the page origin. A refresh
+restores the demo in the same tab; a new tab starts the real workspace. Press
+**Exit demo** to wipe the demo data and return to the real workspace unchanged.
+Backup and export are hidden in demo mode, so demo data cannot leave through a
+file.
+
 ### Tailoring in the browser
 
 1. Add a standard Anthropic API key in the key panel. It stays in the tab.

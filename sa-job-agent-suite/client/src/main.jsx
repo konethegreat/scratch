@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { IS_WEB } from './web/env.js';
-import { webRuntime, WEB_API_BASE } from './web/runtime.js';
+import { WEB_API_BASE, handleApi } from './web/runtime.js';
 import { installWebApi } from './web/install.js';
 import './index.css';
 
@@ -14,7 +14,7 @@ if (IS_WEB) {
   // including its 404/501 error contracts, so nothing reaches the network.
   window.fetch = installWebApi({
     apiBase: WEB_API_BASE,
-    handler: webRuntime.api.handle,
+    handler: handleApi,
     nativeFetch: window.fetch.bind(window)
   });
 } else {

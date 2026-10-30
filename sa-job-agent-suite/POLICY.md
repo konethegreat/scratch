@@ -1,6 +1,8 @@
-# Usage Policy
+# Acceptable use
 
-SA-JAS (South African Job Agent Suite) is free, open-source software built for South African job seekers. This document sets out the rules for using it, what it does and does not do with your data, and what you agree to by running it.
+SA-JAS (South African Job Agent Suite) is free, open-source software built for South African job seekers. This document sets out the rules for using the desktop build, what it does and does not do with your data, and what you agree to by running it.
+
+The hosted web app has its own data handling: see [../POLICY.md](../POLICY.md) for what is stored where, what leaves the device, and POPIA rights. The visitor-facing notices are on the landing page and in Help.
 
 ---
 
@@ -8,8 +10,8 @@ SA-JAS (South African Job Agent Suite) is free, open-source software built for S
 
 SA-JAS is a personal automation tool. It:
 
-- Scrapes publicly accessible job listings from South African job boards
-- Uses your chosen AI provider (Gemini, Anthropic, or OpenRouter) to tailor your CV and cover letter
+- Finds publicly listed jobs, through Anthropic web search on desktop or the public Remotive, Arbeitnow and Jobicy feeds in the browser
+- Uses your own Anthropic API key to tailor your CV and cover letter
 - Injects a helper overlay into employer application portals in a visible browser window so you remain in control of every submission
 
 **You submit every application yourself.** SA-JAS never submits anything on your behalf without your explicit action.
@@ -20,13 +22,14 @@ SA-JAS is a personal automation tool. It:
 
 SA-JAS is local-first by design.
 
-- Your CV, contact details, API keys, and job records are stored in files on your own computer (`db.json`, `keys.json`, `browser-profile/`).
+- On desktop, your CV, contact details, API keys and job records are stored in files on your own computer (`db.json`, `keys.json`, `browser-profile/`).
+- In the hosted web app, everything lives in your browser's storage for the site, and the key stays in the open tab.
 - None of this data is sent to any SA-JAS server, because there is no SA-JAS server.
 - The only outbound network requests this software makes are:
-  - To the job sites it scrapes (public search results, same as using a browser)
-  - To your chosen AI provider (Gemini / Anthropic / OpenRouter) to generate tailored documents
+  - To job sources (public feeds or, on desktop, search results, the same as using a browser)
+  - To Anthropic, with your own key, to generate tailored documents
 
-You are responsible for reviewing the privacy policies of whichever AI provider you configure.
+You are responsible for reviewing Anthropic's data retention and privacy policies before use.
 
 ---
 
@@ -70,8 +73,8 @@ The AI providers used by SA-JAS are instructed not to invent credentials, but yo
 
 Using SA-JAS does not exempt you from the Terms of Service of:
 
-- The job sites being scraped (Careers24, Indeed SA, LinkedIn, PNet, CareerJunction, Jobs.co.za, Gumtree SA, Adzuna SA, and others)
-- Your chosen AI provider (Google, Anthropic, OpenRouter)
+- The job sites being read (Careers24, Indeed SA, LinkedIn, PNet, CareerJunction, Jobs.co.za, Gumtree SA, Adzuna SA, and others), plus the public feeds used by the hosted app
+- Anthropic, for any AI feature
 - The employers whose portals the Apply Copilot interacts with
 
 You are solely responsible for your compliance with those terms.
@@ -102,7 +105,7 @@ To the fullest extent permitted by applicable law, the SA-JAS contributors are n
 
 ## 9. Open source licence
 
-SA-JAS is released under the **MIT Licence**. You are free to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software, subject to the licence terms. The full licence text will be included in the repository `LICENSE` file.
+SA-JAS is released under the **MIT Licence**, and the licence text is the [LICENSE](../LICENSE) file at the repository root. You are free to use, copy, modify, merge, publish, distribute, sublicense and sell copies of the software, subject to those terms. The SA-JAS name and branding are not covered by the licence; see [TRADEMARK.md](../TRADEMARK.md).
 
 ---
 
@@ -120,4 +123,4 @@ Contributions are welcome. By submitting a pull request you agree that your cont
 
 For questions about this policy or to report a misuse concern, contact **erictshivhinda@gmail.com**.
 
-For security vulnerability reports, see [SECURITY.md](./SECURITY.md).
+For security vulnerability reports, see [../SECURITY.md](../SECURITY.md).

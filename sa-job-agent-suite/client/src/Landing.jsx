@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { ArrowRight, ArrowUpRight, MapPin } from 'lucide-react';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+import Legal from './Legal.jsx';
+import { LEGAL_UPDATED } from './legal.js';
 import { SUPPORT, FAQ } from './support.js';
 
 const WORK = [
@@ -226,10 +228,24 @@ export default function Landing({ onEnter, onTryDemo }) {
             </div>
           </div>
         </section>
+
+        <section className="landing-section reveal" id="legal" aria-labelledby="legal-title">
+          <div className="landing-section-head">
+            <h2 id="legal-title">Terms, privacy and ownership</h2>
+            <p className="landing-section-sub">Updated {LEGAL_UPDATED}.</p>
+          </div>
+          <Legal />
+        </section>
       </main>
 
       <footer className="landing-footer">
         <span>Designed and built by Kone Tshivhinda. Johannesburg, South Africa. © {new Date().getFullYear()}.</span>
+        <nav className="landing-footer-links" aria-label="Legal notices">
+          <a href="#terms">Terms</a>
+          <a href="#privacy">Privacy and POPIA</a>
+          <a href="#ai">AI disclaimer</a>
+          <a href="#ownership">Ownership</a>
+        </nav>
         <SocialLinks size="sm" />
       </footer>
     </div>

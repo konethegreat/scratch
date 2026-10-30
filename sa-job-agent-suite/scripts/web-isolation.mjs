@@ -164,7 +164,7 @@ async function main() {
     at('context B has an empty tracker');
     await skipKeyAndEnter(pageB);
     await openTracker(pageB);
-    await pageB.getByText('No records yet. Add a job manually or pull one from Job Feeds.').waitFor({ timeout: 15_000 });
+    await pageB.getByText('Nothing tracked yet.').first().waitFor({ timeout: 15_000 });
     assert.deepEqual(await readJobs(pageB), [], 'context B can see context A jobs after onboarding');
 
     at('context A still sees its own job');

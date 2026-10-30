@@ -129,7 +129,24 @@ async function main() {
     await page.getByRole('button', { name: /^Job Hunter$/ }).click();
     await page.getByTestId('run-demo-hunter').click();
     await page.getByTestId('demo-hunter-result').waitFor({ timeout: 25_000 });
-    assert.match(await page.getByTestId('demo-hunter-result').innerText(), /3 added, 1 already tracked/);
+    assert.match(
+      await page.getByTestId('demo-hunter-result').innerText(),
+      /5 added, 2 already tracked, 1 outside South Africa skipped/
+    );
+    assert.match(await page.getByText(/Skipped 1 outside South Africa/).first().innerText(), /Frontend Developer/);
+    assert.ok(
+      await page.locator('table.data-table').getByText('React Developer').count() > 0,
+      `a freshly hunted role is missing from the tracker: ${(await page.locator('table.data-table').innerText()).slice(0, 800)}`
+    );
+    // Demo filters stay in memory: the shared filter key must not be written.
+    await page.getByTestId('job-filter-status').selectOption('applied');
+    await page.waitForTimeout(200);
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem('sajas.jobFilters.v1')),
+      null,
+      'demo mode wrote the real job-filter key'
+    );
+    await page.getByTestId('job-clear-filters').click();
 
     await page.getByRole('button', { name: /^Apply Copilot$/ }).click();
     await page.getByTestId('open-simulated-portal').click();
@@ -150,6 +167,11 @@ async function main() {
     await page.getByTestId('exit-demo').click();
     await page.getByRole('button', { name: /Enter the Suite/i }).waitFor({ timeout: 20_000 });
     assert.deepEqual(await demoKeys(page), [], 'demo keys survived the exit');
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem('sajas.jobFilters.v1')),
+      null,
+      'a demo filter survived the exit'
+    );
 
     const vault = await readVault(page);
     assert.equal(vault.profile[0]?.fullName, 'Sentinel Person');

@@ -6,7 +6,7 @@ import { createActivity } from '../activity.js';
 import { createWebApi } from '../api.js';
 import { REFUSAL_SENTENCE } from '@sajas/core/rag';
 import { createSimulationRouter } from './simulationApi.js';
-import { buildDemoSeed } from './fixtures.js';
+import { buildDemoSeed, DEMO_JOBS } from './fixtures.js';
 
 const API_BASE = 'http://localhost:5000/api';
 const NOW = () => new Date('2026-10-28T10:00:00Z');
@@ -97,7 +97,7 @@ test('the simulated copilot records a confirmed desktop-copilot submission', asy
 test('ordinary routes delegate to the demo API', async () => {
   const { router } = harness();
   const jobs = await (await router.handle(`${API_BASE}/jobs`, get())).json();
-  assert.ok(Array.isArray(jobs) && jobs.length === 5);
+  assert.ok(Array.isArray(jobs) && jobs.length === DEMO_JOBS.length);
   const missing = await router.handle(`${API_BASE}/nothing-here`, get());
   assert.equal(missing.status, 404);
   const dream = await router.handle(`${API_BASE}/memory/dream`, post({}));

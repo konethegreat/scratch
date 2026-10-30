@@ -49,6 +49,7 @@ import CandidateMemory from './CandidateMemory.jsx';
 import Routines from './Routines.jsx';
 import Landing from './Landing.jsx';
 import JobFeeds from './JobFeeds.jsx';
+import WebHunter from './web/WebHunter.jsx';
 import JobFilters from './JobFilters.jsx';
 import ApplyPacket from './ApplyPacket.jsx';
 import SettingsBackup from './SettingsBackup.jsx';
@@ -1269,8 +1270,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    saveJobFilters(viewFilters);
-  }, [viewFilters]);
+    // Demo filters are session-only, so they never leak into the real tracker.
+    if (!demoMode) saveJobFilters(viewFilters);
+  }, [viewFilters, demoMode]);
+
+  // Entering or leaving the demo resets the view, so a real filter cannot hide
+  // demo rows and demo filters are gone the moment the demo ends.
+  useEffect(() => {
+    if (!IS_WEB) return;
+    setViewFilters(demoMode ? { ...DEFAULT_VIEW_FILTERS } : loadJobFilters());
+    setVisibleJobCount(50);
+  }, [demoMode]);
 
   const { visible: filteredJobs, hiddenForeign } = useMemo(
     () => filterJobsForView(jobs, viewFilters),
@@ -1284,7 +1294,11 @@ export default function App() {
 
   const headerTitles = {
     dashboard: { title: 'Dashboard',           subtitle: 'Monitor your automated South African job hunt at a glance.' },
-    hunter:    { title: 'Job Hunter',          subtitle: 'Claude web search first, then 12 South African job boards, with link checks.' },
+    hunter:    { title: 'Job Hunter',          subtitle: IS_WEB
+      ? (demoMode
+        ? 'Score fictional postings against your keywords, then keep the ones worth tracking.'
+        : 'Score public jobs against your keywords, then keep the ones worth tracking.')
+      : 'Claude web search first, then 12 South African job boards, with link checks.' },
     feeds:     { title: 'Job Feeds',           subtitle: 'Public job feeds fetched by your browser. Filter them, then add the ones worth tracking. No key needed.' },
     tailor:    { title: 'Document Tailor',     subtitle: 'Use AI to tailor your CV and write a cover letter for each role.' },
     apply:     { title: 'Apply',               subtitle: 'A copy sheet for the job site, with your details, answers, documents and a checklist.' },
@@ -1297,7 +1311,9 @@ export default function App() {
     profile:   { title: 'Profile & Settings',  subtitle: 'Anthropic key, search criteria, personal info and base CV.' }
   };
 
-  const showRunHunterButton = !SYNTHETIC_DEMO && !IS_WEB && ['dashboard', 'hunter'].includes(activeTab);
+  const showRunHunterButton = !SYNTHETIC_DEMO && (IS_WEB
+    ? activeTab === 'dashboard'
+    : ['dashboard', 'hunter'].includes(activeTab));
 
   /* ----------------------------------------------------------------- */
   /* Render                                                            */
@@ -1494,17 +1510,19 @@ export default function App() {
             <button className="btn-secondary" onClick={refreshAll}>
               <RefreshCw size={14} /> Refresh
             </button>
-            {showRunHunterButton && (
-              hunterRunning ? (
-                <button className="btn-danger" onClick={stopJobHunter} title="Stop after the current source">
-                  <Loader2 size={14} className="spin" /> Stop
-                </button>
-              ) : (
-                <button className="btn-primary" onClick={triggerJobHunter}>
-                  <Sparkles size={14} /> Run Hunter
-                </button>
-              )
-            )}
+            {showRunHunterButton && (IS_WEB ? (
+              <button className="btn-primary" onClick={() => setActiveTab('hunter')}>
+                <Search size={14} /> Find jobs
+              </button>
+            ) : hunterRunning ? (
+              <button className="btn-danger" onClick={stopJobHunter} title="Stop after the current source">
+                <Loader2 size={14} className="spin" /> Stop
+              </button>
+            ) : (
+              <button className="btn-primary" onClick={triggerJobHunter}>
+                <Sparkles size={14} /> Run Hunter
+              </button>
+            ))}
           </div>
         </header>
 
@@ -1550,7 +1568,7 @@ export default function App() {
                   <EmptyState
                     icon={<Search size={28} />}
                     title="No jobs yet"
-                    body={IS_WEB ? 'Open Job Feeds to pull public jobs, or add one manually.' : 'Configure your keywords in Profile & Settings, then click Run Hunter.'}
+                    body={IS_WEB ? 'Run the Hunter to pull public jobs into your tracker, or add one manually.' : 'Configure your keywords in Profile & Settings, then click Run Hunter.'}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1602,19 +1620,35 @@ export default function App() {
 
         {/* ============================== HUNTER ============================== */}
         {activeTab === 'hunter' && demoMode && (
-          <Suspense fallback={<p className="hint">Loading the simulated hunter…</p>}>
-            <SimulatedHunter onJobsChanged={fetchJobs} toasts={toasts} />
-          </Suspense>
+          <div style={{ marginBottom: 18 }}>
+            <Suspense fallback={<p className="hint">Loading the simulated hunter…</p>}>
+              <SimulatedHunter profile={profile} onJobsChanged={fetchJobs} toasts={toasts} />
+            </Suspense>
+          </div>
         )}
-        {activeTab === 'hunter' && !demoMode && (
-          <div className="panel fade-in" style={{ padding: 24 }}>
+        {activeTab === 'hunter' && (
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {IS_WEB && !demoMode && (
+              <WebHunter
+                profile={profile}
+                jobs={jobs}
+                toasts={toasts}
+                onJobsChanged={fetchJobs}
+                onOpenProfile={() => setActiveTab('profile')}
+              />
+            )}
+            <div className="panel" style={{ padding: 24 }}>
             {!IS_WEB && (
               <SourceHealth apiBase={API_BASE} refreshSignal={refreshTick} toasts={toasts} readOnly={SYNTHETIC_DEMO} />
             )}
             <div className="flex-between" style={{ marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
-                <h3 style={{ fontSize: 18 }}>Scraping pipeline</h3>
-                <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>Sources (12-source registry): LinkedIn · Indeed SA · PNet · CareerJunction · Google Jobs · Adzuna SA · Executive Placements · Job Placements · National Govt · JobMail · Jobs.co.za · Gumtree SA</p>
+                <h3 style={{ fontSize: 18 }}>{IS_WEB ? 'Your tracker' : 'Scraping pipeline'}</h3>
+                <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {IS_WEB
+                    ? 'Everything the hunt and Job Feeds saved. Change a status, add a note, then tailor.'
+                    : 'Sources (12-source registry): LinkedIn · Indeed SA · PNet · CareerJunction · Google Jobs · Adzuna SA · Executive Placements · Job Placements · National Govt · JobMail · Jobs.co.za · Gumtree SA'}
+                </p>
               </div>
               <div className="flex-gap">
                 {jobs.length > 0 && (
@@ -1648,7 +1682,7 @@ export default function App() {
             </div>
 
             {/* Engine + scope echo: confirms exactly what the next run will do */}
-            <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {!IS_WEB && <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Next run:</span>
               <span>engine</span>
               <span className={`badge ${aiSearchOn ? 'badge-success' : 'badge-info'}`}>{aiSearchOn ? 'AI Search (Claude)' : 'Scrapers only'}</span>
@@ -1662,24 +1696,26 @@ export default function App() {
               <span>searching <strong>{Math.min(keywordCount, Number(profile.maxKeywords) || 3)}</strong> of {keywordCount} keyword{keywordCount === 1 ? '' : 's'} ×</span>
               <strong>{Math.min(locationCount, Number(profile.maxLocations) || 2)}</strong>
               <span>of {locationCount} location{locationCount === 1 ? '' : 's'}</span>
-            </div>
+            </div>}
 
             <div className="grid-2" style={{ marginBottom: 20 }}>
               <ChipCard label="Target keywords" items={(profile.keywords || '').split(',').map((s) => s.trim()).filter(Boolean)} color="accent" />
               <ChipCard label="Target locations" items={(profile.locations || '').split(',').map((s) => s.trim()).filter(Boolean)} color="info" icon={<MapPin size={10} />} />
             </div>
 
-            <RunSummary
+            {!IS_WEB && <RunSummary
               result={hunterResult}
               running={hunterRunning}
               aiSearchOn={aiSearchOn}
               hasAnthropicKey={Boolean(profile.hasAnthropicKey)}
               onConfig={() => setActiveTab('profile')}
-            />
+            />}
 
             {/* Filters */}
             <div className="flex-between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-              <h3 style={{ fontSize: 15 }}>All discovered opportunities ({filteredJobs.length})</h3>
+              <h3 style={{ fontSize: 15 }}>
+                {IS_WEB ? 'Tracked jobs' : 'All discovered opportunities'} ({filteredJobs.length})
+              </h3>
             </div>
             <JobFilters
               filters={viewFilters}
@@ -1812,7 +1848,7 @@ export default function App() {
                     <tr><td colSpan="6" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
                       {jobs.length === 0
                         ? (IS_WEB
-                          ? 'No records yet. Add a job manually or pull one from Job Feeds.'
+                          ? 'Nothing tracked yet. Run the hunt above, add one manually, or pull one from Job Feeds.'
                           : 'No records harvested yet. Set parameters and start your crawler!')
                         : (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
@@ -1830,6 +1866,7 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+            </div>
             </div>
           </div>
         )}

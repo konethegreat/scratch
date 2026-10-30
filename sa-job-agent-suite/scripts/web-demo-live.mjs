@@ -32,6 +32,30 @@ async function main() {
     await page.getByTestId('optimise-cv').click();
     await page.getByTestId('tailored-cv').waitFor({ timeout: 15_000 });
     assert.match(await page.getByTestId('tailored-cv').locator('textarea').inputValue(), /Sample Logistics/);
+
+    await page.getByRole('button', { name: /^Job Hunter$/ }).click();
+    await page.getByTestId('run-demo-hunter').click();
+    await page.getByTestId('demo-hunter-result').waitFor({ timeout: 25_000 });
+    assert.match(
+      await page.getByTestId('demo-hunter-result').innerText(),
+      /5 added, 2 already tracked, 1 outside South Africa skipped/
+    );
+    assert.ok(
+      await page.locator('table.data-table').getByText('React Developer').count() > 0,
+      'the live tracker did not keep the freshly hunted role'
+    );
+
+    await page.getByRole('button', { name: /^Apply Copilot$/ }).click();
+    await page.getByTestId('open-simulated-portal').click();
+    await page.getByTestId('demo-form-continue').waitFor({ timeout: 15_000 });
+    await page.getByTestId('demo-form-continue').click();
+    await page.getByTestId('demo-question').fill('The accessibility dashboard project.');
+    await page.getByTestId('demo-question-continue').click();
+    await page.getByTestId('demo-review').waitFor();
+    await page.getByTestId('demo-review-submit').click();
+    await page.getByTestId('demo-confirm').click();
+    await page.getByTestId('demo-receipt').waitFor({ timeout: 15_000 });
+    assert.match(await page.getByTestId('demo-receipt').innerText(), /Nothing was sent to an employer\./);
     await page.getByTestId('exit-demo').click();
     await page.getByTestId('onboarding').waitFor({ timeout: 20_000 });
     assert.equal(await page.getByTestId('demo-banner').count(), 0, 'the demo banner survived the exit');

@@ -233,6 +233,40 @@ button:disabled {
 
 .btn-sm { padding: 6px 12px; font-size: 12px; }
 .btn-xs { padding: 4px 8px; font-size: 11px; }
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.icon-button:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+/* Beta notice in the app shell */
+.beta-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  border-left: 3px solid var(--color-warning);
+}
+.beta-banner p {
+  flex: 1 1 280px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.beta-banner-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .btn-lg { padding: 14px 26px; font-size: 15px; border-radius: var(--radius-md); }
 
 /* Sidebar */
@@ -264,6 +298,32 @@ button:disabled {
   border-color: var(--color-accent);
   color: var(--text-primary);
   box-shadow: inset 3px 0 0 0 var(--color-accent);
+}
+
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+.sidebar-toggle { display: none; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.sidebar-lower {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: auto;
 }
 
 /* Badges */
@@ -669,14 +729,40 @@ input[type=number] { -moz-appearance: textfield; }
 }
 
 @media (max-width: 768px) {
+  /* The sidebar becomes a compact sticky bar. Its links collapse behind the
+     menu button so a 360px screen is not filled by navigation. */
   aside.app-sidebar {
     width: 100% !important;
-    position: relative !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 55;
     border-radius: 0 !important;
     height: auto !important;
+    padding: 12px 16px !important;
+    border-bottom: 1px solid var(--border) !important;
+    box-shadow: 0 1px 0 0 var(--border) !important;
   }
   .app-shell { flex-direction: column !important; }
   .app-main { padding: 20px !important; max-height: none !important; }
+  .sidebar-brand-row { margin-bottom: 0; }
+  aside.app-sidebar.nav-open .sidebar-brand-row { margin-bottom: 14px; }
+  .sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .sidebar-nav, .sidebar-lower { display: none; }
+  aside.app-sidebar.nav-open .sidebar-nav { display: flex; }
+  aside.app-sidebar.nav-open .sidebar-lower { display: block; }
+  .app-topbar { position: static; justify-content: flex-end; }
+  .app-topbar .brand-chip { display: none; }
 }
 
 @media (max-width: 560px) {
@@ -844,6 +930,50 @@ input[type=number] { -moz-appearance: textfield; }
   color: var(--text-muted);
   font-size: 12.5px;
 }
+
+.landing-footer-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.landing-footer-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.landing-footer-links a:hover { color: var(--text-primary); text-decoration: underline; }
+
+/* Legal notices: full layout on the landing page, compact in Help. */
+.legal-full {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+.legal-section { padding: 22px; scroll-margin-top: 96px; }
+.legal-section h3 { font-size: 17px; margin-bottom: 4px; }
+.legal-summary { font-size: 12.5px; color: var(--text-muted); display: block; }
+.legal-clauses { display: grid; gap: 12px; margin-top: 14px; }
+.legal-clause h4 { font-size: 13px; margin-bottom: 3px; }
+.legal-clause p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
+.legal-updated { margin-top: 14px; color: var(--text-muted); }
+
+.legal-compact { display: grid; gap: 8px; }
+.legal-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  padding: 12px;
+  scroll-margin-top: 96px;
+}
+.legal-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.legal-details .legal-summary { font-weight: 400; }
+.legal-details .legal-clauses { margin-top: 10px; }
+.legal-details .legal-clause h4 { font-size: 12.5px; }
 
 @media (max-width: 800px) {
   .landing-header { flex-wrap: wrap; }

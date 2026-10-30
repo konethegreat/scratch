@@ -1,0 +1,8 @@
+# Security contact for the hosted SA-JAS app.
+# The app keeps no server-side user data, so reports are usually about the
+# client bundle, the key handling model, or the demo isolation contract.
+Contact: mailto:erictshivhinda@gmail.com
+Expires: 2027-10-30T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://sajas.pages.dev/.well-known/security.txt
+Policy: https://github.com/konethegreat/scratch/blob/main/SECURITY.md

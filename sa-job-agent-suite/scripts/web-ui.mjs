@@ -116,6 +116,23 @@ async function main() {
       if (tag === 'H3') assert.ok(sawSection, 'a card heading appears before a section heading');
     }
 
+    // 3b. The legal notices are reachable from the footer and carry the
+    // required content: terms, POPIA, AI limits and ownership.
+    for (const id of ['terms', 'privacy', 'ai', 'ownership']) {
+      assert.equal(
+        await page.locator(`.landing-footer-links a[href="#${id}"]`).count(),
+        1,
+        `the footer has no link to the ${id} notice`
+      );
+      assert.equal(await page.locator(`#${id}`).count(), 1, `the ${id} notice is missing from the landing page`);
+      assert.equal(await page.getByTestId(`legal-${id}`).count(), 1, `the ${id} notice has no test id`);
+    }
+    const privacyText = await page.getByTestId('legal-privacy').innerText();
+    assert.match(privacyText, /Information Regulator/, 'the privacy notice never mentions the regulator');
+    const ownershipText = await page.getByTestId('legal-ownership').innerText();
+    assert.match(ownershipText, /MIT/, 'the ownership notice does not state the licence');
+    assert.match(ownershipText, /TRADEMARK\.md/, 'the ownership notice does not point at the trademark terms');
+
     // 4. Skip link.
     await page.evaluate(() => document.activeElement?.blur());
     await page.keyboard.press('Tab');
@@ -166,6 +183,33 @@ async function main() {
       await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
       'rgb(11, 13, 18)'
     );
+
+    // 7b. The beta notice: shown in the hosted shell, linked to the notices in
+    // Help, dismissed once and silent after a reload.
+    const beta = page.getByTestId('beta-banner');
+    await beta.waitFor({ timeout: 10_000 });
+    assert.equal(await page.evaluate(() => localStorage.getItem('sajas.betaNotice.v1')), null);
+    await page.getByRole('button', { name: 'Terms and privacy' }).click();
+    await page.getByRole('heading', { name: 'Help and support', exact: true }).waitFor({ timeout: 10_000 });
+    const helpPrivacy = page.getByTestId('legal-privacy');
+    assert.equal(await helpPrivacy.count(), 1, 'Help does not include the privacy notice');
+    await helpPrivacy.click();
+    assert.match(await helpPrivacy.innerText(), /Information Regulator/);
+    await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+    await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor({ timeout: 10_000 });
+    await page.getByTestId('dismiss-beta').click();
+    await beta.waitFor({ state: 'detached' });
+    assert.match(
+      await page.evaluate(() => localStorage.getItem('sajas.betaNotice.v1')),
+      /^\d{4}-\d{2}-\d{2}$/,
+      'dismissing the beta notice stored nothing'
+    );
+    await page.reload({ waitUntil: 'networkidle' });
+    // The onboarding flag is stored, so a reload lands on the app itself.
+    await page.getByRole('button', { name: /Enter the Suite/i }).waitFor({ timeout: 20_000 });
+    await page.getByRole('button', { name: /Enter the Suite/i }).click();
+    await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor({ timeout: 15_000 });
+    assert.equal(await page.getByTestId('beta-banner').count(), 0, 'the beta notice returned after dismissal');
 
     // 8. Responsive layout on the dashboard and the landing page.
     for (const width of [360, 768, 1280]) {
@@ -256,6 +300,44 @@ async function main() {
     assert.equal(await toast.getAttribute('role'), 'status');
     assert.equal(await toast.getAttribute('aria-atomic'), 'true');
     assert.equal(await toast.getByRole('button', { name: 'Dismiss notification' }).count(), 1);
+    await toast.getByRole('button', { name: 'Dismiss notification' }).click();
+    await toast.waitFor({ state: 'detached' });
+
+    // 8d. At 360px the sidebar is a compact bar and the links fold behind the
+    // menu button instead of filling the screen.
+    await page.setViewportSize({ width: 360, height: 800 });
+    const navToggle = page.getByTestId('sidebar-toggle');
+    await navToggle.waitFor({ timeout: 10_000 });
+    assert.equal(await navToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.locator('#primary-nav').isVisible(), false, 'the narrow-screen menu starts open');
+    const barHeight = await page.locator('aside.app-sidebar').evaluate((element) => element.getBoundingClientRect().height);
+    assert.ok(barHeight < 140, `the narrow-screen navigation bar is ${barHeight}px tall`);
+    await navToggle.click();
+    assert.equal(await navToggle.getAttribute('aria-expanded'), 'true');
+    assert.ok(await page.locator('#primary-nav').isVisible(), 'the menu button did not reveal the links');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="sidebar-toggle"]')?.getAttribute('aria-expanded') === 'false',
+      null,
+      { timeout: 5000 }
+    );
+    assert.equal(await navToggle.getAttribute('aria-expanded'), 'false', 'Escape did not close the menu');
+    await navToggle.click();
+    await page.locator('#primary-nav').getByRole('button', { name: 'Dashboard', exact: true }).click();
+    await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor({ timeout: 10_000 });
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="sidebar-toggle"]')?.getAttribute('aria-expanded') === 'false',
+      null,
+      { timeout: 5000 }
+    );
+    assert.equal(await navToggle.getAttribute('aria-expanded'), 'false', 'the menu stayed open after a tab change');
+    assert.equal(await page.locator('#primary-nav').isVisible(), false);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      0,
+      'the narrow-screen menu overflows horizontally'
+    );
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     // 9. Reduced motion.
     {

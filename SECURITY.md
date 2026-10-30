@@ -2,6 +2,18 @@
 
 SA-JAS runs in two shapes: a hosted web app at https://sajas.pages.dev with a bring-your-own Anthropic key, and a local-first desktop application. Neither shape sends your data to a SA-JAS server. There is no SA-JAS server holding user data.
 
+Related documents:
+
+| Document | What it covers |
+|---|---|
+| [THREAT-MODEL.md](THREAT-MODEL.md) | Assets, trust boundaries, threat scenarios and residual risk |
+| [POLICY.md](POLICY.md) | What is stored where, what leaves the device, POPIA rights |
+| [OPERATIONS.md](OPERATIONS.md) | Hosting, scaling, bot protection and cost |
+| [TRADEMARK.md](TRADEMARK.md) | The MIT code licence versus the reserved name and marks |
+| `/.well-known/security.txt` | Machine-readable security contact on the deployed site |
+
+The visitor-facing versions of these commitments live on the landing page under "Terms, privacy and ownership" and in Help.
+
 ---
 
 ## Hosted web app
@@ -14,6 +26,7 @@ The hosted app is a static Cloudflare Pages bundle. There are no Pages Functions
 | API key | The plaintext key is held in memory in a closure in `keyStore.js`. It is never written to localStorage, sessionStorage, cookies, URLs, logs or the backup. The optional Remember form stores only an AES-GCM blob in the `keyVault` store, unlocked by a passphrase that is never stored. |
 | Key requests | Keyed requests go directly from the browser to `api.anthropic.com` in the `x-api-key` header. No code path sends the key to our origin, and the canary fails the build if the key appears in any request URL, body or header other than `x-api-key` to `api.anthropic.com`. |
 | Backup | The export contains `profile`, `jobs`, `answers`, `memory`, `usage` and `meta`. It never contains `keyVault`. |
+| Job links | Feed text and manually entered links keep only `http:` and `https:` URLs. `javascript:`, `data:` and `file:` values are stored as no link, so they cannot become clickable targets. |
 | Response headers | Strict CSP (`script-src 'self'`, explicit `connect-src`, `frame-ancestors 'none'`, `base-uri 'none'`, `object-src 'none'`, `form-action 'self'`), `X-Frame-Options: DENY`, COOP and CORP `same-origin`, HSTS, `nosniff`, `no-referrer`, and a restrictive Permissions Policy. |
 | Merge gate | `scripts/web-canary.mjs` fails the build if the key reaches the DOM, form values, iframes, URL, localStorage, sessionStorage, cookies, IndexedDB plaintext, the console, a backup export, or any request or header other than `x-api-key` to `api.anthropic.com`. It also proves CSP blocks a third-party script. `scripts/web-isolation.mjs` proves two browser contexts share nothing and that a quota failure is reported without persisting the failed write. `scripts/web-tailor.mjs` proves tailoring stays on `api.anthropic.com` with `anthropic-dangerous-direct-browser-access: true`, that the key is absent from storage and our origin, and that the budget guard stops a call. |
 | Support reports | Generated only when the user clicks Get help or Email a report. The body contains the error code, safe message, request ID, time, page, surface, and browser. It excludes error details, the profile, jobs, documents, and the key. |
@@ -42,7 +55,7 @@ The real vault and the real key are never read by demo code. `scripts/check-demo
 
 ### Free-plan limits
 
-Cloudflare Pages free plan, checked on 2026-10-27: 500 builds per month, 20,000 files per deployment, 25 MiB maximum file size, and unmetered requests for static assets. This deployment has no Functions. Requests that invoke Functions are billed as Workers, with a free daily request allowance, which is one reason the app has none.
+Cloudflare Pages free plan, checked on 2026-10-27: 500 builds per month, 20,000 files per deployment, 25 MiB maximum file size, and unmetered requests for static assets. This deployment has no Functions. Requests that invoke Functions are billed as Workers, with a free daily request allowance, which is one reason the app has none. Scaling, bot protection and the custom-domain checklist are in [OPERATIONS.md](OPERATIONS.md).
 
 ### Residual risks
 
@@ -75,7 +88,7 @@ SA-JAS is free, open-source software. The hosted app has no server-side user dat
 **To report a vulnerability:**
 
 1. **Do not open a public GitHub issue** if the report contains a working exploit or sensitive details.
-2. Email **erictshivhinda@gmail.com** with the subject line `[SA-JAS Security]`.
+2. Email **erictshivhinda@gmail.com** with the subject line `[SA-JAS Security]`. The deployed site also publishes the same address in `/.well-known/security.txt`.
 3. Include:
    - A description of the vulnerability
    - Steps to reproduce
@@ -106,3 +119,4 @@ You will receive a response within **7 days**. If a fix is warranted, a patched 
 - **The local API has no authentication.** The Express server listens on `localhost:5000` and trusts requests that pass the local guard. This is intentional for a single-user desktop app. Do not expose this port to a network.
 - **`browser-profile/` contains live session cookies.** Treat this directory with the same sensitivity as saved passwords. The `.gitignore` excludes it, but be careful with backups and file-sharing tools.
 - **The hosted app is only as strong as its origin.** A compromise of the Cloudflare deployment, or of a dependency that gains a script tag, bypasses the client-side isolation model. The CSP, the canary and the no-third-party rule are the controls that make this hard, and they are tested on every pull request.
+- **Backup import trusts the file's store shape, not every field.** A hand-edited backup can restore unusual values, including a `data:` apply link. Only import backups this app exported.

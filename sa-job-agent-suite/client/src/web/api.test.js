@@ -187,6 +187,26 @@ test('jobs can be added, updated, listed and deleted locally', async () => {
   assert.deepEqual(await json(await call('/jobs')), []);
 });
 
+test('a job link is stored only when it is http or https', async () => {
+  const { call } = harness();
+  const hostile = [
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'file:///etc/passwd',
+    '/jobs/1'
+  ];
+  for (const [index, value] of hostile.entries()) {
+    const res = await call('/jobs', { method: 'POST', body: { title: `Link ${index}`, company: 'Example Studio', applyUrl: value } });
+    assert.equal(res.status, 200);
+    assert.equal((await json(res)).job.applyUrl, '', `${value} was stored as an apply link`);
+  }
+  const kept = await call('/jobs', { method: 'POST', body: { title: 'Good link', company: 'Example Studio', applyUrl: 'HTTPS://example.com/jobs/1' } });
+  const job = (await json(kept)).job;
+  assert.equal(job.applyUrl, 'https://example.com/jobs/1');
+  const patched = await call(`/jobs/${job.id}`, { method: 'PATCH', body: { applyUrl: 'javascript:alert(1)' } });
+  assert.equal((await json(patched)).job.applyUrl, '', 'a hostile URL survived an update');
+});
+
 test('candidate memory CRUD is local and typed', async () => {
   const { call } = harness();
   let res = await call('/memory/insight', { method: 'POST', body: { text: '' } });

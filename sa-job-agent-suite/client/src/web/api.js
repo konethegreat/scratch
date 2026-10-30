@@ -3,7 +3,7 @@
 // server so the client needs no second error path.
 import { AppError, ERROR_CODES, statusForCode, toUserError } from '@sajas/core/errors';
 import { MODELS } from '@sajas/core/models';
-import { fingerprint } from '@sajas/core/feeds';
+import { fingerprint, httpUrl } from '@sajas/core/feeds';
 import { buildApplyPacket, summariseSubmission } from '@sajas/core/apply';
 import { STORES } from './vault.js';
 import { limit } from './limits.js';
@@ -152,7 +152,9 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       company: limit(company, 200),
       location: limit(location || 'South Africa', 200),
       description: limit(description, MAX_TEXT),
-      applyUrl: limit(applyUrl, 2000),
+      // Only http(s) links are kept, so a pasted javascript: or data: URL can
+      // never become a clickable target in the tracker.
+      applyUrl: httpUrl(applyUrl),
       datePosted: /^\d{4}-\d{2}-\d{2}$/.test(posted) ? posted : now().toISOString().slice(0, 10),
       matchScore: Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 75,
       status: 'found',
@@ -187,7 +189,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       }
       next.notes = limit(patch.notes, MAX_TEXT);
     }
-    if (patch.applyUrl !== undefined) next.applyUrl = limit(patch.applyUrl, 2000);
+    if (patch.applyUrl !== undefined) next.applyUrl = httpUrl(patch.applyUrl);
     if (patch.description !== undefined) next.description = limit(patch.description, MAX_TEXT);
     await vault.put(STORES.jobs, id, next);
     return ok({ success: true, job: next });

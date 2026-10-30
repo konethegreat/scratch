@@ -1,6 +1,7 @@
 import React from 'react';
 import { Mail, Phone, MapPin, Send } from 'lucide-react';
 import SocialLinks from './SocialLinks.jsx';
+import Legal from './Legal.jsx';
 import { SUPPORT, FAQ, supportMailto } from './support.js';
 
 export default function Help({ lastError = null }) {
@@ -49,6 +50,12 @@ export default function Help({ lastError = null }) {
           </details>
         ))}
       </div>
+
+      <h4 style={{ fontSize: 15, marginTop: 24, marginBottom: 8 }}>Terms, privacy and disclaimer</h4>
+      <p className="hint" style={{ marginBottom: 10 }}>
+        SA-JAS is in open beta. These notices explain what you agree to, what stays in this browser, and what the AI output can and cannot be trusted to do.
+      </p>
+      <Legal compact />
     </div>
   );
 }

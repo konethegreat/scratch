@@ -41,7 +41,8 @@ import {
   Scale,
   Rocket,
   RotateCw,
-  LifeBuoy
+  LifeBuoy,
+  Menu
 } from 'lucide-react';
 import ApplicationAnswers from './ApplicationAnswers.jsx';
 import AskDocuments from './AskDocuments.jsx';
@@ -62,6 +63,8 @@ import RecentErrors from './RecentErrors.jsx';
 import { copyToClipboard } from './clipboard.js';
 import { printDocument } from './print.js';
 import Help from './Help.jsx';
+import BetaBanner from './BetaBanner.jsx';
+import { loadBetaDismissed, saveBetaDismissed } from './beta.js';
 import { supportMailto } from './support.js';
 import {
   contractFromBody,
@@ -331,6 +334,21 @@ export default function App() {
   const [demoMode, setDemoMode] = useState(() => IS_WEB && isDemoMode());
   const [demoPersistent, setDemoPersistent] = useState(() => (IS_WEB && isDemoMode() ? storageAvailable() : true));
   const [demoBusy, setDemoBusy] = useState(false);
+  const [betaDismissed, setBetaDismissed] = useState(() => loadBetaDismissed());
+  const dismissBeta = () => {
+    saveBetaDismissed();
+    setBetaDismissed(true);
+  };
+  // The narrow-screen menu. It closes on Escape and whenever the tab changes,
+  // so the page never opens with an unexplained overlay of links.
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => { setNavOpen(false); }, [activeTab]);
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const onKeyDown = (event) => { if (event.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [navOpen]);
 
   const [profile, setProfile] = useState({
     selectedModel: '',
@@ -1397,7 +1415,7 @@ export default function App() {
 
       {/* Sidebar */}
       <aside
-        className="panel app-sidebar"
+        className={`panel app-sidebar${navOpen ? ' nav-open' : ''}`}
         style={{
           width: 260, padding: 20, display: 'flex', flexDirection: 'column',
           borderTopRightRadius: 0, borderBottomRightRadius: 0,
@@ -1407,19 +1425,32 @@ export default function App() {
           height: '100vh'
         }}
       >
-        <button
-          onClick={() => setActiveTab('landing')}
-          title="Back to home"
-          style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
-        >
-          <SAFlag size={28} />
-          <div>
-            <h2 className="brand-name" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em' }}>SA-JAS</h2>
-            <p style={{ fontSize: 10, color: 'var(--text-secondary)' }}>JOB AGENT SUITE</p>
-          </div>
-        </button>
+        <div className="sidebar-brand-row">
+          <button
+            onClick={() => setActiveTab('landing')}
+            title="Back to home"
+            className="sidebar-brand"
+          >
+            <SAFlag size={28} />
+            <div>
+              <h2 className="brand-name" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em' }}>SA-JAS</h2>
+              <p style={{ fontSize: 10, color: 'var(--text-secondary)' }}>JOB AGENT SUITE</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            aria-expanded={navOpen}
+            aria-controls="primary-nav"
+            aria-label={navOpen ? 'Close menu' : 'Open menu'}
+            data-testid="sidebar-toggle"
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            {navOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
+          </button>
+        </div>
 
-        <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+        <nav id="primary-nav" className="sidebar-nav" aria-label="Primary">
           <SidebarLink active={activeTab === 'landing'}   onClick={() => setActiveTab('landing')}   icon={<Home size={16} />}>Home / About</SidebarLink>
           <SidebarLink active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Briefcase size={16} />}>Dashboard</SidebarLink>
           <SidebarLink active={activeTab === 'hunter'}    onClick={() => setActiveTab('hunter')}    icon={<Search size={16} />}>Job Hunter</SidebarLink>
@@ -1446,7 +1477,7 @@ export default function App() {
           )}
         </nav>
 
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 'auto' }}>
+        <div className="sidebar-lower">
           <SidebarLink active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<Settings size={16} />}>Profile &amp; Settings</SidebarLink>
           <SidebarLink active={activeTab === 'help'} onClick={() => setActiveTab('help')} icon={<LifeBuoy size={16} />}>Help &amp; Support</SidebarLink>
           <div className="tiny" style={{ marginTop: 12, textAlign: 'center' }}>
@@ -1460,6 +1491,10 @@ export default function App() {
 
       {/* Main */}
       <main id="main-content" tabIndex={-1} className="app-main" style={{ flex: 1, padding: 40, overflowY: 'auto', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+
+        {IS_WEB && !demoMode && !betaDismissed && (
+          <BetaBanner onDismiss={dismissBeta} onOpenLegal={() => setActiveTab('help')} />
+        )}
 
         <Suspense fallback={null}>
           {demoMode && (

@@ -200,7 +200,7 @@ async function main() {
     await page.getByRole('button', { name: /Enter the Suite/i }).click();
     await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Job Hunter' }).click();
-    await page.getByRole('heading', { name: 'Scraping pipeline', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Your tracker', exact: true }).waitFor();
     const addTrigger = page.getByRole('button', { name: 'Add manually' });
     await addTrigger.click();
     const dialog = page.getByRole('dialog');

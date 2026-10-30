@@ -23,7 +23,7 @@ export const LEGAL_SECTIONS = Object.freeze([
       },
       {
         heading: 'Review before you send',
-        body: 'The app drafts documents and can open an application page. It never sends an application, an email or a message on your behalf. You check every document and you submit it yourself.'
+        body: 'The app drafts documents and can fill an application form. It never submits one without your explicit confirmation: in the hosted app you press the site\'s own Submit, and in the desktop app the copilot clicks it only after you confirm in the app. Review every document before it is sent.'
       },
       {
         heading: 'Acceptable use',
@@ -104,8 +104,8 @@ export const LEGAL_SECTIONS = Object.freeze([
         body: 'Nothing in the app is legal, immigration, financial or career advice. For decisions with legal consequences, speak to a qualified professional.'
       },
       {
-        heading: 'You submit',
-        body: 'The final Send or Submit is always yours. The app prepares work; it does not act as you.'
+        heading: 'The final call is yours',
+        body: 'The app prepares the work. In the hosted app you press the site\'s own Send or Submit; in the desktop app the copilot clicks it only after you confirm in the app. Nothing is sent without that step.'
       }
     ]
   },

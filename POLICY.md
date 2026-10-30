@@ -29,8 +29,8 @@ Last reviewed: 30 October 2026.
 | Profile, jobs, documents, answer bank, candidate memory, usage estimates | IndexedDB `sajas-web` on this origin | Until you delete it or the browser evicts it |
 | API key (plaintext) | A JavaScript closure in the open tab | Until the tab closes, or the idle-forget timeout fires |
 | API key (saved) | `keyVault` record, AES-GCM encrypted with a PBKDF2 key from your passphrase | Until you forget it or clear site data |
-| Theme choice, job filter defaults, dismissed notices | `localStorage` under the `sajas-` prefix | Until you clear site data |
-| Demo-mode data | `sessionStorage` under `sajas:demo:` | Until the demo is exited or the tab closes |
+| Theme choice, job filter defaults, dismissed notices | `localStorage` keys `sajas-theme`, `sajas.jobFilters.v1` and `sajas.betaNotice.v1` | Until you clear site data |
+| Demo-mode data | `sessionStorage`: vault data under the `sajas:demo:` prefix, plus the mode flag `sajas:mode` | Until the demo is exited or the tab closes |
 
 No cookie carries user data. No analytics, telemetry, advertising ID, or fingerprinting script is loaded.
 
@@ -52,7 +52,7 @@ Four kinds of request, each triggered by an action you take:
 
 1. **AI tasks.** Your prompt and the text it needs (for example a CV and a job description) go to `api.anthropic.com` with your key in the `x-api-key` header. Anthropic processes that text as the operator of its own service under its own terms. Nothing goes to the origin serving this site.
 2. **Public job feeds.** The browser fetches Remotive, Arbeitnow and Jobicy directly. Their operators see your IP address and request headers, exactly as when you visit them.
-3. **Application pages.** Opening an application loads the employer's site in your browser. The app fills a form only when you run the copilot, and it never presses Submit for you.
+3. **Application pages.** Opening an application loads the employer's site in your browser. In the hosted app the copilot fills a form only when you run it and leaves the final Submit to you; in the desktop app the copilot clicks Submit only after you confirm in the app.
 4. **Static assets.** Loading the app requests its own files from Cloudflare, which keeps standard access logs (IP address, requested path, user agent, timestamp, response status) under Cloudflare's policy. That is the only record the operator of this site can see, and it is not joined to any profile, document or key.
 
 The key is never written to storage in plain text, never placed in a URL, log, backup or error report, and never sent to this site's origin. `scripts/web-canary.mjs` fails the build if any of that changes.

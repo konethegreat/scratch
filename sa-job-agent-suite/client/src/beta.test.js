@@ -41,4 +41,20 @@ test('blocked storage never throws and never hides the notice for good', () => {
 test('the notice reads as beta wording without promises', () => {
   assert.match(BETA_NOTICE.body, /beta/);
   assert.equal(/\bguarantee\b|\bpromise\b/i.test(BETA_NOTICE.body), false);
+  assert.match(BETA_NOTICE.body, /Anthropic/, 'the banner must not imply that nothing leaves the browser');
+});
+
+test('a blocked localStorage getter is treated as blocked storage', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('blocked'); }
+  });
+  try {
+    assert.equal(loadBetaDismissed(), false);
+    assert.doesNotThrow(() => saveBetaDismissed());
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+    else delete globalThis.localStorage;
+  }
 });

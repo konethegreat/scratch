@@ -55,7 +55,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 
 **Controls.**
 - The plaintext key lives in a closure in `keyStore.js`, never in `localStorage`, `sessionStorage`, cookies, URLs or logs.
-- Keyed requests go straight to `api.anthropic.com` with `x-api-key`; the CSP `connect-src` list makes any other destination a policy violation.
+- Keyed requests go straight to `api.anthropic.com` with `x-api-key`. CSP `connect-src` limits outbound connections to this origin, that endpoint and the three public job feeds, so any other destination is blocked. The header cannot by itself tell a keyed request from any other request to Anthropic.
 - The optional Remember form stores only an AES-GCM blob unlocked by a passphrase that is never stored.
 - The backup export excludes the key vault by construction.
 - An idle-forget timeout drops the key from memory.
@@ -82,7 +82,8 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 - Feed adapters and the shared shape helper keep only `http:` and `https:` URLs, clipped to 2000 characters.
 - The web API applies the same rule to manually added and edited jobs, so a bad scheme is stored as no link at all.
 - Links open with `rel="noopener noreferrer"` in a new tab.
-- React refuses to render `javascript:` hrefs.
+- Links rendered from feeds and the tracker carry values that `httpUrl()` has already reduced to `http(s)`.
+- CSP `script-src 'self'` refuses `javascript:` navigation, so a missed link cannot run inline script.
 
 **Residual.** A hand-edited backup file can reintroduce a `data:` link, because backup import validates store shape, not each job field. Only import backups you created.
 

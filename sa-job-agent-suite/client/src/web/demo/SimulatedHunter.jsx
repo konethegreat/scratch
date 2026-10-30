@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Search, Square } from 'lucide-react';
-import { fingerprint } from '@sajas/core/feeds';
+import { fingerprint, scoreJob, splitList } from '@sajas/core/feeds';
 import { isSouthAfrican } from '@sajas/core/jobs';
 import { DEMO_HUNTER_JOBS } from './fixtures.js';
 
@@ -16,7 +16,7 @@ const STAGES = [
 
 const SOURCE_LABELS = { remotive: 'Remotive (simulated)', arbeitnow: 'Arbeitnow (simulated)', jobicy: 'Jobicy (simulated)' };
 
-export default function SimulatedHunter({ onJobsChanged, toasts }) {
+export default function SimulatedHunter({ profile = {}, onJobsChanged, toasts }) {
   const [stage, setStage] = useState(-1);
   const [running, setRunning] = useState(false);
   const [read, setRead] = useState(0);
@@ -26,12 +26,12 @@ export default function SimulatedHunter({ onJobsChanged, toasts }) {
   const [total, setTotal] = useState(0);
   const [stopped, setStopped] = useState(false);
   const [complete, setComplete] = useState(false);
-  const cancelled = useRef(false);
+  const runId = useRef(0);
   const timer = useRef(null);
   const resume = useRef(null);
 
   useEffect(() => () => {
-    cancelled.current = true;
+    runId.current += 1;
     clearTimeout(timer.current);
     if (resume.current) resume.current();
   }, []);
@@ -61,7 +61,12 @@ export default function SimulatedHunter({ onJobsChanged, toasts }) {
   }
 
   async function start() {
-    cancelled.current = false;
+    const id = runId.current + 1;
+    runId.current = id;
+    const alive = () => runId.current === id;
+    const keywords = splitList(profile.keywords);
+    const saOnly = profile.feedSaOnly !== false;
+
     setRunning(true);
     setStopped(false);
     setComplete(false);
@@ -72,22 +77,22 @@ export default function SimulatedHunter({ onJobsChanged, toasts }) {
     setTotal(0);
 
     setStage(0);
-    const postings = DEMO_HUNTER_JOBS.map((job) => ({ ...job }));
+    const postings = DEMO_HUNTER_JOBS.map((job) => ({ ...job, matchScore: scoreJob(job, keywords) }));
     setRead(postings.length);
     await sleep(700);
-    if (cancelled.current) return;
+    if (!alive()) return;
 
     setStage(1);
-    const inCountry = postings.filter((job) => isSouthAfrican(job.location));
-    const outside = postings.filter((job) => !isSouthAfrican(job.location));
+    const inCountry = saOnly ? postings.filter((job) => isSouthAfrican(job.location)) : postings;
+    const outside = saOnly ? postings.filter((job) => !isSouthAfrican(job.location)) : [];
     setForeign(outside);
     await sleep(650);
-    if (cancelled.current) return;
+    if (!alive()) return;
 
     setStage(2);
     inCountry.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
     await sleep(650);
-    if (cancelled.current) return;
+    if (!alive()) return;
 
     setStage(3);
     let tracked = new Set();
@@ -96,19 +101,22 @@ export default function SimulatedHunter({ onJobsChanged, toasts }) {
     } catch {
       tracked = new Set();
     }
-    if (cancelled.current) return;
+    if (!alive()) return;
     const fresh = inCountry.filter((job) => !tracked.has(fingerprint(job.title, job.company)));
     const seen = inCountry.length - fresh.length;
     setDuplicates(seen);
     setTotal(fresh.length);
     await sleep(550);
-    if (cancelled.current) return;
+    if (!alive()) return;
 
     setStage(4);
     let added = [];
     let same = seen;
     for (const job of fresh) {
-      if (cancelled.current) break;
+      if (!alive()) {
+        onJobsChanged?.();
+        return;
+      }
       const result = await saveJob(job);
       if (result === 'added') {
         added = [...added, job];
@@ -119,7 +127,7 @@ export default function SimulatedHunter({ onJobsChanged, toasts }) {
       }
       await sleep(140);
     }
-    if (cancelled.current) {
+    if (!alive()) {
       onJobsChanged?.();
       return;
     }
@@ -134,7 +142,7 @@ export default function SimulatedHunter({ onJobsChanged, toasts }) {
   }
 
   function stop() {
-    cancelled.current = true;
+    runId.current += 1;
     clearTimeout(timer.current);
     if (resume.current) resume.current();
     setRunning(false);

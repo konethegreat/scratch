@@ -1,6 +1,6 @@
 // One-click hunt for the hosted app. It reads the public feeds from this
 // browser, keeps what matches the profile and saves the rest to the tracker.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Search, Settings2, Square } from 'lucide-react';
 import { sourceLabel, splitList } from '@sajas/core/feeds';
 import { getFeedClient } from './feeds.js';
@@ -48,6 +48,9 @@ export default function WebHunter({ profile = {}, jobs = [], toasts, onJobsChang
   const [failure, setFailure] = useState('');
   const cancelled = useRef(false);
 
+  // Leaving the tab mid-hunt cancels it, so no saves keep landing unseen.
+  useEffect(() => () => { cancelled.current = true; }, []);
+
   const keywords = listOf(profile.keywords);
   const locations = listOf(profile.locations);
   const saOnly = profile.feedSaOnly !== false;
@@ -81,8 +84,14 @@ export default function WebHunter({ profile = {}, jobs = [], toasts, onJobsChang
       setSummary(result);
       setState('done');
       onJobsChanged?.();
-      if (result.saved > 0) {
+      if (result.stopped) {
+        toasts?.info?.(`Hunt stopped. ${result.saved} new job${result.saved === 1 ? '' : 's'} saved so far.`);
+      } else if (result.saved > 0 && result.failed > 0) {
+        toasts?.error?.(`${result.saved} saved, ${result.failed} could not be saved. Try the hunt again.`);
+      } else if (result.saved > 0) {
         toasts?.success?.(`${result.saved} new job${result.saved === 1 ? '' : 's'} saved to your tracker.`);
+      } else if (result.failed > 0) {
+        toasts?.error?.(`No jobs saved. ${result.failed} could not be saved. Try the hunt again.`);
       } else if (result.matches === 0) {
         toasts?.info?.('No matches. Loosen your keywords or locations in Profile & Settings.');
       } else {

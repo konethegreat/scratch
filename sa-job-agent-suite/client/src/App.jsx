@@ -1270,8 +1270,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    saveJobFilters(viewFilters);
-  }, [viewFilters]);
+    // Demo filters are session-only, so they never leak into the real tracker.
+    if (!demoMode) saveJobFilters(viewFilters);
+  }, [viewFilters, demoMode]);
+
+  // Entering or leaving the demo resets the view, so a real filter cannot hide
+  // demo rows and demo filters are gone the moment the demo ends.
+  useEffect(() => {
+    if (!IS_WEB) return;
+    setViewFilters(demoMode ? { ...DEFAULT_VIEW_FILTERS } : loadJobFilters());
+    setVisibleJobCount(50);
+  }, [demoMode]);
 
   const { visible: filteredJobs, hiddenForeign } = useMemo(
     () => filterJobsForView(jobs, viewFilters),
@@ -1613,7 +1622,7 @@ export default function App() {
         {activeTab === 'hunter' && demoMode && (
           <div style={{ marginBottom: 18 }}>
             <Suspense fallback={<p className="hint">Loading the simulated hunter…</p>}>
-              <SimulatedHunter onJobsChanged={fetchJobs} toasts={toasts} />
+              <SimulatedHunter profile={profile} onJobsChanged={fetchJobs} toasts={toasts} />
             </Suspense>
           </div>
         )}

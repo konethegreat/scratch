@@ -154,3 +154,24 @@ test('import rejects an array store value and leaves existing records intact', a
   );
   await assertExisting(vault);
 });
+
+test('import rejects a malformed record and leaves existing records intact', async () => {
+  const { vault } = make();
+  await seedExisting(vault);
+  await assert.rejects(
+    () => vault.importAll(backup({ profile: {}, jobs: { 'job-9': 'not a job' }, answers: {}, memory: {}, usage: {}, meta: {} })),
+    (e) => e.code === 'VALIDATION'
+  );
+  await assertExisting(vault);
+});
+
+test('import strips a hostile link and key material before writing', async () => {
+  const { vault } = make();
+  await vault.importAll(backup({
+    profile: { current: { fullName: 'Thandi', anthropicApiKey: 'secret' } },
+    jobs: { 'job-9': { title: 'Backend Engineer', applyUrl: 'javascript:alert(1)' } },
+    answers: {}, memory: {}, usage: {}, meta: {}
+  }));
+  assert.deepEqual(await vault.get(STORES.profile, 'current'), { fullName: 'Thandi' });
+  assert.equal((await vault.get(STORES.jobs, 'job-9')).applyUrl, '');
+});

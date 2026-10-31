@@ -29,6 +29,19 @@ test('a job link is kept only when it is http or https', () => {
   assert.equal(data.jobs.e.applyUrl, '');
 });
 
+test('profile links are cleaned like job links', () => {
+  const data = sanitiseBackupData(stores({}, {
+    profile: { current: {
+      linkedInUrl: 'javascript:alert(1)',
+      portfolioUrl: 'https://example.test/me',
+      fullName: 'Thandi'
+    } }
+  }));
+  assert.equal(data.profile.current.linkedInUrl, '');
+  assert.equal(data.profile.current.portfolioUrl, 'https://example.test/me');
+  assert.equal(data.profile.current.fullName, 'Thandi');
+});
+
 test('an unknown job status is reset and a score is clamped', () => {
   const data = sanitiseBackupData(stores({
     a: { title: 'A', status: 'hacked', matchScore: 150 },
@@ -56,6 +69,24 @@ test('key material is stripped at any depth', () => {
   assert.deepEqual(data.meta.app, { onboarded: true });
 });
 
+test('key-shaped record ids are dropped, while the key-store meta record survives', () => {
+  const data = sanitiseBackupData(stores({}, {
+    meta: {
+      key: { idleMinutes: 15, remembered: true },
+      keyVault: { ciphertext: 'secret' },
+      anthropicApiKey: { ciphertext: 'secret' }
+    }
+  }));
+  assert.deepEqual(data.meta.key, { idleMinutes: 15, remembered: true });
+  assert.equal(Object.hasOwn(data.meta, 'keyVault'), false);
+  assert.equal(Object.hasOwn(data.meta, 'anthropicApiKey'), false);
+});
+
+test('an unknown store is ignored rather than trusted', () => {
+  const data = sanitiseBackupData({ ...stores({}), keyVault: { anthropic: { ciphertext: 'secret' } } });
+  assert.equal(Object.hasOwn(data, 'keyVault'), false);
+});
+
 test('a non-object record rejects the import', () => {
   for (const bad of ['text', 42, null, ['array'], true]) {
     assert.throws(
@@ -66,6 +97,40 @@ test('a non-object record rejects the import', () => {
   }
 });
 
+test('missing or non-object store data rejects the import', () => {
+  assert.throws(() => sanitiseBackupData({ ...stores({}), jobs: null }), (error) => error.code === 'VALIDATION');
+  assert.throws(() => sanitiseBackupData({ ...stores({}), jobs: [] }), (error) => error.code === 'VALIDATION');
+});
+
+test('an object where the UI expects text rejects the import', () => {
+  const cases = [
+    { jobs: { j: { title: {} } } },
+    { jobs: { j: { title: { text: 'A' } } } },
+    { answers: { q: { question: 'Q', answer: [] } } },
+    { profile: { current: { fullName: {} } } },
+    { profile: { current: { applicationProfile: { noticePeriod: {} } } } },
+    { meta: { app: { onboarded: {} } } }
+  ];
+  for (const extra of cases) {
+    assert.throws(
+      () => sanitiseBackupData(stores({}, extra)),
+      (error) => error.code === 'VALIDATION',
+      `${JSON.stringify(extra)} was accepted`
+    );
+  }
+});
+
+test('a link or score of the wrong type rejects instead of throwing a TypeError', () => {
+  assert.throws(
+    () => sanitiseBackupData(stores({ j: { applyUrl: { toString: 'x' } } })),
+    (error) => error.code === 'VALIDATION'
+  );
+  assert.throws(
+    () => sanitiseBackupData(stores({ j: { matchScore: {} } })),
+    (error) => error.code === 'VALIDATION'
+  );
+});
+
 test('a __proto__ key cannot change Object.prototype', () => {
   const payload = JSON.parse('{"j":{"title":"A","__proto__":{"polluted":true}}}');
   const data = sanitiseBackupData(stores(payload));
@@ -74,8 +139,16 @@ test('a __proto__ key cannot change Object.prototype', () => {
   assert.equal(data.jobs.j.title, 'A');
 });
 
-test('long strings are clipped and a realistic record survives unchanged', () => {
-  const profile = { fullName: 'Thandi Mokoena', email: 'thandi@example.test', baseCv: 'x'.repeat(1_500_000) };
+test('an oversized field is rejected instead of silently clipped', () => {
+  const profile = { current: { fullName: 'Thandi', baseCv: 'x'.repeat(1_000_001) } };
+  assert.throws(
+    () => sanitiseBackupData(stores({}, { profile })),
+    (error) => error.code === 'VALIDATION'
+  );
+});
+
+test('a realistic export survives unchanged', () => {
+  const profile = { fullName: 'Thandi Mokoena', email: 'thandi@example.test', baseCv: 'CV text', applicationProfile: { noticePeriod: '30 days' } };
   const job = {
     id: 'job-1', title: 'Backend Engineer', company: 'Acme', location: 'Cape Town',
     applyUrl: 'https://example.test/jobs/1', status: 'tailored', matchScore: 82,
@@ -87,9 +160,8 @@ test('long strings are clipped and a realistic record survives unchanged', () =>
     memory: { dossier: { version: 1, insights: [{ id: 'i1', text: 'Prefers remote', category: 'preference' }] } },
     usage: { days: { days: { '2026-10-30': { calls: 2, inputTokens: 100, estCostUSD: 0.01 } } } }
   }));
-  assert.equal(data.profile.current.fullName, 'Thandi Mokoena');
-  assert.equal(data.profile.current.baseCv.length, 1_000_000, 'an oversized field is clipped, not imported whole');
-  assert.deepEqual({ ...data.jobs['job-1'], id: undefined }, { ...job, id: undefined });
+  assert.deepEqual(data.profile.current, profile);
+  assert.deepEqual(data.jobs['job-1'], job);
   assert.deepEqual(data.answers.q1, { id: 'q1', question: 'Notice period?', answer: 'One month', normalized: 'notice period' });
   assert.equal(data.memory.dossier.insights[0].text, 'Prefers remote');
   assert.equal(data.usage.days.days['2026-10-30'].calls, 2);

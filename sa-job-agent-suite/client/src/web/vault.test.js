@@ -165,6 +165,19 @@ test('import rejects a malformed record and leaves existing records intact', asy
   await assertExisting(vault);
 });
 
+test('import rejects a nested object where the tracker expects text and leaves existing records intact', async () => {
+  const { vault } = make();
+  await seedExisting(vault);
+  await assert.rejects(
+    () => vault.importAll(backup({
+      profile: {}, jobs: { 'job-9': { title: { text: 'Backend Engineer' } } },
+      answers: {}, memory: {}, usage: {}, meta: {}
+    })),
+    (e) => e.code === 'VALIDATION'
+  );
+  await assertExisting(vault);
+});
+
 test('import strips a hostile link and key material before writing', async () => {
   const { vault } = make();
   await vault.importAll(backup({

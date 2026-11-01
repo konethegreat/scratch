@@ -73,6 +73,48 @@ test('profile starts empty, stores only non-secret fields, and reports hasAnthro
   assert.equal(JSON.stringify(await vault.exportAll()).includes(API_KEY), false);
 });
 
+test('profile links are normalised on save so a backup can restore them', async () => {
+  const { call, vault } = harness();
+  const res = await call('/profile', {
+    method: 'POST',
+    body: { linkedInUrl: 'linkedin.com/in/thandi', portfolioUrl: 'https://example.test/me' }
+  });
+  assert.equal(res.status, 200);
+  const stored = await vault.get(STORES.profile, 'current');
+  assert.equal(stored.linkedInUrl, 'https://linkedin.com/in/thandi');
+  assert.equal(stored.portfolioUrl, 'https://example.test/me');
+});
+
+test('a profile link that is not a web address is rejected and the stored value is kept', async () => {
+  const { call, vault } = harness();
+  await call('/profile', { method: 'POST', body: { linkedInUrl: 'https://example.test/me' } });
+  for (const value of ['javascript:alert(1)', 'data:text/html,x', 'my portfolio', 'localhost:3000', 'example.com:8080', 'not a link']) {
+    const res = await call('/profile', { method: 'POST', body: { linkedInUrl: value } });
+    assert.equal(res.status, 400, `${value} was accepted`);
+    assert.equal((await json(res)).code, 'VALIDATION');
+    assert.equal((await vault.get(STORES.profile, 'current')).linkedInUrl, 'https://example.test/me');
+  }
+  const cleared = await call('/profile', { method: 'POST', body: { linkedInUrl: '   ' } });
+  assert.equal(cleared.status, 200);
+  assert.equal((await vault.get(STORES.profile, 'current')).linkedInUrl, '');
+});
+
+test('an oversized profile field is rejected instead of making every backup unrestorable', async () => {
+  const bodies = [
+    { baseCv: 'x'.repeat(1_000_001) },
+    { applicationDefaultsText: 'x'.repeat(1_000_001) },
+    { applicationProfile: { motivation: 'x'.repeat(1_000_001) } },
+    { workHistory: [{ company: 'Acme', title: 'Engineer', bullets: ['x'.repeat(1_000_001)] }] }
+  ];
+  for (const body of bodies) {
+    const { call, vault } = harness();
+    const res = await call('/profile', { method: 'POST', body });
+    assert.equal(res.status, 400);
+    assert.equal((await json(res)).code, 'VALIDATION');
+    assert.deepEqual(await vault.get(STORES.profile, 'current', {}), {});
+  }
+});
+
 test('key material is rejected at the profile boundary and leaves the key store untouched', async () => {
   const { call, keyStore } = harness();
   keyStore.setKey(API_KEY);

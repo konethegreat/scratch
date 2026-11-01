@@ -2,6 +2,7 @@
 // every rule (allow-list of stores, export shape, key exclusion) is testable in
 // Node and identical in IndexedDB.
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
+import { sanitiseBackupData } from './backup.js';
 
 export const STORES = Object.freeze({
   profile: 'profile',
@@ -87,10 +88,14 @@ export function createVault(adapter) {
           throw new AppError(ERROR_CODES.VALIDATION, `That backup is missing or has invalid ${store} data.`);
         }
       }
+      // Clean every record before anything is cleared: a hostile link, a
+      // key-shaped field or a malformed record must not cost the user the
+      // records that are already on this device.
+      const data = sanitiseBackupData(payload.data);
       for (const store of EXPORT_STORES) {
         await adapter.clear(store);
         // One export format only: each store is a keyed map of key -> value.
-        for (const [key, value] of Object.entries(payload.data[store])) {
+        for (const [key, value] of Object.entries(data[store])) {
           await adapter.put(store, key, value);
         }
       }

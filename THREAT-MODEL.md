@@ -83,9 +83,10 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 - The web API applies the same rule to manually added and edited jobs, so a bad scheme is stored as no link at all.
 - Links open with `rel="noopener noreferrer"` in a new tab.
 - Links rendered from feeds and the tracker carry values that `httpUrl()` has already reduced to `http(s)`.
+- Backup import rebuilds every record: links are reduced to `http(s)`, key-named fields are dropped, every rendered field and usage counter is type-checked, text above the 1,000,000-character cap is rejected, links are trimmed to 2,000 characters, and a malformed record aborts the import before anything is cleared. Validation is atomic; the per-store writes that follow are not.
 - CSP `script-src 'self'` refuses `javascript:` navigation, so a missed link cannot run inline script.
 
-**Residual.** A hand-edited backup file can reintroduce a `data:` link, because backup import validates store shape, not each job field. Only import backups you created.
+**Residual.** Import still replaces this browser's data by design, so only restore a backup you created or trust.
 
 ### T5. Account takeover and credential attacks
 

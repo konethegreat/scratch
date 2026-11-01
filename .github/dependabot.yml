@@ -1,0 +1,20 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /sa-job-agent-suite
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

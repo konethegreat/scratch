@@ -54,7 +54,7 @@ test('disposable SA-JAS workflow with the real API and copilot', { timeout: 9000
       const sources = await json('/api/hunter/sources');
       assert.equal(sources.sources.length, 12, 'the source health board is readable in the demo');
       assert.ok(sources.sources.every(source => source.status === 'unknown'));
-      client = await startDemoClient(runtime.origin, { port: 0 });
+      client = await startDemoClient(runtime.origin, { port: await unusedPort() });
       const html = await (await fetch(`http://127.0.0.1:${client.httpServer.address().port}`)).text();
       assert.match(html, /id="root"/);
       assert.doesNotMatch(html, /fonts\.(googleapis|gstatic)\.com/);

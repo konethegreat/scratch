@@ -27,7 +27,7 @@ test('the demo runtime seeds once, reports a key and answers profile', async () 
   assert.equal(runtime.keyStore.getKey(), null);
   const response = await runtime.api.handle(`${API_BASE}/profile`, { method: 'GET' });
   const body = await response.json();
-  assert.equal(body.fullName, 'Alex Example');
+  assert.equal(body.fullName, 'Naledi Mokoena');
   assert.equal(body.hasAnthropicKey, true);
 });
 

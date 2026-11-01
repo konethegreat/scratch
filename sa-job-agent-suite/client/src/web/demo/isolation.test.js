@@ -43,8 +43,10 @@ test('only UI files may fetch, and only the intercepted API base', async () => {
 });
 
 test('fixtures contain only reserved .test hosts and emails', async () => {
-  const text = await fs.readFile(path.join(root, 'fixtures.js'), 'utf8');
-  const urls = [...text.matchAll(/https?:\/\/[^'"`\s)]+/g)].map((match) => match[0]);
+  const text = `${await fs.readFile(path.join(root, 'persona.js'), 'utf8')}\n${await fs.readFile(path.join(root, 'jobs.js'), 'utf8')}`;
+  const urls = [...text.matchAll(/https?:\/\/[^'"`\s)]+/g)]
+    .map((match) => match[0])
+    .filter((url) => !url.includes('${'));
   assert.ok(urls.length > 0);
   for (const url of urls) assert.match(new URL(url).hostname, /\.test$/, url);
   for (const email of [...text.matchAll(/[\w.+-]+@([\w.-]+)/g)].map((match) => match[1])) {

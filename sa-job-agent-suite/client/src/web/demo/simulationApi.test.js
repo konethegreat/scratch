@@ -6,7 +6,8 @@ import { createActivity } from '../activity.js';
 import { createWebApi } from '../api.js';
 import { REFUSAL_SENTENCE } from '@sajas/core/rag';
 import { createSimulationRouter } from './simulationApi.js';
-import { buildDemoSeed, DEMO_JOBS } from './fixtures.js';
+import { buildDemoSeed } from './fixtures.js';
+import { DEMO_JOBS } from './jobs.js';
 
 const API_BASE = 'http://localhost:5000/api';
 const NOW = () => new Date('2026-10-28T10:00:00Z');
@@ -29,12 +30,12 @@ const get = () => ({ method: 'GET' });
 
 test('tailor moves through tailoring, waits, writes documents and records usage', async () => {
   const { vault, router, waits } = harness();
-  const response = await router.handle(`${API_BASE}/jobs/demo-job-3/tailor`, post({}));
+  const response = await router.handle(`${API_BASE}/jobs/demo-job-14/tailor`, post({}));
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.deepEqual(waits, [900]);
   assert.equal(body.job.status, 'tailored');
-  assert.match(body.job.tailoredCvText, /Sample Logistics/);
+  assert.match(body.job.tailoredCvText, /Highveld Haulage/);
   assert.match(body.job.tailoredCoverLetterText, /Data Engineer/);
   const days = await vault.get(STORES.usage, 'days');
   assert.ok(days.days['2026-10-28'].calls > 6, 'simulated usage was not recorded');

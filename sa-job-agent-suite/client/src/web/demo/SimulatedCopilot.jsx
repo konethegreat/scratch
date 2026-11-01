@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { buildApplyPacket } from '@sajas/core/apply';
 import Dialog from '../../Dialog.jsx';
-import { DEMO_QUESTION } from './fixtures.js';
+import { DEMO_QUESTION } from './persona.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const BUTTON_LABEL = 'Send application';

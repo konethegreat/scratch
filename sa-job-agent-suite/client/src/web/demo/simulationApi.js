@@ -6,7 +6,8 @@ import { buildApplyPacket, summariseSubmission } from '@sajas/core/apply';
 import { prepareAsk, prepareCheck, REFUSAL_SENTENCE, tokenize } from '@sajas/core/rag';
 import { STORES } from '../vault.js';
 import { createUsageLedger } from '../usage.js';
-import { DEMO_QUESTION, tailoredDocuments } from './fixtures.js';
+import { DEMO_QUESTION } from './persona.js';
+import { tailoredDocuments } from './jobs.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const SIMULATED = 'Simulated';

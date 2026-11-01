@@ -58,7 +58,9 @@ export function createExtensionStore(storage, { now = () => Date.now() } = {}) {
     },
     async addResult(raw) {
       const result = resultFrom(raw);
-      const record = { ...result, order: at() * 1e6 + (sequence++ % 1e6) };
+      // Milliseconds times 1000 keeps the sum inside the safe integer range and
+      // still orders results that share a timestamp.
+      const record = { ...result, order: at() * 1000 + (sequence++ % 1000) };
       const existing = (await storage.readAll(RESULTS)).filter((entry) => entry.id !== result.id);
       existing.push(record);
       existing.sort(newestFirst);

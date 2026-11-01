@@ -59,13 +59,16 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
       answerBank,
       supportingDocs: [
         ...(job.tailoredCvText ? [{ key: 'cv', label: 'Tailored CV', fileName: '', available: true }] : []),
-        ...(job.tailoredCoverLetterText ? [{ key: 'cover-letter', label: 'Cover letter', fileName: '', available: true }] : [])
+        ...(job.tailoredCoverLetterText ? [{ key: 'cover-letter', label: 'Cover letter', fileName: '', available: true }] : []),
+        ...(demo ? documents.map((doc) => ({
+          key: doc.id, label: doc.label, fileName: doc.fileName, available: true
+        })) : [])
       ]
     });
-  }, [profile, job, answerBank]);
+  }, [profile, job, answerBank, demo, documents]);
 
   useEffect(() => {
-    if (demo || !apiBase) return undefined;
+    if (!apiBase) return undefined;
     let live = true;
     fetch(`${apiBase}/documents`, { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : []))
@@ -76,6 +79,10 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
         setChosenDocs(new Set(usable.filter((doc) => doc.kind === 'cv' && doc.isDefault).map((doc) => doc.id)));
       })
       .catch(() => {});
+    if (demo) {
+      setBridgeChecked(true);
+      return () => { live = false; };
+    }
     const bridge = createExtensionBridge();
     bridgeRef.current = bridge;
     bridge.probe().then((isReady) => {
@@ -194,7 +201,7 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
       <h3 style={{ fontSize: 18, marginBottom: 4 }}>Apply with a packet</h3>
       <p className="muted" style={{ marginBottom: 16 }}>
         {demo
-          ? "The web app cannot type into another site's form. Copy each answer, paste it on the job site, and press Mark applied when the site confirms your submission."
+          ? 'This packet is filled from the demo persona. Open the simulated portal to see the copilot fill, review and submit the same details in this tab.'
           : "Copy each answer, or send the packet to the installed extension to fill the job site's form. You confirm the submission on the job site, then press Mark applied."}
       </p>
 

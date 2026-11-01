@@ -31,12 +31,12 @@ test('edits replace only known fields and are trimmed', () => {
   assert.equal(edited.some((field) => field.key === 'unknown'), false);
 });
 
-test('submission fields carry labels, values and drop empty rows', () => {
+test('submission fields carry keys, labels, values and drop empty rows', () => {
   const edited = withEdits(fields, { rightToWorkSA: '   ' });
   assert.deepEqual(submissionFields(edited), [
-    { label: 'Full name', value: 'Naledi Mokoena' },
-    { label: 'Email address', value: 'naledi@example.test' },
-    { label: 'Notice period', value: '30 days' },
-    { label: 'Do you consent to a credit check?', value: 'Yes' }
+    { key: 'fullName', label: 'Full name', value: 'Naledi Mokoena' },
+    { key: 'email', label: 'Email address', value: 'naledi@example.test' },
+    { key: 'noticePeriod', label: 'Notice period', value: '30 days' },
+    { key: 'bank:credit-check', label: 'Do you consent to a credit check?', value: 'Yes' }
   ]);
 });

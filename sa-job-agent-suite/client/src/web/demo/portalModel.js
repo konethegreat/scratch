@@ -27,6 +27,6 @@ export function withEdits(fields = [], edits = {}) {
 
 export function submissionFields(fields = []) {
   return fields
-    .filter((field) => field.label && field.value)
-    .map(({ label, value }) => ({ label, value }));
+    .filter((field) => field.key && field.label && field.value)
+    .map(({ key, label, value }) => ({ key, label, value }));
 }

@@ -28,6 +28,10 @@ const SECRET_FIELD = /(?:api|access|secret|private|signing)[\s_-]?key|apikey|tok
 const KEY_SHAPE = /\b(?:sk|rk)[-_](?:ant|or|proj|svcacct|admin|live|test)[-_][A-Za-z0-9_-]{8,}/i;
 const carriesSecret = (key, value) => SECRET_FIELD.test(key) || KEY_SHAPE.test(value);
 
+export function looksLikeCredential(key, value) {
+  return carriesSecret(text(key, 120), text(value, VALUE_CAP));
+}
+
 function money(amount, period) {
   const number = Number(amount);
   if (!Number.isFinite(number) || number <= 0) return '';

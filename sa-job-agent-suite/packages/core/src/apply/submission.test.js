@@ -59,3 +59,21 @@ test('an extension delivery is accepted and keeps the user as submitter', () => 
   assert.deepEqual(submission.fields, [{ label: 'Email address', value: 'thandi@example.test' }]);
   assert.equal(submission.confirmation.text, 'Submit application');
 });
+
+test('a v2 packet can supply explicit documents and edited fields', () => {
+  const submission = summariseSubmission(
+    { job: { site: 'bokamosobank.test' }, identity: [], questions: [], fields: [], attachments: [] },
+    {
+      delivery: 'web-guided',
+      submittedBy: 'copilot-confirmed',
+      fields: [{ label: 'Phone number', value: '011 555 0100' }],
+      documents: [{ key: 'demo-doc-cv', label: 'Base CV', fileName: 'Naledi-Mokoena-CV.txt', available: true }]
+    }
+  );
+  assert.equal(submission.site, 'bokamosobank.test');
+  assert.deepEqual(submission.documents, [
+    { key: 'demo-doc-cv', label: 'Base CV', fileName: 'Naledi-Mokoena-CV.txt' }
+  ]);
+  assert.deepEqual(submission.fields, [{ label: 'Phone number', value: '011 555 0100' }]);
+  assert.equal(submission.submittedBy, 'copilot-confirmed');
+});

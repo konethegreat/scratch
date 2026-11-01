@@ -30,7 +30,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 
 1. **Origin boundary.** Code served from the origin can read what the page holds, including the in-memory key. Anything that runs on the origin is inside the trust boundary.
 2. **Anthropic boundary.** Prompts leave the device with the user's key. Anthropic is a separate operator with its own policy.
-3. **Untrusted content boundary.** Job postings, employer pages, backup files and model output are inputs, never instructions.
+3. **Untrusted content boundary.** Job postings, employer pages, uploaded CVs and supporting files, backup files and model output are inputs, never instructions.
 4. **Browser storage boundary.** IndexedDB and `localStorage` are per origin and per browser profile. Another profile, another browser, or a private window starts empty.
 5. **Demo boundary.** Demo mode must not touch the real vault, the real key, or the network.
 
@@ -83,7 +83,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 - The web API applies the same rule to manually added and edited jobs, so a bad scheme is stored as no link at all.
 - Links open with `rel="noopener noreferrer"` in a new tab.
 - Links rendered from feeds and the tracker carry values that `httpUrl()` has already reduced to `http(s)`.
-- Backup import rebuilds every record: links are reduced to `http(s)`, key-named fields are dropped, every rendered field and usage counter is type-checked, text above the 1,000,000-character cap is rejected, links are trimmed to 2,000 characters, and a malformed record aborts the import before anything is cleared. Validation is atomic; the per-store writes that follow are not.
+- Backup import rebuilds every record: links are reduced to `http(s)`, key-named fields are dropped, every rendered field and usage counter is type-checked, text above the 1,000,000-character cap is rejected, links are trimmed to 2,000 characters, and a malformed record aborts the import before anything is cleared. Validation is atomic, and the replacement that follows runs in one transaction across every exported store.
 - CSP `script-src 'self'` refuses `javascript:` navigation, so a missed link cannot run inline script.
 
 **Residual.** Import still replaces this browser's data by design, so only restore a backup you created or trust.
@@ -142,6 +142,20 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 
 **Residual.** Copies of static sites are easy to make. Users should check the address bar and the canonical hostname.
 
+### T11. Hostile uploaded documents
+
+**Scenario.** A PDF or DOCX carries a malformed structure, an embedded script, or an enormous data stream that crashes the tab, escapes the caps, or injects instructions into the optional AI read.
+
+**Controls.**
+- A file enters through the same local API as any other write. The kind and MIME must be known, the magic bytes must match the declared type (PDF, ZIP/DOCX or UTF-8 text), the declared size must match the decoded bytes, and the caps apply before the record is created: 8 MB per file, 10 files, 20 MB in total, 1,000,000 characters of extracted text.
+- Extraction runs in the page with pdf.js and mammoth, lazy-loaded only when a CV is read. pdf.js is called with `isEvalSupported: false` and no scripting manager, so embedded PDF JavaScript is never interpreted. DOCX is read as text, not rendered.
+- The CSP forbids inline and third-party script, so a parsing bug cannot load a payload.
+- Extracted text is capped and passed to the optional AI read inside `<untrusted-cv>` markers with the injection shield. The model only proposes fields, and nothing is written to the profile until the user reviews and saves.
+- A file with almost no selectable text is treated as a scan and refused with a paste-instead message. There is no OCR.
+- The parser dependencies are pinned in the lockfile and updated like code.
+
+**Residual.** A parsing bug in pdf.js or mammoth runs inside the page origin. The controls are the CSP, the fact that local parsing needs no key, and keeping both libraries current.
+
 ## 5. Out of scope
 
 - Vulnerabilities in Anthropic, Cloudflare, the job boards, or employer sites.
@@ -160,6 +174,8 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 | No third-party scripts, strict headers | `scripts/check-ui.mjs` plus the deployed header check |
 | Feed text is bounded and tag-free | `packages/core/src/feeds/shape.test.js` |
 | Only http(s) apply links are stored | `client/src/web/api.test.js`, `packages/core/src/scrape/cardSchema.test.js` |
+| Documents stay within their caps and on the origin | `client/src/web/documents.test.js`, `scripts/web-documents.mjs`, `scripts/web-cv-intake.mjs` |
+| A hostile backup document is refused before anything is cleared | `client/src/web/vault.test.js` |
 | Trust documents ship and stay current | `scripts/check-trust.mjs` |
 
 ## 7. Review

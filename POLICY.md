@@ -57,6 +57,8 @@ Four kinds of request, each triggered by an action you take:
 
 The key is never written to storage in plain text, never placed in a URL, log, backup or error report, and never sent to this site's origin. `scripts/web-canary.mjs` fails the build if any of that changes.
 
+Uploaded CVs and supporting files stay in this browser and are never sent to the origin. Their text goes to Anthropic only when you press **Read my CV with AI**, tailor a document, or ask a question that retrieves a passage from them. A backup exported from Profile & Settings includes those files in full, so keep a backup as carefully as the documents themselves.
+
 ---
 
 ## Personal information and POPIA

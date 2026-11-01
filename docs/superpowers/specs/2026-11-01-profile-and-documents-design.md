@@ -1,6 +1,6 @@
 # Phase 1: Profile v2, Documents and CV Intake
 
-**Status:** proposed, awaiting approval
+**Status:** implemented 2026-11-01, gates green, merge pending
 **Date:** 2026-11-01
 **Phase:** 1 of [Automation and Data Depth](2026-11-01-automation-and-data-depth-design.md)
 **Sources of truth:** the architecture spec above, `SECURITY.md`, `THREAT-MODEL.md`, `POLICY.md`, and the existing vault, API and backup contracts.
@@ -221,3 +221,14 @@ Defaults are applied on read in the API and persisted on write. No bulk rewrite.
 | Extraction quality varies by CV layout | The user reviews everything; blank low-confidence fields; never invent sensitive answers. |
 | Large files strain memory | Hard caps before reading; base64 only at the API boundary; revoke object URLs. |
 | Migration mistakes lose data | Idempotent additive migration, unknown keys preserved, dedicated tests, and a backup before the first v2 write is recommended in the release note. |
+
+## Evidence
+
+Implemented 2026-11-01 on `arc-12-profile-documents`.
+
+- **Code.** Profile v2 migration and editor; document rules with magic-byte sniffing, shared caps and lazy PDF/DOCX extraction; CV intake that saves the original, extracts locally and proposes fields through one budgeted call; documents library with upload, download, default and delete; answer-bank v2 defaults read at the API boundary; backup schema v2 with a v2-aware cleaner and a single-transaction restore.
+- **Unit and integration tests.** Client 270, server 447 (12 skipped by environment), core 201, evals 23 and script tests 9, all passing with `npm test`.
+- **Demo isolation.** `npm run test:demo` passes 36 checks, including that the documents tab and CV intake stay hidden and that demo mode never opens IndexedDB or holds a key.
+- **Browser proofs.** `npm run build:web` succeeds and `npm run test:web` passes all 15 checks, including the new `web-documents` and `web-cv-intake` walks with no request leaving the local origin.
+- **Secrets.** `node tools/check-secrets.mjs --all` is clean over 428 files.
+- **Docs.** `SECURITY.md`, `THREAT-MODEL.md` and `POLICY.md` describe the documents store, the shared caps, the AI read boundary and the atomic restore.

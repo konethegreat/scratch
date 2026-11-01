@@ -69,6 +69,14 @@ export function createWorkerHandlers({ store, chrome, now = () => Date.now() }) 
             return { ok: false, error: 'That result was refused.' };
           }
         }
+        case 'sajas:packet-by-id': {
+          const packet = await store.getPacket(message.packetId);
+          if (!packet) return { ok: false, error: 'That application is no longer waiting.' };
+          if (hostOf(sender.tab?.url) !== hostOf(packet.job.site)) {
+            return { ok: false, error: 'Open the application link for this job first.' };
+          }
+          return { ok: true, packet };
+        }
         case 'sajas:inject': {
           if (!isExtensionPage(sender)) return { ok: false, error: 'Only the apply assistant popup can start a fill.' };
           const packet = await store.getPacket(message.packetId);

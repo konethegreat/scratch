@@ -111,6 +111,20 @@ test('injection needs the popup, a waiting packet and the matching tab host', as
   assert.equal(offsite.calls.injected.length, 0);
 });
 
+test('a page can read only its own waiting packet', async () => {
+  const { handlers } = harness();
+  const missing = await handlers.onMessage({ type: 'sajas:packet-by-id', packetId: 'gone' }, JOB_PAGE);
+  assert.equal(missing.ok, false);
+  const fromApp = await handlers.onMessage({ type: 'sajas:packet-by-id', packetId: 'p1' }, APP);
+  assert.equal(fromApp.ok, false);
+  const offsite = await harness({ tabUrl: 'https://other.example.test/apply' });
+  const denied = await offsite.handlers.onMessage({ type: 'sajas:packet-by-id', packetId: 'p1' }, { ...JOB_PAGE, tab: { id: 7, url: 'https://other.example.test/apply' } });
+  assert.equal(denied.ok, false);
+  const allowed = await handlers.onMessage({ type: 'sajas:packet-by-id', packetId: 'p1' }, JOB_PAGE);
+  assert.equal(allowed.ok, true);
+  assert.equal(allowed.packet.packetId, 'p1');
+});
+
 test('unknown and malformed messages are refused without side effects', async () => {
   const { handlers, calls } = harness();
   assert.equal((await handlers.onMessage({ type: 'sajas:steal' }, APP)).ok, false);

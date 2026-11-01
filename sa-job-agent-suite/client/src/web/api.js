@@ -414,6 +414,11 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   }
 
   async function markApplied(input, init, jobId) {
+    const body = await bodyOf(input, init);
+    const delivery = body.delivery === undefined ? 'web-guided' : body.delivery;
+    if (delivery !== 'web-guided' && delivery !== 'extension') {
+      throw new AppError(ERROR_CODES.VALIDATION, 'That application delivery is not supported in the web app.');
+    }
     const job = await vault.get(STORES.jobs, jobId);
     if (!job) throw new AppError(ERROR_CODES.NOT_FOUND, 'Job not found.');
     const profile = (await vault.get(STORES.profile, 'current', {})) || {};
@@ -427,7 +432,12 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
         ...(job.tailoredCoverLetterText ? [{ key: 'cover-letter', label: 'Cover letter', fileName: '', available: true }] : [])
       ]
     });
-    const submission = summariseSubmission(packet, { delivery: 'web-guided', submittedBy: 'user' });
+    const submission = summariseSubmission(packet, {
+      delivery,
+      submittedBy: 'user',
+      fields: Array.isArray(body.fields) ? body.fields : null,
+      confirmation: body.confirmation || null
+    });
     const appliedAt = now().toISOString();
     const updated = { ...job, status: 'applied', appliedAt };
     await vault.put(STORES.jobs, jobId, updated);

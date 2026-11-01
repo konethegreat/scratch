@@ -48,16 +48,17 @@ No cookie carries user data. No analytics, telemetry, advertising ID, or fingerp
 
 ## What leaves your device
 
-Four kinds of request, each triggered by an action you take:
+Five kinds of request, each triggered by an action you take:
 
 1. **AI tasks.** Your prompt and the text it needs (for example a CV and a job description) go to `api.anthropic.com` with your key in the `x-api-key` header. Anthropic processes that text as the operator of its own service under its own terms. Nothing goes to the origin serving this site.
 2. **Public job feeds.** The browser fetches Remotive, Arbeitnow and Jobicy directly. Their operators see your IP address and request headers, exactly as when you visit them.
 3. **Application pages.** Opening an application loads the employer's site in your browser. In the hosted app the copilot fills a form only when you run it and leaves the final Submit to you; in the desktop app the copilot clicks Submit only after you confirm in the app.
-4. **Static assets.** Loading the app requests its own files from Cloudflare, which keeps standard access logs (IP address, requested path, user agent, timestamp, response status) under Cloudflare's policy. That is the only record the operator of this site can see, and it is not joined to any profile, document or key.
+4. **Extension hand-off.** When you press **Send to extension**, the Apply tab posts one packet of your profile answers and the files you selected to the installed extension in the same page and device. It never goes to this site's origin, Anthropic or a feed, and it never contains the key.
+5. **Static assets.** Loading the app requests its own files from Cloudflare, which keeps standard access logs (IP address, requested path, user agent, timestamp, response status) under Cloudflare's policy. That is the only record the operator of this site can see, and it is not joined to any profile, document or key.
 
 The key is never written to storage in plain text, never placed in a URL, log, backup or error report, and never sent to this site's origin. `scripts/web-canary.mjs` fails the build if any of that changes.
 
-Uploaded CVs and supporting files stay in this browser and are never sent to the origin. Their text goes to Anthropic only when you press **Read my CV with AI**, tailor a document, or ask a question that retrieves a passage from them. A backup exported from Profile & Settings includes those files in full, so keep a backup as carefully as the documents themselves.
+Uploaded CVs and supporting files stay in this browser and are never sent to the origin. Their text goes to Anthropic only when you press **Read my CV with AI**, tailor a document, or ask a question that retrieves a passage from them. A file you select on the Apply tab is handed to the installed extension only when you press **Send to extension**. A backup exported from Profile & Settings includes those files in full, so keep a backup as carefully as the documents themselves.
 
 ---
 

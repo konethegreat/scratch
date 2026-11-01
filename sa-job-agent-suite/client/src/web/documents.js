@@ -129,7 +129,7 @@ export function createDocumentRecord(input, existing = []) {
 }
 
 export function documentMetadata(record) {
-  const { data: _data, text, ...meta } = record;
+  const { data: _data, dataBase64: _dataBase64, text, ...meta } = record;
   return { ...meta, hasText: typeof text === 'string' && text.length > 0 };
 }
 

@@ -16,13 +16,16 @@ async function demoFiles() {
   return files;
 }
 
-const FORBIDDEN = /from\s+['"](?:[^'"]*keyStore|[^'"]*keyCrypto|[^'"]*validateKey|@sajas\/core\/ai)['"]/;
+const FORBIDDEN = /from\s+['"](?:[^'"]*keyStore|[^'"]*keyCrypto|[^'"]*validateKey|@sajas\/core\/ai|[^'"]*idbAdapter)['"]/;
+const INTERCEPTED_HOSTS = new Set(['localhost', '127.0.0.1']);
 
-test('the demo tree never imports a key, crypto or AI module', async () => {
+test('the demo tree never imports a key, crypto, AI or IndexedDB adapter module', async () => {
   for (const file of await demoFiles()) {
     const text = await fs.readFile(file, 'utf8');
     assert.equal(FORBIDDEN.test(text), false, `${path.basename(file)} imports a forbidden module`);
     assert.equal(text.includes('api.anthropic.com'), false, `${path.basename(file)} names the provider origin`);
+    assert.equal(/indexedDB/i.test(text), false, `${path.basename(file)} names IndexedDB`);
+    assert.equal(text.includes('sajas-web'), false, `${path.basename(file)} names the real vault database`);
   }
 });
 
@@ -42,12 +45,31 @@ test('only UI files may fetch, and only the intercepted API base', async () => {
   }
 });
 
-test('fixtures contain only reserved .test hosts and emails', async () => {
-  const text = await fs.readFile(path.join(root, 'fixtures.js'), 'utf8');
-  const urls = [...text.matchAll(/https?:\/\/[^'"`\s)]+/g)].map((match) => match[0]);
-  assert.ok(urls.length > 0);
-  for (const url of urls) assert.match(new URL(url).hostname, /\.test$/, url);
-  for (const email of [...text.matchAll(/[\w.+-]+@([\w.-]+)/g)].map((match) => match[1])) {
-    assert.match(email, /\.test$/, email);
+test('the demo tree contains only reserved .test hosts and emails', async () => {
+  for (const file of await demoFiles()) {
+    const text = await fs.readFile(file, 'utf8');
+    const urls = [...text.matchAll(/https?:\/\/[^'"`\s)]+/g)]
+      .map((match) => match[0])
+      .filter((url) => !url.includes('${'));
+    for (const url of urls) {
+      const { hostname } = new URL(url);
+      if (INTERCEPTED_HOSTS.has(hostname)) continue;
+      assert.match(hostname, /\.test$/, `${path.basename(file)}: ${url}`);
+    }
+    for (const email of [...text.matchAll(/[\w.+-]+@([\w.-]+)/g)].map((match) => match[1])) {
+      assert.match(email, /\.test$/, `${path.basename(file)}: ${email}`);
+    }
+  }
+});
+
+test('no placeholder employer survives in the demo tree', async () => {
+  for (const file of await demoFiles()) {
+    const text = await fs.readFile(file, 'utf8');
+    for (const placeholder of [
+      'Alex Example', 'Example Studio', 'Fable Fintech', 'Placeholder Health',
+      'Imaginary Retail', 'Sample Logistics'
+    ]) {
+      assert.equal(text.includes(placeholder), false, `${path.basename(file)} still uses ${placeholder}`);
+    }
   }
 });

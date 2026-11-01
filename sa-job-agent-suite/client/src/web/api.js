@@ -16,7 +16,7 @@ import { webLink } from './links.js';
 import { migrateProfile } from './profile.js';
 import { withAnswerDefaults } from './answers.js';
 import {
-  DOCUMENT_KINDS, bytesToBase64, createDocumentRecord, documentMetadata, normaliseDocumentLabel
+  DOCUMENT_KINDS, base64ToBytes, bytesToBase64, createDocumentRecord, documentMetadata, normaliseDocumentLabel
 } from './documents.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -517,7 +517,12 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if (path === '/documents' && method === 'POST') return await addDocument(input, init);
       if ((match = path.match(/^\/documents\/([^/]+)\/file$/)) && method === 'GET') {
         const document = await getDocument(match[1]);
-        return ok({ fileName: document.fileName, mime: document.mime, dataBase64: bytesToBase64(new Uint8Array(document.data)) });
+        // Real records hold bytes; demo records hold validated base64 over session
+        // storage, which cannot round-trip an ArrayBuffer.
+        const dataBase64 = document.data instanceof ArrayBuffer
+          ? bytesToBase64(new Uint8Array(document.data))
+          : bytesToBase64(base64ToBytes(document.dataBase64));
+        return ok({ fileName: document.fileName, mime: document.mime, dataBase64 });
       }
       if ((match = path.match(/^\/documents\/([^/]+)$/)) && method === 'GET') {
         const document = await getDocument(match[1]);

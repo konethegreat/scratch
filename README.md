@@ -123,16 +123,19 @@ error.
 
 No key and no profile? Open the site and press **Try the live demo** on the
 startup screen or the landing page. It runs entirely in the tab on fictional
-data: feeds, tailoring, Ask Documents, the Job Hunter and a full Apply Copilot
-loop with a simulated receipt. Everything simulated is labelled, and nothing is
+South African data: a complete persona with a structured profile, four sample
+documents, 20 fictional employers across banking, retail, mining, public works,
+logistics, NGOs and technology, and a simulated portal where you fill real form
+controls, answer one employer question, review every field and document, and
+confirm a simulated submission. Everything simulated is labelled, and nothing is
 sent to an employer.
 
-The demo keeps its own `sessionStorage` namespace, never reads your IndexedDB
-vault or your key, and makes no request outside the page origin. A refresh
-restores the demo in the same tab; a new tab starts the real workspace. Press
-**Exit demo** to wipe the demo data and return to the real workspace unchanged.
-Backup and export are hidden in demo mode, so demo data cannot leave through a
-file.
+The demo keeps its own `sessionStorage` namespace, including its sample
+documents, and never reads your IndexedDB vault, your real documents or your
+key. It makes no request outside the page origin. A refresh restores the demo in
+the same tab; a new tab starts the real workspace. Press **Exit demo** to wipe
+the demo data and return to the real workspace unchanged. Backup and export are
+hidden in demo mode.
 
 ### Tailoring in the browser
 

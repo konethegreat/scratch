@@ -47,11 +47,11 @@ The document corpus and the retrieval index are built in the page or the desktop
 
 The hosted demo is a separate runtime behind the same fetch seam as the real app. Its isolation is the feature, and every rule is enforced by a test.
 
-1. **No real storage.** Demo mode never reads or writes the `sajas-web` IndexedDB vault. It uses its own vault over `sessionStorage` under the prefix `sajas:demo:`, or an in-memory adapter when `sessionStorage` is unavailable.
+1. **No real storage.** Demo mode never reads or writes the `sajas-web` IndexedDB vault, including its `documents` store. It uses its own vault over `sessionStorage` under the prefix `sajas:demo:`, or an in-memory adapter when `sessionStorage` is unavailable. The sample documents are seeded into that demo vault only.
 2. **No real key.** Demo mode never reads, holds, validates or requests a key. Its key store is a stub that reports a key is present so AI surfaces stay enabled, but returns no key material. The key panel is unreachable in demo mode.
 3. **No network.** Feeds, AI output, hunter results and the application portal are local. A full demo walk makes zero requests outside the page origin.
 4. **No bleed on exit.** Exit removes every `sajas:demo:` key, including progress, and switches the dispatcher back to the real runtime. The app then refetches from the real vault, which was never touched.
-5. **No export.** Backup and data export are hidden in demo mode, so demo data cannot be written into a real backup. The documents tab and CV intake are hidden as well, and the Apply tab shows no extension or PDF controls and makes no document request.
+5. **No export.** Backup and data export are hidden in demo mode, so demo data cannot be written into a real backup. The documents tab is read-only in demo mode: it lists the seeded samples, disables upload, delete and default changes, and the Apply tab reads only the demo documents route. A browser proof seeds a sentinel document in the real documents store and proves it is untouched.
 6. **No generation path.** The demo never reaches the Anthropic SDK, `validateKey` or `keyCrypto`. Tailor, ask and check are answered by the simulation router, and a static test scans the demo module tree for forbidden imports.
 7. **No collision with the desktop fixture.** `SYNTHETIC_DEMO`, `server/src/demo.js` and the desktop copilot are unchanged.
 

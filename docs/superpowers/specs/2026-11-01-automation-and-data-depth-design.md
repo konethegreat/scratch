@@ -95,6 +95,10 @@ A richer simulation on the same contracts:
 - All links on reserved `.test` domains, all employers fictional, no real person or company details.
 - The existing isolation contract is unchanged and extended: demo mode also never touches the documents store in the real vault.
 
+**Status:** shipped 2026-11-01 (PR #34).
+
+Implemented as `persona.js`, `jobs.js` and `fixtures.js` (seed v3), a read-only demo documents surface, `portalModel.js` and a four-step simulated portal built on `buildApplyPacketV2`, a `web-guided` submission route that revalidates with `sanitisePacketV2`, and a browser proof with sentinel records in the real vault. Evidence: `npm test`, `npm run test:demo`, `npm run build:web`, `npm run test:web`, `npm run build:extension`, `npm run check:extension`, `node tools/check-secrets.mjs --all`, `web-demo: ok`, `check-demo-bundle: PASS`.
+
 ## Phases
 
 | Phase | Scope | Exit criteria |

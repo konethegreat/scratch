@@ -2,14 +2,16 @@
 // call a model or a desktop agent, and delegates every ordinary CRUD route to
 // the vault-backed demo API. No AI client is ever constructed here.
 import { AppError, ERROR_CODES, statusForCode, toUserError } from '@sajas/core/errors';
-import { buildApplyPacket, summariseSubmission } from '@sajas/core/apply';
+import { buildApplyPacketV2, looksLikeCredential, sanitisePacketV2, summariseSubmission } from '@sajas/core/apply';
 import { prepareAsk, prepareCheck, REFUSAL_SENTENCE, tokenize } from '@sajas/core/rag';
 import { STORES } from '../vault.js';
 import { createUsageLedger } from '../usage.js';
-import { DEMO_QUESTION, tailoredDocuments } from './fixtures.js';
+import { DEMO_QUESTION } from './persona.js';
+import { tailoredDocuments } from './jobs.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const SIMULATED = 'Simulated';
+const CREDENTIAL_ASSIGNMENT = /\b(?:password|passphrase|api[\s_-]?key|secret|token)\b\s*(?:[:=]\s*\S+|\b(?:is|are|was|were)\b\s+\S+)/i;
 
 function ok(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -158,35 +160,97 @@ export function createSimulationRouter({
   }
 
   async function applySimulated(input, init, jobId) {
-    const { answer } = await bodyOf(input, init);
+    const { fields, answer, documents } = await bodyOf(input, init);
     const job = await vault.get(STORES.jobs, jobId);
     if (!job) throw new AppError(ERROR_CODES.NOT_FOUND, 'Job not found.');
+    const submittedFields = Array.isArray(fields) ? fields : [];
+    for (const field of submittedFields) {
+      if (looksLikeCredential(field?.key, field?.value)) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'That field looks like a credential, so it was not recorded.');
+      }
+    }
+    const base = String(job.title || 'application').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'application';
+    const allowed = new Map();
+    if (job.tailoredCvText) {
+      allowed.set('tailored-cv', { key: 'tailored-cv', label: 'Tailored CV', fileName: `${base}-cv.pdf` });
+    }
+    if (job.tailoredCoverLetterText) {
+      allowed.set('tailored-letter', { key: 'tailored-letter', label: 'Tailored cover letter', fileName: `${base}-cover-letter.pdf` });
+    }
+    for (const stored of await vault.getAll(STORES.documents)) {
+      const id = String(stored?.id || '').trim();
+      if (id) allowed.set(id, { key: id, label: String(stored.label || '').trim(), fileName: String(stored.fileName || '').trim() });
+    }
+    const posted = (Array.isArray(documents) ? documents : []).map((document) => ({
+      key: String(document?.key || '').trim().slice(0, 40)
+    })).filter((document) => document.key);
+    const documentMeta = [];
+    for (const { key } of posted) {
+      const known = allowed.get(key);
+      if (!known) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'That submission named a document the demo library does not have.');
+      }
+      if (documentMeta.some((entry) => entry.key === key)) continue;
+      documentMeta.push({ ...known, available: true });
+    }
+    if (!posted.length) {
+      for (const key of ['tailored-cv', 'tailored-letter']) {
+        const known = allowed.get(key);
+        if (known) documentMeta.push({ ...known, available: true });
+      }
+    }
     const profile = (await vault.get(STORES.profile, 'current', {})) || {};
     const answerBank = await vault.getAll(STORES.answers);
     const extra = String(answer || '').trim();
-    const packetAnswers = extra
-      ? [...answerBank, { id: 'demo-visitor-answer', question: DEMO_QUESTION, answer: extra, normalized: 'fictional project' }]
-      : answerBank;
-    const packet = buildApplyPacket({
-      profile,
-      job,
-      answerBank: packetAnswers,
-      supportingDocs: [
-        ...(job.tailoredCvText ? [{ key: 'cv', label: 'Tailored CV', fileName: '', available: true }] : []),
-        ...(job.tailoredCoverLetterText ? [{ key: 'cover-letter', label: 'Cover letter', fileName: '', available: true }] : [])
-      ]
-    });
-    const submission = summariseSubmission(packet, {
-      delivery: 'desktop-copilot',
-      submittedBy: 'copilot-confirmed',
-      confirmation: { confirmedAt: now().toISOString(), text: 'Send application' }
-    });
+    if (extra && (looksLikeCredential('answer', extra) || CREDENTIAL_ASSIGNMENT.test(extra))) {
+      throw new AppError(ERROR_CODES.VALIDATION, 'That answer looks like a credential, so it was not recorded.');
+    }
+    const jobQuestions = Array.isArray(job.questions) ? job.questions : [];
+    const packetAnswers = [
+      ...answerBank,
+      ...jobQuestions.map((question, index) => ({ id: `demo-job-question-${index}`, ...question }))
+    ];
     if (extra) {
-      await vault.put(STORES.answers, 'demo-visitor-answer', {
+      packetAnswers.push({
         id: 'demo-visitor-answer', question: DEMO_QUESTION, answer: extra, normalized: 'fictional project'
       });
     }
+    let cleanPacket;
+    try {
+      const packet = buildApplyPacketV2({
+        profile,
+        job,
+        answerBank: packetAnswers,
+        documents: documentMeta
+      });
+      const byKey = new Map(
+        submittedFields.map((field) => [String(field?.key || ''), field]).filter(([key]) => key)
+      );
+      const mergedFields = packet.fields.map((field) => {
+        const edit = byKey.get(field.key);
+        return edit ? { ...field, value: edit.value } : field;
+      });
+      cleanPacket = sanitisePacketV2({ ...packet, fields: mergedFields });
+    } catch (error) {
+      throw new AppError(
+        ERROR_CODES.VALIDATION,
+        error instanceof Error ? error.message : 'That submission could not be validated.'
+      );
+    }
     const appliedAt = now().toISOString();
+    const submission = summariseSubmission(cleanPacket, {
+      delivery: 'web-guided',
+      submittedBy: 'copilot-confirmed',
+      fields: cleanPacket.fields.map(({ label, value }) => ({ label, value })),
+      documents: documentMeta,
+      confirmation: { confirmedAt: appliedAt, text: 'Send application' }
+    });
+    if (extra) {
+      await vault.put(STORES.answers, 'demo-visitor-answer', {
+        id: 'demo-visitor-answer', question: DEMO_QUESTION, answer: extra, normalized: 'fictional project',
+        category: 'other', source: 'manual', timesUsed: 0, lastUsed: null, createdAt: appliedAt
+      });
+    }
     const updated = { ...job, status: 'applied', appliedAt };
     await vault.put(STORES.jobs, jobId, updated);
 

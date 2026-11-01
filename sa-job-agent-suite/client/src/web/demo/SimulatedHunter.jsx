@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, Search, Square } from 'lucide-react';
 import { fingerprint, scoreJob, splitList } from '@sajas/core/feeds';
 import { isSouthAfrican } from '@sajas/core/jobs';
-import { DEMO_HUNTER_JOBS } from './fixtures.js';
+import { DEMO_HUNTER_JOBS } from './jobs.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 

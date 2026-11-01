@@ -399,7 +399,7 @@ export default function App() {
   useEffect(() => {
     if (!isTabVisible(activeTab, IS_WEB, demoMode) && activeTab !== 'landing') setActiveTab('dashboard');
     if (IS_WEB && SERVER_ONLY_SETTINGS.includes(settingsTab)) setSettingsTab('ai');
-    if (demoMode && (settingsTab === 'backup' || settingsTab === 'documents')) setSettingsTab('ai');
+    if (demoMode && settingsTab === 'backup') setSettingsTab('ai');
   }, [activeTab, settingsTab, demoMode]);
 
   const [jobs, setJobs] = useState([]);
@@ -2858,8 +2858,8 @@ export default function App() {
               </section>
             </>)}
 
-            {IS_WEB && !demoMode && settingsTab === 'documents' && (
-              <DocumentsPanel apiBase={API_BASE} toasts={toasts} />
+            {IS_WEB && settingsTab === 'documents' && (
+              <DocumentsPanel apiBase={API_BASE} toasts={toasts} demo={demoMode} />
             )}
 
             {IS_WEB && !demoMode && settingsTab === 'backup' && (

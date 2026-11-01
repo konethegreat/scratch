@@ -133,3 +133,23 @@ test('import rebuilds each record and rejects hostile shapes', () => {
     b: { ...exported['doc-1'], id: 'b', isDefault: true }
   }), /default/i);
 });
+
+test('document metadata never leaks file bytes, including demo base64', () => {
+  const meta = documentMetadata({
+    id: 'demo-doc-cv',
+    kind: 'cv',
+    label: 'Base CV',
+    fileName: 'cv.txt',
+    mime: TEXT_MIME,
+    size: 12,
+    text: 'hello world',
+    data: new ArrayBuffer(12),
+    dataBase64: 'aGVsbG8gd29ybGQ=',
+    uploadedAt: '2026-11-01T10:00:00.000Z',
+    isDefault: true
+  });
+  assert.equal('data' in meta, false);
+  assert.equal('dataBase64' in meta, false);
+  assert.equal(meta.hasText, true);
+  assert.equal(meta.label, 'Base CV');
+});

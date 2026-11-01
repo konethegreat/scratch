@@ -15,7 +15,7 @@ async function responseError(res, fallback) {
   return new Error(body.error || fallback);
 }
 
-export default function DocumentsPanel({ apiBase, toasts }) {
+export default function DocumentsPanel({ apiBase, toasts, demo = false }) {
   const [documents, setDocuments] = useState([]);
   const [kind, setKind] = useState('cv');
   const [label, setLabel] = useState('');
@@ -135,17 +135,25 @@ export default function DocumentsPanel({ apiBase, toasts }) {
         Files stay in this browser. PDF, DOCX and text, up to 8 MB each and 20 MB in total.
       </p>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <select value={kind} onChange={(event) => setKind(event.target.value)} aria-label="Document type">
-          {KINDS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-        </select>
-        <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label, for example My CV" style={{ minWidth: 200 }} />
-        <input ref={fileRef} data-testid="document-file" type="file" accept={ACCEPT} style={{ display: 'none' }} onChange={(event) => upload(event.target.files?.[0])} />
-        <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => fileRef.current?.click()}>
-          {busy ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} Upload file
-        </button>
-        <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={addPasted}>Paste text</button>
-      </div>
+      {demo && (
+        <p className="hint" data-testid="demo-documents-note" style={{ marginBottom: 12 }}>
+          These are sample documents for the demo. Uploads, deletions and default changes are disabled, and nothing here touches the real documents store.
+        </p>
+      )}
+
+      {!demo && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          <select value={kind} onChange={(event) => setKind(event.target.value)} aria-label="Document type">
+            {KINDS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+          </select>
+          <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label, for example My CV" style={{ minWidth: 200 }} />
+          <input ref={fileRef} data-testid="document-file" type="file" accept={ACCEPT} style={{ display: 'none' }} onChange={(event) => upload(event.target.files?.[0])} />
+          <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {busy ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} Upload file
+          </button>
+          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={addPasted}>Paste text</button>
+        </div>
+      )}
 
       {documents.length === 0 ? (
         <p className="muted">No documents yet.</p>
@@ -161,16 +169,18 @@ export default function DocumentsPanel({ apiBase, toasts }) {
                   {doc.fileName} · {(doc.size / 1024).toFixed(0)} KB · {doc.kind}
                 </div>
               </div>
-              {!doc.isDefault && <button type="button" className="btn-ghost btn-sm" onClick={() => makeDefault(doc)}>Set default</button>}
+              {!demo && !doc.isDefault && <button type="button" className="btn-ghost btn-sm" onClick={() => makeDefault(doc)}>Set default</button>}
               <button type="button" className="btn-secondary btn-sm" onClick={() => download(doc)} aria-label={`Download ${doc.label}`}><Download size={12} /></button>
-              <button type="button" className="btn-danger btn-sm" onClick={() => remove(doc)} aria-label={`Delete ${doc.label}`}><Trash2 size={12} /></button>
+              {!demo && <button type="button" className="btn-danger btn-sm" onClick={() => remove(doc)} aria-label={`Delete ${doc.label}`}><Trash2 size={12} /></button>}
             </div>
           ))}
         </div>
       )}
 
       <p className="tiny" style={{ marginTop: 14 }}>
-        <ShieldCheck size={12} style={{ verticalAlign: -1 }} /> Documents are included in a backup export and are not encrypted on this device.
+        <ShieldCheck size={12} style={{ verticalAlign: -1 }} /> {demo
+          ? 'Sample files stay in this tab and are never written to the real documents store.'
+          : 'Documents are included in a backup export and are not encrypted on this device.'}
       </p>
     </section>
   );

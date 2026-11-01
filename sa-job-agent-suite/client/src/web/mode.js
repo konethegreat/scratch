@@ -6,7 +6,7 @@ export const WEB_ONLY_TABS = Object.freeze(['apply']);
 export const WEB_ONLY_SETTINGS = Object.freeze(['backup', 'documents']);
 // The demo keeps the simulated agents and the logs, and hides write-out surfaces.
 export const DEMO_HIDDEN_TABS = Object.freeze(['referrals', 'routines']);
-export const DEMO_HIDDEN_SETTINGS = Object.freeze(['backup', 'documents']);
+export const DEMO_HIDDEN_SETTINGS = Object.freeze(['backup']);
 
 export function isTabVisible(tab, isWeb, demo = false) {
   if (WEB_ONLY_TABS.includes(tab)) return Boolean(isWeb);

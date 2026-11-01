@@ -6,7 +6,8 @@ import { createActivity } from '../activity.js';
 import { createWebApi } from '../api.js';
 import { REFUSAL_SENTENCE } from '@sajas/core/rag';
 import { createSimulationRouter } from './simulationApi.js';
-import { buildDemoSeed, DEMO_JOBS } from './fixtures.js';
+import { buildDemoSeed } from './fixtures.js';
+import { DEMO_JOBS } from './jobs.js';
 
 const API_BASE = 'http://localhost:5000/api';
 const NOW = () => new Date('2026-10-28T10:00:00Z');
@@ -29,12 +30,12 @@ const get = () => ({ method: 'GET' });
 
 test('tailor moves through tailoring, waits, writes documents and records usage', async () => {
   const { vault, router, waits } = harness();
-  const response = await router.handle(`${API_BASE}/jobs/demo-job-3/tailor`, post({}));
+  const response = await router.handle(`${API_BASE}/jobs/demo-job-14/tailor`, post({}));
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.deepEqual(waits, [900]);
   assert.equal(body.job.status, 'tailored');
-  assert.match(body.job.tailoredCvText, /Sample Logistics/);
+  assert.match(body.job.tailoredCvText, /Highveld Haulage/);
   assert.match(body.job.tailoredCoverLetterText, /Data Engineer/);
   const days = await vault.get(STORES.usage, 'days');
   assert.ok(days.days['2026-10-28'].calls > 6, 'simulated usage was not recorded');
@@ -76,22 +77,111 @@ test('check reports one flagged claim with a citation', async () => {
   assert.ok(body.citations.length > 0);
 });
 
-test('the simulated copilot records a confirmed desktop-copilot submission', async () => {
+test('the simulated portal records a validated web-guided submission', async () => {
   const { vault, router } = harness();
-  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-2`, post({ answer: 'The accessibility dashboard project.' }));
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [
+      { key: 'phone', label: 'Phone number', value: '011 555 0100' },
+      { key: 'bank:criminal record check', label: 'Are you willing to undergo a criminal record check?', value: 'No' }
+    ],
+    answer: 'The accessibility dashboard project.',
+    documents: [
+      { key: 'demo-doc-cv', label: 'Base CV', fileName: 'Naledi-Mokoena-CV.txt' },
+      { key: 'tailored-cv', label: 'Tailored CV', fileName: 'senior-frontend-engineer-cv.pdf' }
+    ]
+  }));
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(body.application.delivery, 'desktop-copilot');
+  assert.equal(body.application.delivery, 'web-guided');
   assert.equal(body.application.submittedBy, 'copilot-confirmed');
   assert.equal(body.application.confirmation.text, 'Send application');
+  assert.equal(body.application.site, 'bokamosobank.test');
   assert.equal(body.job.status, 'applied');
-  const saved = await vault.get(STORES.jobs, 'demo-job-2');
-  assert.equal(saved.status, 'applied');
+  const phone = body.application.fields.find((field) => field.label === 'Phone number');
+  assert.equal(phone.value, '011 555 0100');
+  const criminal = body.application.fields.find((field) => /criminal record/.test(field.label));
+  assert.equal(criminal.value, 'No');
+  assert.deepEqual(body.application.documents.map((doc) => doc.key).sort(), ['demo-doc-cv', 'tailored-cv']);
   const memory = await vault.get(STORES.memory, 'dossier');
-  const record = memory.applications.find((entry) => entry.jobId === 'demo-job-2');
-  assert.equal(record.delivery, 'desktop-copilot');
+  assert.equal(memory.applications.find((entry) => entry.jobId === 'demo-job-1').delivery, 'web-guided');
   const answer = await vault.get(STORES.answers, 'demo-visitor-answer');
   assert.equal(answer.answer, 'The accessibility dashboard project.');
+  assert.equal(answer.category, 'other');
+  assert.equal(answer.timesUsed, 0);
+});
+
+test('an edit that looks like a credential is refused and nothing is recorded', async () => {
+  const { vault, router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'password', label: 'Password', value: 'hunter2' }],
+    answer: 'The accessibility dashboard project.'
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'VALIDATION');
+  assert.equal((await vault.get(STORES.jobs, 'demo-job-1')).status, 'tailored');
+  assert.equal((await vault.get(STORES.answers, 'demo-visitor-answer')), undefined);
+});
+
+test('an answer that reads like a credential is refused before anything is written', async () => {
+  const { vault, router } = harness();
+  const responses = [
+    await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+      fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+      answer: 'The password: hunter2 is in the brief.'
+    })),
+    await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+      fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+      answer: 'My password is hunter2, please keep it safe.'
+    })),
+    await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+      fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+      answer: ['sk', 'ant', 'api03', 'H'.repeat(24)].join('-')
+    }))
+  ];
+  for (const response of responses) {
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, 'VALIDATION');
+  }
+  assert.equal((await vault.get(STORES.jobs, 'demo-job-1')).status, 'tailored');
+  assert.equal((await vault.get(STORES.answers, 'demo-visitor-answer')), undefined);
+});
+
+test('a document the demo library does not hold is refused', async () => {
+  const { vault, router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+    answer: 'The accessibility dashboard project.',
+    documents: [{ key: 'forged-passport', label: 'Certified passport (forged)', fileName: 'passport.pdf' }]
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'VALIDATION');
+  assert.equal((await vault.get(STORES.jobs, 'demo-job-1')).status, 'tailored');
+  assert.equal((await vault.get(STORES.answers, 'demo-visitor-answer')), undefined);
+});
+
+test('a cleared edit replaces the old value instead of keeping it', async () => {
+  const { router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'phone', label: 'Phone number', value: '   ' }],
+    answer: 'The accessibility dashboard project.'
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.application.fields.some((field) => field.label === 'Phone number'), false);
+});
+
+test('documents falling back to the tailored copies when none are posted', async () => {
+  const { router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+    answer: 'The accessibility dashboard project.'
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.application.documents.map((doc) => doc.key).sort(), ['tailored-cv', 'tailored-letter']);
+  const cv = body.application.documents.find((doc) => doc.key === 'tailored-cv');
+  assert.equal(cv.label, 'Tailored CV');
+  assert.match(cv.fileName, /-cv\.pdf$/);
 });
 
 test('ordinary routes delegate to the demo API', async () => {

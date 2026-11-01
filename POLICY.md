@@ -30,7 +30,7 @@ Last reviewed: 30 October 2026.
 | API key (plaintext) | A JavaScript closure in the open tab | Until the tab closes, or the idle-forget timeout fires |
 | API key (saved) | `keyVault` record, AES-GCM encrypted with a PBKDF2 key from your passphrase | Until you forget it or clear site data |
 | Theme choice, job filter defaults, dismissed notices | `localStorage` keys `sajas-theme`, `sajas.jobFilters.v1` and `sajas.betaNotice.v1` | Until you clear site data |
-| Demo-mode data | `sessionStorage`: vault data under the `sajas:demo:` prefix, plus the mode flag `sajas:mode` | Until the demo is exited or the tab closes |
+| Demo-mode data | `sessionStorage`: vault data under the `sajas:demo:` prefix, including four sample documents, plus the mode flag `sajas:mode` | Until the demo is exited or the tab closes |
 | Extension packets and results | The extension's own IndexedDB database `sajas-extension`, separate from `sajas-web` | Packets expire after eight hours (five at most); results are removed when the app records or discards them (fifty at most); a pending submission expires after one minute (five at most) |
 
 No cookie carries user data. No analytics, telemetry, advertising ID, or fingerprinting script is loaded.

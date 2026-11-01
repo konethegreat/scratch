@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck, CalendarClock, CheckCircle2, ExternalLink, FileText, Globe, Loader2, Lock, MapPin, Send, ShieldCheck
 } from 'lucide-react';
-import { buildApplyPacket } from '@sajas/core/apply';
+import { buildApplyPacketV2 } from '@sajas/core/apply';
 import Dialog from '../../Dialog.jsx';
-import { DEMO_QUESTION } from './fixtures.js';
+import { createCvPdf, safePdfFileName } from '../pdf/cvPdf.js';
+import { base64ToBytes } from '../documents.js';
+import { DEMO_QUESTION } from './persona.js';
+import { portalSections, withEdits, submissionFields } from './portalModel.js';
 
 const API_BASE = import.meta.env.VITE_SAJAS_API_BASE || 'http://localhost:5000/api';
 const BUTTON_LABEL = 'Send application';
+const REVEAL_MS = 55;
 
 function reducedMotion() {
   return typeof window !== 'undefined'
@@ -23,9 +27,53 @@ function hostOf(job) {
   }
 }
 
+function testIdFor(key) {
+  return String(key).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+const SELECT_OPTIONS = {
+  rightToWorkSA: ['Yes, South African citizen', 'Yes, permanent resident', 'No'],
+  willingToRelocate: ['Yes, within South Africa', 'No'],
+  driversLicense: ['Code B', 'Code EB', 'Code C', 'None'],
+  ownVehicle: ['Yes', 'No'],
+  creditCheckConsent: ['Yes', 'No']
+};
+
+function FieldControl({ field, value, onChange }) {
+  const id = `demo-field-${testIdFor(field.key)}`;
+  const options = SELECT_OPTIONS[field.key];
+  if (options) {
+    const all = value && !options.includes(value) ? [value, ...options] : options;
+    return (
+      <>
+        <label className="tiny" htmlFor={id}>{field.label}</label>
+        <select
+          id={id}
+          data-testid={id}
+          value={value}
+          onChange={(event) => onChange(field.key, event.target.value)}
+        >
+          {all.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+      </>
+    );
+  }
+  return (
+    <>
+      <label className="tiny" htmlFor={id}>{field.label}</label>
+      <input
+        id={id}
+        data-testid={id}
+        value={value}
+        onChange={(event) => onChange(field.key, event.target.value)}
+      />
+    </>
+  );
+}
+
 function PortalChrome({ site, children }) {
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--surface)' }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-surface)' }}>
       <div
         className="tiny"
         style={{
@@ -66,8 +114,9 @@ function PortalHeader({ job }) {
           <CalendarClock size={12} aria-hidden="true" /> Posted {job.datePosted || 'recently'}
         </span>
         <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-          <FileText size={12} aria-hidden="true" /> {job.source || 'Fictional board'}
+          <FileText size={12} aria-hidden="true" /> {job.sector || 'Fictional employer'}
         </span>
+        <span className="badge">{job.salaryBand || 'Salary on request'}</span>
       </div>
     </div>
   );
@@ -95,88 +144,123 @@ function StepBar({ current }) {
   );
 }
 
-function FieldRow({ label, value }) {
-  return (
-    <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
-      <span className="tiny muted">{label}</span>
-      <p style={{ margin: '2px 0 0' }}>{value}</p>
-    </div>
-  );
-}
-
 export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJobsChanged, toasts }) {
   const job = useMemo(
-    () => jobs.find((entry) => entry.company === 'Fable Fintech' && entry.tailoredCvText)
+    () => jobs.find((entry) => entry.applyDemo && entry.tailoredCvText)
       || jobs.find((entry) => entry.tailoredCvText)
       || null,
     [jobs]
   );
   const [stage, setStage] = useState('idle');
+  const [packet, setPacket] = useState(null);
+  const [attachments, setAttachments] = useState([]);
+  const [edits, setEdits] = useState({});
   const [answer, setAnswer] = useState('');
   const [visible, setVisible] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const confirmRef = useRef(null);
 
   const site = useMemo(() => hostOf(job), [job]);
-
-  const packet = useMemo(() => {
-    if (!job) return null;
-    return buildApplyPacket({
-      profile: profile || {},
-      job,
-      answerBank,
-      supportingDocs: [
-        ...(job.tailoredCvText ? [{ key: 'cv', label: 'Tailored CV', fileName: '', available: true }] : []),
-        ...(job.tailoredCoverLetterText ? [{ key: 'cover-letter', label: 'Cover letter', fileName: '', available: true }] : [])
-      ]
-    });
-  }, [profile, job, answerBank]);
-
-  const sections = useMemo(() => {
-    if (!packet) return [];
-    return [
-      { key: 'identity', title: 'Your details', fields: packet.identity },
-      { key: 'profile', title: 'Eligibility and availability', fields: packet.questions.filter((entry) => entry.source === 'profile') },
-      { key: 'bank', title: 'More questions from this employer', fields: packet.questions.filter((entry) => entry.source === 'answer-bank') }
-    ].filter((section) => section.fields.length);
-  }, [packet]);
-
-  const fields = useMemo(() => sections.flatMap((section) => section.fields), [sections]);
-  const documents = packet ? packet.documents.filter((doc) => doc.available) : [];
+  const employerKeys = useMemo(
+    () => new Set((Array.isArray(job?.questions) ? job.questions : []).map((question) => `bank:${question.normalized}`)),
+    [job]
+  );
+  const sections = useMemo(() => portalSections(packet?.fields || [], employerKeys), [packet, employerKeys]);
+  const section = (id) => sections.find((entry) => entry.id === id) || { fields: [] };
 
   useEffect(() => {
     if (stage !== 'form') return undefined;
-    if (reducedMotion()) { setVisible(fields.length); return undefined; }
+    const total = section('identity').fields.length + section('eligibility').fields.length;
+    if (reducedMotion()) { setVisible(total); return undefined; }
     setVisible(0);
-    if (!fields.length) return undefined;
+    if (!total) return undefined;
     const timer = setInterval(() => {
       setVisible((count) => {
-        if (count >= fields.length) { clearInterval(timer); return count; }
+        if (count >= total) { clearInterval(timer); return count; }
         return count + 1;
       });
-    }, 90);
+    }, REVEAL_MS);
     return () => clearInterval(timer);
-  }, [stage, fields.length]);
+  }, [stage, sections]);
 
-  if (!job || !packet) {
-    return (
-      <section className="panel" style={{ padding: 24 }}>
-        <h3 style={{ fontSize: 18, marginBottom: 8 }}>Simulated apply copilot</h3>
-        <p className="muted">Tailor a fictional job first, then come back to watch the copilot fill its form.</p>
-      </section>
-    );
+  async function prepare() {
+    if (!job || preparing) return;
+    setPreparing(true);
+    try {
+      const listResponse = await fetch(`${API_BASE}/documents`, { cache: 'no-store' });
+      const documents = listResponse.ok ? await listResponse.json() : [];
+      const nextAttachments = [];
+      if (job.tailoredCvText) {
+        nextAttachments.push({
+          key: 'tailored-cv', kind: 'tailored-cv', label: 'Tailored CV',
+          fileName: safePdfFileName(`${job.title}-cv`), mime: 'application/pdf',
+          bytes: await createCvPdf({ text: job.tailoredCvText, title: `${job.title} CV` })
+        });
+      }
+      if (job.tailoredCoverLetterText) {
+        nextAttachments.push({
+          key: 'tailored-letter', kind: 'document', label: 'Tailored cover letter',
+          fileName: safePdfFileName(`${job.title}-cover-letter`), mime: 'application/pdf',
+          bytes: await createCvPdf({ text: job.tailoredCoverLetterText, title: `${job.title} cover letter` })
+        });
+      }
+      for (const document of Array.isArray(documents) ? documents : []) {
+        const fileResponse = await fetch(`${API_BASE}/documents/${document.id}/file`, { cache: 'no-store' });
+        if (!fileResponse.ok) throw new Error(`Could not read the sample document ${document.label}.`);
+        const body = await fileResponse.json();
+        nextAttachments.push({
+          key: document.id, kind: 'document', label: document.label,
+          fileName: body.fileName, mime: body.mime, bytes: base64ToBytes(body.dataBase64)
+        });
+      }
+      const jobBank = [
+        ...answerBank,
+        ...(Array.isArray(job.questions) ? job.questions.map((question, index) => ({
+          id: `demo-job-question-${index}`, ...question
+        })) : [])
+      ];
+      const nextPacket = buildApplyPacketV2({
+        profile: profile || {},
+        job,
+        answerBank: jobBank,
+        attachments: nextAttachments,
+        documents: nextAttachments.map((attachment) => ({
+          key: attachment.key, label: attachment.label,
+          fileName: attachment.fileName, available: true
+        }))
+      });
+      setPacket(nextPacket);
+      setAttachments(nextAttachments);
+      setEdits(Object.fromEntries(nextPacket.fields.map((field) => [field.key, field.value])));
+      setStage('form');
+    } catch (error) {
+      toasts?.error?.(error.message || 'The simulated portal could not be prepared.');
+    } finally {
+      setPreparing(false);
+    }
   }
 
+  const edited = useMemo(
+    () => withEdits(packet?.fields || [], edits),
+    [packet, edits]
+  );
+
   async function submit() {
+    if (!packet) return;
     setConfirmOpen(false);
     setBusy(true);
     try {
       const response = await fetch(`${API_BASE}/demo/apply/${job.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answer })
+        body: JSON.stringify({
+          fields: submissionFields(edited),
+          answer,
+          documents: attachments.map(({ key, label, fileName }) => ({ key, label, fileName }))
+        })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || data.error || 'The simulated submission failed.');
@@ -192,8 +276,22 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
     }
   }
 
-  const stageIndex = { idle: 0, form: 0, question: 1, review: 2, receipt: 3 }[stage] ?? 0;
-  const answered = [...fields, { key: 'answer', label: DEMO_QUESTION, value: answer }];
+  if (!job) {
+    return (
+      <section className="panel" style={{ padding: 24 }}>
+        <h3 style={{ fontSize: 18, marginBottom: 8 }}>Simulated apply copilot</h3>
+        <p className="muted">Tailor a fictional job first, then come back to watch the copilot fill its portal.</p>
+      </section>
+    );
+  }
+
+  const stageIndex = { idle: 0, form: 0, questions: 1, review: 2, receipt: 3 }[stage] ?? 0;
+  const details = section('identity').fields;
+  const eligibility = section('eligibility').fields;
+  const employerQuestions = section('employer').fields;
+  const visibleFields = [...details, ...eligibility].slice(0, visible);
+  const readyForContinue = visible >= details.length + eligibility.length;
+  const change = (key, value) => setEdits((current) => ({ ...current, [key]: value }));
 
   return (
     <section className="panel" style={{ padding: 24 }} data-testid="simulated-copilot">
@@ -201,47 +299,52 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
         Simulated apply copilot <span className="badge badge-warning">Simulated</span>
       </h3>
       <p className="muted" style={{ fontSize: 13, marginTop: 4, marginBottom: 18 }}>
-        A fictional portal inside this page. Nothing is sent to an employer and no site outside this origin is opened.
+        A fictional portal inside this page, filled from the demo persona. Nothing is sent to an employer and no site outside this origin is opened.
       </p>
 
       {stage === 'idle' && (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             <span className="badge"><Globe size={12} aria-hidden="true" style={{ marginRight: 4 }} />{site}</span>
-            <span className="badge">{fields.length} answers ready</span>
-            <span className="badge">{documents.length} documents ready</span>
+            {packet && <span className="badge">{packet.fields.length} answers ready</span>}
+            {attachments.length > 0 && <span className="badge">{attachments.length} documents ready</span>}
           </div>
           <p className="tiny" style={{ marginBottom: 12 }}>
-            Target: <strong>{job.title}</strong> at {job.company}
+            Target: <strong>{job.title}</strong> at {job.company} <span className="muted">({job.salaryBand})</span>
           </p>
-          <button type="button" className="btn-primary" data-testid="open-simulated-portal" onClick={() => setStage('form')}>
-            <ExternalLink size={14} /> Open the simulated portal
+          <button type="button" className="btn-primary" data-testid="open-simulated-portal" disabled={preparing} onClick={prepare}>
+            {preparing ? <Loader2 size={14} className="spin" /> : <ExternalLink size={14} />}
+            {preparing ? ' Preparing the packet...' : ' Open the simulated portal'}
           </button>
         </>
       )}
 
-      {stage === 'form' && (
+      {stage === 'form' && packet && (
         <PortalChrome site={site}>
           <PortalHeader job={job} />
           <StepBar current={0} />
           <div data-testid="demo-form" style={{ display: 'grid', gap: 12, padding: '14px 18px' }}>
             <p className="tiny muted" style={{ margin: 0 }}>
-              The copilot is filling this form from your profile and saved answers.
+              The copilot filled these controls from your profile. Edit anything that is wrong before you continue.
             </p>
-            {sections.map((section) => {
-              const shown = section.fields.filter((field) => fields.indexOf(field) < visible);
-              if (!shown.length) return null;
-              return (
-                <div key={section.key} style={{ display: 'grid', gap: 8 }}>
-                  <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{section.title}</span>
-                  {shown.map((field) => (
-                    <FieldRow key={`${field.key}-${field.label}`} label={field.label} value={field.value} />
-                  ))}
-                </div>
-              );
-            })}
-            {visible >= fields.length && (
-              <button type="button" className="btn-primary" data-testid="demo-form-continue" onClick={() => setStage('question')} style={{ justifySelf: 'start', marginTop: 6 }}>
+            {details.length > 0 && (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Your details</span>
+                {visibleFields.filter((field) => details.includes(field)).map((field) => (
+                  <FieldControl key={field.key} field={field} value={edits[field.key] ?? field.value} onChange={change} />
+                ))}
+              </div>
+            )}
+            {eligibility.length > 0 && (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Eligibility and availability</span>
+                {visibleFields.filter((field) => eligibility.includes(field)).map((field) => (
+                  <FieldControl key={field.key} field={field} value={edits[field.key] ?? field.value} onChange={change} />
+                ))}
+              </div>
+            )}
+            {readyForContinue && (
+              <button type="button" className="btn-primary" data-testid="demo-form-continue" onClick={() => setStage('questions')} style={{ justifySelf: 'start', marginTop: 6 }}>
                 Continue
               </button>
             )}
@@ -249,12 +352,20 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
         </PortalChrome>
       )}
 
-      {stage === 'question' && (
+      {stage === 'questions' && packet && (
         <PortalChrome site={site}>
           <PortalHeader job={job} />
           <StepBar current={1} />
-          <div style={{ display: 'grid', gap: 10, padding: '14px 18px' }}>
-            <label htmlFor="demo-question">{DEMO_QUESTION}</label>
+          <div style={{ display: 'grid', gap: 12, padding: '14px 18px' }}>
+            {employerQuestions.length > 0 && (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>This employer's questions</span>
+                {employerQuestions.map((field) => (
+                  <FieldControl key={field.key} field={field} value={edits[field.key] ?? field.value} onChange={change} />
+                ))}
+              </div>
+            )}
+            <label className="tiny" htmlFor="demo-question">{DEMO_QUESTION}</label>
             <textarea
               id="demo-question"
               data-testid="demo-question"
@@ -280,7 +391,7 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
         </PortalChrome>
       )}
 
-      {stage === 'review' && (
+      {stage === 'review' && packet && (
         <PortalChrome site={site}>
           <PortalHeader job={job} />
           <StepBar current={2} />
@@ -288,15 +399,18 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
             <p className="tiny muted" style={{ margin: 0 }}>
               Check every field. Submitting records a simulated application in your tracker.
             </p>
-            {sections.map((section) => (
-              <div key={section.key} style={{ display: 'grid', gap: 6 }}>
-                <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{section.title}</span>
-                {section.fields.map((field) => (
-                  <div key={`${field.key}-${field.label}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
-                    <span className="tiny muted">{field.label}</span>
-                    <span className="tiny" style={{ textAlign: 'right' }}>{field.value}</span>
-                  </div>
-                ))}
+            {sections.map((entry) => (
+              <div key={entry.id} style={{ display: 'grid', gap: 6 }}>
+                <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{entry.title}</span>
+                {entry.fields.map((field) => {
+                  const value = edits[field.key] ?? field.value;
+                  return (
+                    <div key={field.key} data-testid={`demo-review-row-${testIdFor(field.key)}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+                      <span className="tiny muted">{field.label}</span>
+                      <span className="tiny" style={{ textAlign: 'right' }}>{value}</span>
+                    </div>
+                  );
+                })}
               </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
@@ -305,9 +419,9 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
             </div>
             <div>
               <span className="tiny muted">Documents</span>
-              {documents.map((doc) => (
-                <p key={doc.key} className="tiny" style={{ margin: '2px 0', display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <BadgeCheck size={12} aria-hidden="true" /> {doc.label} (sample, not a real file)
+              {attachments.map((attachment) => (
+                <p key={attachment.key} className="tiny" style={{ margin: '2px 0', display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <BadgeCheck size={12} aria-hidden="true" /> {attachment.label} ({attachment.fileName})
                 </p>
               ))}
             </div>
@@ -352,7 +466,7 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
           <span><strong>{job.title}</strong> at {job.company}</span>
           <span>Site: {site}</span>
           <span>Button: {BUTTON_LABEL}</span>
-          <span>{answered.length} field(s) filled. {documents.length} document(s) attached.</span>
+          <span>{edited.filter((field) => field.value).length} field(s) filled. {attachments.length} document(s) attached.</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button type="button" className="btn-ghost" onClick={() => setConfirmOpen(false)} disabled={busy}>Keep reviewing</button>

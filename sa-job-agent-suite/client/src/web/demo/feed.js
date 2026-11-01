@@ -2,7 +2,7 @@
 // fixtures shaped exactly like createFeedClient results.
 import { FEED_SOURCES, sourceById } from '@sajas/core/feeds';
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
-import { DEMO_FEEDS } from './fixtures.js';
+import { DEMO_FEEDS } from './jobs.js';
 
 export function createDemoFeedClient({ datasets = DEMO_FEEDS, now = () => new Date() } = {}) {
   async function load(id) {

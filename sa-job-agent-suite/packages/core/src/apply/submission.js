@@ -37,14 +37,18 @@ export function cleanSubmission({ documents = [], fields = [], confirmation = nu
   return { documents: cleanDocuments, fields: cleanFields, confirmation: cleanConfirmation };
 }
 
-export function summariseSubmission(packet, { delivery, submittedBy = 'user', fields = null, confirmation = null } = {}) {
+export function summariseSubmission(
+  packet,
+  { delivery, submittedBy = 'user', fields = null, documents = null, confirmation = null } = {}
+) {
   if (!SUBMISSION_DELIVERIES.includes(delivery)) {
     throw new TypeError(`Unknown application delivery: ${delivery}`);
   }
   if (!SUBMISSION_SUBMITTERS.includes(submittedBy)) {
     throw new TypeError(`Unknown application submitter: ${submittedBy}`);
   }
-  const available = (packet?.documents || []).filter((doc) => doc.available);
+  const source = documents ?? packet?.documents ?? [];
+  const available = source.filter((doc) => doc.available);
   const sourceFields = fields || [
     ...(packet?.identity || []),
     ...(packet?.questions || [])

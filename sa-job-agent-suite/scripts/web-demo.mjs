@@ -192,9 +192,19 @@ async function main() {
     await page.getByTestId('open-simulated-portal').click();
     await page.getByTestId('demo-form-continue').waitFor({ timeout: 20_000 });
     await page.getByTestId('demo-field-phone').fill('011 555 0100');
+    assert.equal(
+      await page.getByTestId('demo-field-phone').inputValue(),
+      '011 555 0100',
+      'the typed phone number did not stick in the form'
+    );
     await page.getByTestId('demo-form-continue').click();
     await page.getByTestId('demo-question').waitFor();
     await page.getByTestId('demo-field-bank-criminal-record-check').fill('No');
+    assert.equal(
+      await page.getByTestId('demo-field-bank-criminal-record-check').inputValue(),
+      'No',
+      'the edited employer answer did not stick in the form'
+    );
     await page.getByTestId('demo-question').fill('The accessibility dashboard project.');
     await page.getByTestId('demo-question-continue').click();
     await page.getByTestId('demo-review').waitFor();

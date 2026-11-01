@@ -11,7 +11,7 @@ import { tailoredDocuments } from './jobs.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const SIMULATED = 'Simulated';
-const CREDENTIAL_ASSIGNMENT = /\b(?:password|passphrase|api[\s_-]?key|secret|token)\s*[:=]\s*\S+/i;
+const CREDENTIAL_ASSIGNMENT = /\b(?:password|passphrase|api[\s_-]?key|secret|token)\b\s*(?:[:=]\s*\S+|\b(?:is|are|was|were)\b\s+\S+)/i;
 
 function ok(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -169,30 +169,40 @@ export function createSimulationRouter({
         throw new AppError(ERROR_CODES.VALIDATION, 'That field looks like a credential, so it was not recorded.');
       }
     }
-    const seenDocuments = new Set();
-    const documentMeta = [];
-    for (const document of Array.isArray(documents) ? documents : []) {
-      const key = String(document?.key || '').trim().slice(0, 40);
-      const label = String(document?.label || '').trim();
-      if (!key || !label || seenDocuments.has(key)) continue;
-      seenDocuments.add(key);
-      documentMeta.push({
-        key, label, fileName: String(document?.fileName || '').trim(), available: true
-      });
+    const base = String(job.title || 'application').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'application';
+    const allowed = new Map();
+    if (job.tailoredCvText) {
+      allowed.set('tailored-cv', { key: 'tailored-cv', label: 'Tailored CV', fileName: `${base}-cv.pdf` });
     }
-    if (!documentMeta.length) {
-      const base = String(job.title || 'application').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'application';
-      if (job.tailoredCvText) {
-        documentMeta.push({ key: 'tailored-cv', label: 'Tailored CV', fileName: `${base}-cv.pdf`, available: true });
+    if (job.tailoredCoverLetterText) {
+      allowed.set('tailored-letter', { key: 'tailored-letter', label: 'Tailored cover letter', fileName: `${base}-cover-letter.pdf` });
+    }
+    for (const stored of await vault.getAll(STORES.documents)) {
+      const id = String(stored?.id || '').trim();
+      if (id) allowed.set(id, { key: id, label: String(stored.label || '').trim(), fileName: String(stored.fileName || '').trim() });
+    }
+    const posted = (Array.isArray(documents) ? documents : []).map((document) => ({
+      key: String(document?.key || '').trim().slice(0, 40)
+    })).filter((document) => document.key);
+    const documentMeta = [];
+    for (const { key } of posted) {
+      const known = allowed.get(key);
+      if (!known) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'That submission named a document the demo library does not have.');
       }
-      if (job.tailoredCoverLetterText) {
-        documentMeta.push({ key: 'tailored-letter', label: 'Tailored cover letter', fileName: `${base}-cover-letter.pdf`, available: true });
+      if (documentMeta.some((entry) => entry.key === key)) continue;
+      documentMeta.push({ ...known, available: true });
+    }
+    if (!posted.length) {
+      for (const key of ['tailored-cv', 'tailored-letter']) {
+        const known = allowed.get(key);
+        if (known) documentMeta.push({ ...known, available: true });
       }
     }
     const profile = (await vault.get(STORES.profile, 'current', {})) || {};
     const answerBank = await vault.getAll(STORES.answers);
     const extra = String(answer || '').trim();
-    if (extra && CREDENTIAL_ASSIGNMENT.test(extra)) {
+    if (extra && (looksLikeCredential('answer', extra) || CREDENTIAL_ASSIGNMENT.test(extra))) {
       throw new AppError(ERROR_CODES.VALIDATION, 'That answer looks like a credential, so it was not recorded.');
     }
     const jobQuestions = Array.isArray(job.questions) ? job.questions : [];

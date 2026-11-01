@@ -124,9 +124,34 @@ test('an edit that looks like a credential is refused and nothing is recorded', 
 
 test('an answer that reads like a credential is refused before anything is written', async () => {
   const { vault, router } = harness();
+  const responses = [
+    await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+      fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+      answer: 'The password: hunter2 is in the brief.'
+    })),
+    await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+      fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+      answer: 'My password is hunter2, please keep it safe.'
+    })),
+    await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+      fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+      answer: ['sk', 'ant', 'api03', 'H'.repeat(24)].join('-')
+    }))
+  ];
+  for (const response of responses) {
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, 'VALIDATION');
+  }
+  assert.equal((await vault.get(STORES.jobs, 'demo-job-1')).status, 'tailored');
+  assert.equal((await vault.get(STORES.answers, 'demo-visitor-answer')), undefined);
+});
+
+test('a document the demo library does not hold is refused', async () => {
+  const { vault, router } = harness();
   const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
     fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
-    answer: 'The password: hunter2 is in the brief.'
+    answer: 'The accessibility dashboard project.',
+    documents: [{ key: 'forged-passport', label: 'Certified passport (forged)', fileName: 'passport.pdf' }]
   }));
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, 'VALIDATION');

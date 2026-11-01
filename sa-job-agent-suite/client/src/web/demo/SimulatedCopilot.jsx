@@ -331,7 +331,7 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
               <div style={{ display: 'grid', gap: 8 }}>
                 <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Your details</span>
                 {visibleFields.filter((field) => details.includes(field)).map((field) => (
-                  <FieldControl key={field.key} field={field} value={field.value} onChange={change} />
+                  <FieldControl key={field.key} field={field} value={edits[field.key] ?? field.value} onChange={change} />
                 ))}
               </div>
             )}
@@ -339,7 +339,7 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
               <div style={{ display: 'grid', gap: 8 }}>
                 <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Eligibility and availability</span>
                 {visibleFields.filter((field) => eligibility.includes(field)).map((field) => (
-                  <FieldControl key={field.key} field={field} value={field.value} onChange={change} />
+                  <FieldControl key={field.key} field={field} value={edits[field.key] ?? field.value} onChange={change} />
                 ))}
               </div>
             )}
@@ -361,7 +361,7 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
               <div style={{ display: 'grid', gap: 8 }}>
                 <span className="tiny" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>This employer's questions</span>
                 {employerQuestions.map((field) => (
-                  <FieldControl key={field.key} field={field} value={field.value} onChange={change} />
+                  <FieldControl key={field.key} field={field} value={edits[field.key] ?? field.value} onChange={change} />
                 ))}
               </div>
             )}

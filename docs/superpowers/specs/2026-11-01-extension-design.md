@@ -1,6 +1,6 @@
 # Phase 3: Apply Assistant Extension
 
-**Status:** approved as Phase 3 of [Automation and Data Depth](2026-11-01-automation-and-data-depth-design.md)
+**Status:** shipped 2026-11-01 (PR #33) as Phase 3 of [Automation and Data Depth](2026-11-01-automation-and-data-depth-design.md)
 **Date:** 2026-11-01
 **Phase:** 3 of 4
 **Sources of truth:** the architecture spec above, the Phase 2 packet, bridge and delivery contracts, `SECURITY.md`, `THREAT-MODEL.md`, `POLICY.md`.

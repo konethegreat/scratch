@@ -6,6 +6,14 @@ function say(message) {
   statusEl.textContent = message;
 }
 
+async function send(message) {
+  try {
+    return await chrome.runtime.sendMessage(message);
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   if (!globalThis.chrome?.tabs?.query) {
     say('Open the SA-JAS app to send an application first.');
@@ -22,7 +30,7 @@ async function main() {
     say('This tab has no site to fill.');
     return;
   }
-  const response = await chrome.runtime.sendMessage({ type: 'sajas:matching-packet', host });
+  const response = await send({ type: 'sajas:matching-packet', host });
   const match = response?.match;
   if (!match) {
     say('No application is waiting for this site. Press Send to extension in the app, then open the application link.');
@@ -34,7 +42,7 @@ async function main() {
   say(`Ready to fill ${match.site}.`);
   fillEl.addEventListener('click', async () => {
     fillEl.disabled = true;
-    const result = await chrome.runtime.sendMessage({ type: 'sajas:inject', tabId: tab.id, packetId: match.packetId });
+    const result = await send({ type: 'sajas:inject', tabId: tab.id, packetId: match.packetId });
     if (result?.ok) {
       say('Filling the page. Check the review panel before you submit.');
       setTimeout(() => window.close(), 1500);

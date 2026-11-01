@@ -46,7 +46,7 @@ test('the apply tab is web-only', () => {
   assert.equal(isTabVisible('apply', false), false);
 });
 
-test('demo shows copilot and logs, hides referrals, routines, backup and documents', () => {
+test('demo shows copilot and logs, hides referrals, routines and backup but keeps documents', () => {
   for (const tab of ['copilot', 'logs', 'apply', 'dashboard', 'tailor', 'ask']) {
     assert.equal(isTabVisible(tab, true, true), true, tab);
   }
@@ -54,11 +54,15 @@ test('demo shows copilot and logs, hides referrals, routines, backup and documen
     assert.equal(isTabVisible(tab, true, true), false, tab);
   }
   const tabs = [{ id: 'ai' }, { id: 'answers' }, { id: 'data' }, { id: 'backup' }, { id: 'documents' }];
-  assert.deepEqual(filterSettingsTabs(tabs, true, true).map((tab) => tab.id), ['ai']);
+  assert.deepEqual(filterSettingsTabs(tabs, true, true).map((tab) => tab.id), ['ai', 'documents']);
 });
 
-test('the documents tab is web-only and hidden in demo', () => {
-  assert.equal(filterSettingsTabs([{ id: 'documents' }], true).length, 1);
-  assert.equal(filterSettingsTabs([{ id: 'documents' }], false).length, 0);
-  assert.equal(filterSettingsTabs([{ id: 'documents' }], true, true).length, 0);
+test('demo shows documents read-only but hides backup', () => {
+  const tabs = [
+    { id: 'ai' }, { id: 'profile' }, { id: 'search' }, { id: 'documents' }, { id: 'backup' }
+  ];
+  assert.deepEqual(
+    filterSettingsTabs(tabs, true, true).map((tab) => tab.id),
+    ['ai', 'profile', 'search', 'documents']
+  );
 });

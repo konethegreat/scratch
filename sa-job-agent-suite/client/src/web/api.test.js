@@ -5,7 +5,7 @@ import { createMemoryAdapter } from './memoryAdapter.js';
 import { createKeyStore } from './keyStore.js';
 import { createActivity } from './activity.js';
 import { createWebApi } from './api.js';
-import { bytesToBase64 } from './documents.js';
+import { bytesToBase64, TEXT_MIME } from './documents.js';
 import { fakeClient } from '@sajas/core/testing';
 import { callClaude } from '@sajas/core/ai';
 import { MODEL_IDS } from '@sajas/core/models';
@@ -551,6 +551,23 @@ test('documents round-trip through the API without leaking bytes into lists', as
   const removed = await call(`/documents/${document.id}`, { method: 'DELETE' });
   assert.equal((await json(removed)).success, true);
   assert.deepEqual(await json(await call('/documents')), []);
+});
+
+test('the document file route reads a validated demo base64 record', async () => {
+  const { call, vault } = harness();
+  const text = 'Sample demo document';
+  const bytes = new TextEncoder().encode(text);
+  const dataBase64 = bytesToBase64(bytes);
+  await vault.put(STORES.documents, 'demo-doc', {
+    id: 'demo-doc', kind: 'certification', label: 'Sample', fileName: 'sample.txt',
+    mime: TEXT_MIME, size: bytes.byteLength, text, dataBase64,
+    uploadedAt: '2026-11-01T10:00:00.000Z', isDefault: false
+  });
+  const response = await call('/documents/demo-doc/file', { method: 'GET' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await json(response), { fileName: 'sample.txt', mime: TEXT_MIME, dataBase64 });
+  const list = await json(await call('/documents'));
+  assert.equal('dataBase64' in list[0], false);
 });
 
 test('only one CV can be the default at a time', async () => {

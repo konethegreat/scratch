@@ -82,6 +82,18 @@ test('results are cleaned, capped and acknowledged by id', async () => {
   assert.equal((await store.takeResults()).some((entry) => entry.id === 'r4'), false);
 });
 
+test('a page confirmation is kept on the queued result', async () => {
+  const store = createExtensionStore(memoryStorage());
+  await store.addResult(result('r1', {
+    confirmation: { confirmedAt: '2026-11-01T10:00:00.000Z', text: 'Thank you for applying.' }
+  }));
+  const [kept] = await store.takeResults();
+  assert.deepEqual(kept.confirmation, {
+    confirmedAt: '2026-11-01T10:00:00.000Z',
+    text: 'Thank you for applying.'
+  });
+});
+
 test('a result without a job, site or timestamp is refused', async () => {
   const store = createExtensionStore(memoryStorage());
   await assert.rejects(() => store.addResult(result('r1', { jobId: '' })), /job/);

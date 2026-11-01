@@ -70,7 +70,10 @@ export function createExtensionBridge({
       return { ok: false, reason: 'timeout', message: 'The extension did not confirm the packet. Check that it is installed and enabled, then try again.' };
     },
     async pullResults() {
+      // The content script accepts nothing until a hello has set its nonce, and
+      // a fresh page load may pull before anything else has said hello.
       const reply = waitFor('sajas:results', (data) => Array.isArray(data.results), resultsTimeoutMs);
+      post({ source: APP, type: 'sajas:hello', version: BRIDGE_VERSION, nonce });
       post({ source: APP, type: 'sajas:results-request', version: BRIDGE_VERSION, nonce });
       const received = await reply;
       return Array.isArray(received?.results) ? received.results : [];

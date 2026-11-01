@@ -47,6 +47,7 @@ async function run(packetId) {
       if (!outcome.ok) {
         return { ok: false, error: 'Could not confirm the submission. Check the page, then mark it applied in the app.' };
       }
+      const submittedAt = new Date().toISOString();
       await chrome.runtime.sendMessage({
         type: 'sajas:record-result',
         result: {
@@ -54,8 +55,8 @@ async function run(packetId) {
           packetId: packet.packetId,
           jobId: packet.job.id,
           site: location.hostname,
-          submittedAt: new Date().toISOString(),
-          confirmation: outcome.confirmation,
+          submittedAt,
+          confirmation: { confirmedAt: submittedAt, text: outcome.confirmation },
           fields: applied.map(({ label, value }) => ({ label, value })),
           warnings: packet.warnings || []
         }

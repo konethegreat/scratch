@@ -107,6 +107,10 @@ test('pullResults asks with this nonce and returns the queued results', async ()
   const win = fakeWindow();
   const bridge = createExtensionBridge({ window: win, nonce: 'n1', resultsTimeoutMs: 50 });
   const pending = bridge.pullResults();
+  assert.deepEqual(win.sent.at(-2), {
+    data: { source: 'sajas-app', type: 'sajas:hello', version: 1, nonce: 'n1' },
+    origin: 'https://sajas.pages.dev'
+  });
   assert.deepEqual(win.sent.at(-1), {
     data: { source: 'sajas-app', type: 'sajas:results-request', version: 1, nonce: 'n1' },
     origin: 'https://sajas.pages.dev'

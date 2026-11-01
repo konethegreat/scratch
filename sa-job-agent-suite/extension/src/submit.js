@@ -15,6 +15,32 @@ export function captchaText(document) {
   return hasCaptcha(document) ? 'This page has a CAPTCHA.' : '';
 }
 
+// An adapter phrase is often only part of the page's sentence ("Thank you for
+// applying"), so widen it to the full sentence for the person to read back.
+function sentenceAround(text, index, length) {
+  const stop = /[.!?\n]/;
+  const floor = Math.max(0, index - 200);
+  let start = index;
+  while (start > floor && !stop.test(text[start - 1])) start -= 1;
+  let end = index + length;
+  const ceiling = Math.min(text.length, end + 200);
+  while (end < ceiling && !stop.test(text[end])) end += 1;
+  return text.slice(start, Math.min(text.length, end + 1)).replace(/\s+/g, ' ').trim();
+}
+
+// The smallest block that carries the phrase is the page's own confirmation,
+// which reads better than a bare regex match and works when no selector fits.
+const BLOCKS = 'div, p, section, main, span, h1, h2, h3, li';
+function confirmationText(document, regex) {
+  let best = '';
+  for (const node of document.body?.querySelectorAll?.(BLOCKS) || []) {
+    const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text || text.length > 300 || !regex.test(text)) continue;
+    if (!best || text.length < best.length) best = text;
+  }
+  return best;
+}
+
 export function watchSuccess(document, adapter, { timeoutMs = 8000, intervalMs = 400 } = {}) {
   return new Promise((resolve) => {
     const view = document.defaultView;
@@ -42,7 +68,14 @@ export function watchSuccess(document, adapter, { timeoutMs = 8000, intervalMs =
       }
       const pageText = String(document.body?.innerText || document.body?.textContent || '');
       const match = adapter?.successText ? pageText.match(adapter.successText) : null;
-      if (match) { finish(true, match[0]); return; }
+      if (match) {
+        const block = confirmationText(document, adapter.successText);
+        const text = block || (typeof match.index === 'number'
+          ? sentenceAround(pageText, match.index, match[0].length)
+          : match[0]);
+        finish(true, text);
+        return;
+      }
       const href = view?.location?.href || '';
       if (startedHref && href && href !== startedHref) finish(true, 'The page changed after submitting.');
     };

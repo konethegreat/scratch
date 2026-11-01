@@ -438,6 +438,17 @@ test('bank answers are readable and marking applied records the packet', async (
   assert.equal(memory.applications[0].delivery, 'web-guided');
 });
 
+test('the answer bank applies v2 defaults without rewriting storage', async () => {
+  const { call, vault } = harness({ answers: { q1: { id: 'q1', question: 'Notice period?', answer: 'One month', normalized: 'notice period' } } });
+  const list = await json(await call('/application/bank'));
+  assert.equal(list[0].category, 'other');
+  assert.equal(list[0].source, 'manual');
+  assert.equal(list[0].timesUsed, 0);
+  assert.equal(list[0].lastUsed, null);
+  const stored = await vault.get(STORES.answers, 'q1');
+  assert.equal(Object.hasOwn(stored, 'category'), false);
+});
+
 test('GET /profile migrates a v1 record once and keeps unknown keys', async () => {
   const { call, vault } = harness({
     profile: { current: { fullName: 'Thandi', applicationProfile: { noticePeriod: '30 days' }, legacyFlag: true } }

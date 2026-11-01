@@ -14,6 +14,7 @@ import { createWebIntake } from './cvIntake.js';
 import { MAX_FIELD_LENGTH } from './backup.js';
 import { webLink } from './links.js';
 import { migrateProfile } from './profile.js';
+import { withAnswerDefaults } from './answers.js';
 import {
   DOCUMENT_KINDS, bytesToBase64, createDocumentRecord, documentMetadata, normaliseDocumentLabel
 } from './documents.js';
@@ -514,7 +515,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       }
       if ((match = path.match(/^\/documents\/([^/]+)$/)) && method === 'PATCH') return await patchDocument(input, init, match[1]);
       if ((match = path.match(/^\/documents\/([^/]+)$/)) && method === 'DELETE') return await deleteDocument(match[1]);
-      if (path === '/application/bank' && method === 'GET') return ok(await vault.getAll(STORES.answers));
+      if (path === '/application/bank' && method === 'GET') return ok((await vault.getAll(STORES.answers)).map(withAnswerDefaults));
       if (path === '/jobs' && method === 'GET') return await getJobs();
       if (path === '/jobs' && method === 'POST') return await addJob(input, init);
       if (path === '/jobs' && method === 'DELETE') {

@@ -31,6 +31,17 @@ test('the demo runtime seeds once, reports a key and answers profile', async () 
   assert.equal(body.hasAnthropicKey, true);
 });
 
+test('the demo runtime serves four sample documents without base64 in the list', async () => {
+  const runtime = await getDemoRuntime({ apiBase: API_BASE, now: () => new Date('2026-11-01T10:00:00Z') });
+  const list = await (await runtime.api.handle(`${API_BASE}/documents`, { method: 'GET' })).json();
+  assert.equal(list.length, 4);
+  assert.equal(list.some((doc) => 'dataBase64' in doc), false);
+  const file = await (await runtime.api.handle(`${API_BASE}/documents/demo-doc-cv/file`, { method: 'GET' })).json();
+  assert.equal(file.mime, 'text/plain');
+  assert.match(file.fileName, /CV/);
+  assert.ok(file.dataBase64.length > 100);
+});
+
 test('a second call returns the same runtime', async () => {
   const first = await getDemoRuntime({ apiBase: API_BASE });
   const second = await getDemoRuntime({ apiBase: API_BASE });

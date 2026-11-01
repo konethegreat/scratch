@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const dist = path.join(root, 'client/dist');
-const MARKERS = ['Alex Example', 'Example Studio', 'Fable Fintech', 'sajas:demo:'];
+const MARKERS = ['Naledi Mokoena', 'Bokamoso Bank', 'sajas:demo:'];
 
 async function main() {
   const html = await fs.readFile(path.join(dist, 'index.html'), 'utf8').catch(() => {
@@ -26,7 +26,7 @@ async function main() {
   for (const name of assets.filter((file) => file.endsWith('.js'))) {
     chunks.push({ name, text: await fs.readFile(path.join(dist, 'assets', name), 'utf8') });
   }
-  assert.ok(chunks.some((chunk) => chunk.name !== path.basename(entry) && chunk.text.includes('Alex Example')), 'no demo fixtures chunk was emitted');
+  assert.ok(chunks.some((chunk) => chunk.name !== path.basename(entry) && chunk.text.includes('Naledi Mokoena')), 'no demo persona chunk was emitted');
   assert.ok(chunks.some((chunk) => chunk.text.includes('sajas:demo:')), 'no demo storage namespace chunk was emitted');
   console.log(`check-demo-bundle: PASS (${chunks.length} chunks)`);
 }

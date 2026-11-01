@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CAPTCHA fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Store Manager</h1>
+      <p>Thuli Foods, Polokwane</p>
+      <form id="apply">
+        <label for="given">Given name</label>
+        <input id="given" autocomplete="given-name" />
+        <label for="family">Family name</label>
+        <input id="family" autocomplete="family-name" />
+        <label for="email">Email address</label>
+        <input id="email" type="email" autocomplete="email" />
+        <div class="g-recaptcha" data-sitekey="fixture-only"></div>
+        <button type="submit">Submit application</button>
+      </form>
+    </main>
+  </body>
+</html>

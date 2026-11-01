@@ -1,6 +1,6 @@
 # Phase 1: Profile v2, Documents and CV Intake
 
-**Status:** implemented 2026-11-01, gates green, merge pending
+**Status:** shipped 2026-11-01 (PR #31)
 **Date:** 2026-11-01
 **Phase:** 1 of [Automation and Data Depth](2026-11-01-automation-and-data-depth-design.md)
 **Sources of truth:** the architecture spec above, `SECURITY.md`, `THREAT-MODEL.md`, `POLICY.md`, and the existing vault, API and backup contracts.

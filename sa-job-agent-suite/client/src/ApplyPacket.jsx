@@ -45,8 +45,10 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
   const [documents, setDocuments] = useState([]);
   const [chosenDocs, setChosenDocs] = useState(() => new Set());
   const [bridgeReady, setBridgeReady] = useState(false);
+  const [bridgeChecked, setBridgeChecked] = useState(false);
   const [sending, setSending] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [baseBusy, setBaseBusy] = useState(false);
   const bridgeRef = useRef(null);
   const job = ready.find((entry) => entry.id === pickedId) || ready[0] || null;
   const packet = useMemo(() => {
@@ -76,7 +78,11 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
       .catch(() => {});
     const bridge = createExtensionBridge();
     bridgeRef.current = bridge;
-    bridge.probe().then((isReady) => { if (live) setBridgeReady(isReady); });
+    bridge.probe().then((isReady) => {
+      if (!live) return;
+      setBridgeReady(isReady);
+      setBridgeChecked(true);
+    });
     return () => {
       live = false;
       bridge.dispose();
@@ -156,6 +162,24 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
 
   const baseCv = documents.find((doc) => doc.kind === 'cv' && doc.isDefault) || documents.find((doc) => doc.kind === 'cv') || null;
 
+  const downloadBaseCv = async () => {
+    if (!baseCv) return;
+    setBaseBusy(true);
+    try {
+      const res = await fetch(`${apiBase}/documents/${baseCv.id}/file`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Could not read your stored CV.');
+      const body = await res.json();
+      const binary = atob(body.dataBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      downloadBytes(bytes, baseCv.fileName, { type: body.mime });
+    } catch (error) {
+      toasts?.error?.(error.message);
+    } finally {
+      setBaseBusy(false);
+    }
+  };
+
   if (!ready.length) {
     return (
       <section className="panel" style={{ padding: 24 }}>
@@ -228,16 +252,17 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
               <p className="tiny" style={{ margin: '4px 0' }}>
                 {baseCv ? `Base CV: ${baseCv.fileName}` : 'No CV is stored yet. Add one in Profile & Settings > Documents.'}
               </p>
-              {documents.length > 0 && (
-                <div data-testid="apply-documents" style={{ display: 'grid', gap: 4, margin: '8px 0' }}>
-                  {documents.map((doc) => (
-                    <label key={doc.id} className="tiny" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input type="checkbox" checked={chosenDocs.has(doc.id)} onChange={() => toggleDoc(doc.id)} />
-                      {doc.label} ({doc.kind})
-                    </label>
-                  ))}
-                </div>
-              )}
+              <div data-testid="apply-documents" style={{ display: 'grid', gap: 4, margin: '8px 0' }}>
+                <label className="tiny" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="checkbox" checked disabled /> Tailored CV (PDF, generated from this job)
+                </label>
+                {documents.map((doc) => (
+                  <label key={doc.id} className="tiny" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="checkbox" checked={chosenDocs.has(doc.id)} onChange={() => toggleDoc(doc.id)} />
+                    {doc.label} ({doc.kind})
+                  </label>
+                ))}
+              </div>
               <div className="flex-gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
                 <button
                   type="button"
@@ -251,6 +276,15 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
                 <button
                   type="button"
                   className="btn-secondary btn-sm"
+                  data-testid="download-base-cv"
+                  disabled={baseBusy || !baseCv}
+                  onClick={downloadBaseCv}
+                >
+                  <Download size={13} /> {baseBusy ? 'Reading the file...' : 'Download base CV'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
                   data-testid="send-to-extension"
                   disabled={sending}
                   onClick={sendToExtension}
@@ -258,7 +292,7 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
                   <Send size={13} /> {sending ? 'Sending...' : 'Send to extension'}
                 </button>
               </div>
-              {!bridgeReady && (
+              {bridgeChecked && !bridgeReady && (
                 <p className="tiny" style={{ marginTop: 6 }}>
                   The extension is not installed yet. Install it from the project repository, then reload this page.
                 </p>

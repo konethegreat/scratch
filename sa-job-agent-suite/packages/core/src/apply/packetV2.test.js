@@ -102,6 +102,32 @@ test('the sanitiser rebuilds a valid packet and drops unknown fields', () => {
   assert.equal(clean.job.site, '');
 });
 
+test('credential-named fields and key-shaped values never reach a packet', () => {
+  const fakeKey = ['sk', 'ant', 'x'.repeat(24)].join('-');
+  const built = buildApplyPacketV2({
+    profile,
+    job,
+    answerBank: [
+      { question: 'Anything else?', answer: fakeKey, normalized: 'anything else' },
+      { question: 'Your API key?', answer: 'abc123', normalized: 'your api key' }
+    ]
+  });
+  const serialised = JSON.stringify(built);
+  assert.equal(serialised.includes(fakeKey), false);
+  assert.equal(serialised.includes('abc123'), false);
+  assert.equal(built.fields.some((entry) => entry.key.startsWith('bank:')), false);
+
+  const packet = buildApplyPacketV2({ profile, job });
+  assert.throws(
+    () => sanitisePacketV2({ ...packet, identity: [{ key: 'anthropicApiKey', label: 'Key', value: 'x' }] }),
+    /credential/
+  );
+  assert.throws(
+    () => sanitisePacketV2({ ...packet, questions: [{ key: 'bank:notes', label: 'Notes', value: fakeKey, source: 'answer-bank' }] }),
+    /credential/
+  );
+});
+
 test('the sanitiser rejects hostile attachments and versions', () => {
   const packet = buildApplyPacketV2({ profile, job });
   assert.throws(() => sanitisePacketV2({ ...packet, version: 1 }), /version/);

@@ -56,18 +56,49 @@ test('send posts a validated packet once and waits for a matching ack', async ()
   bridge.dispose();
 });
 
-test('foreign origins, wrong sources, wrong nonces and invalid packets are refused', async () => {
+test('an invalid packet is refused before anything is posted', async () => {
   const win = fakeWindow();
   const bridge = createExtensionBridge({ window: win, nonce: 'n1', ackTimeoutMs: 10 });
-  const rejected = bridge.send({ ...packet, version: 1 });
+  const result = await bridge.send({ ...packet, version: 1 });
+  assert.equal(result.ok, false);
   assert.equal(win.sent.filter((entry) => entry.data.type === 'sajas:packet').length, 0);
-  assert.equal((await rejected).ok, false);
+  bridge.dispose();
+});
 
+test('an ack from a foreign origin is ignored', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', ackTimeoutMs: 10 });
   const pending = bridge.send(packet);
   win.receive({ source: 'sajas-extension', type: 'sajas:ack', version: 1, nonce: 'n1', packetId: 'p1' }, { origin: 'https://evil.example' });
-  win.receive({ source: {}, type: 'sajas:ack', version: 1, nonce: 'n1', packetId: 'p1' });
-  win.receive({ source: 'sajas-extension', type: 'sajas:ack', version: 1, nonce: 'n1', packetId: 'p1' });
-  assert.deepEqual(await pending, { ok: true });
+  const result = await pending;
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'timeout');
   bridge.dispose();
-  assert.equal(win.sent.filter((entry) => entry.data.type === 'sajas:packet').length, 1);
+});
+
+test('an ack from a window other than this one is ignored', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', ackTimeoutMs: 10 });
+  const pending = bridge.send(packet);
+  win.receive({ source: 'sajas-extension', type: 'sajas:ack', version: 1, nonce: 'n1', packetId: 'p1' }, { source: {} });
+  assert.equal((await pending).ok, false);
+  bridge.dispose();
+});
+
+test('an ack with a different nonce is ignored', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', ackTimeoutMs: 10 });
+  const pending = bridge.send(packet);
+  win.receive({ source: 'sajas-extension', type: 'sajas:ack', version: 1, nonce: 'n2', packetId: 'p1' });
+  assert.equal((await pending).ok, false);
+  bridge.dispose();
+});
+
+test('probe ignores a ready message with a different nonce', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', timeoutMs: 10 });
+  const ready = bridge.probe();
+  win.receive({ source: 'sajas-extension', type: 'sajas:ready', version: 1, nonce: 'n2' });
+  assert.equal(await ready, false);
+  bridge.dispose();
 });

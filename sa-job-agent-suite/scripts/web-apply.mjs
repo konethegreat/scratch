@@ -39,11 +39,17 @@ async function seed(page) {
       request.onerror = () => reject(request.error);
     });
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(['profile', 'jobs', 'meta', 'answers'], 'readwrite');
+      const tx = db.transaction(['profile', 'jobs', 'meta', 'answers', 'documents'], 'readwrite');
       tx.objectStore('profile').put(profile, 'current');
       tx.objectStore('jobs').put(job, job.id);
       tx.objectStore('meta').put({ onboarded: true }, 'app');
       tx.objectStore('answers').put({ id: 'driver', question: 'Driver licence?', answer: 'Code B', normalized: 'driver licence' }, 'driver');
+      const cvBytes = new TextEncoder().encode('Base CV for Thandi Mokoena');
+      tx.objectStore('documents').put({
+        id: 'cv-base', kind: 'cv', label: 'Base CV', fileName: 'base-cv.txt',
+        mime: 'text/plain', size: cvBytes.byteLength, text: 'Base CV for Thandi Mokoena',
+        data: cvBytes.buffer, uploadedAt: '2026-10-30T10:00:00.000Z', isDefault: true
+      }, 'cv-base');
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
     });
@@ -121,8 +127,21 @@ async function main() {
     assert.equal(new TextDecoder().decode(pdfBytes.subarray(0, 5)), '%PDF-');
     assert.ok(pdfBytes.byteLength > 500, 'the PDF was suspiciously small');
 
+    await page.getByText('Base CV: base-cv.txt').waitFor();
+    assert.equal(await page.getByRole('checkbox', { name: 'Base CV (cv)' }).isChecked(), true);
+    const baseEvent = page.waitForEvent('download');
+    await page.getByTestId('download-base-cv').click();
+    const savedBase = await baseEvent;
+    assert.equal(savedBase.suggestedFilename(), 'base-cv.txt');
+    const basePath = await savedBase.path();
+    assert.ok(basePath, 'the browser reported no file for the base CV');
+    assert.equal(await fs.readFile(basePath, 'utf8'), 'Base CV for Thandi Mokoena');
+
+    // The send button must answer for itself: no toast exists before the click,
+    // and the click produces the one that names the missing extension.
+    assert.equal(await page.getByText(/Check that it is installed and enabled/i).count(), 0);
     await page.getByTestId('send-to-extension').click();
-    await page.getByText(/extension is not installed/i).first().waitFor({ timeout: 5000 });
+    await page.getByText(/Check that it is installed and enabled/i).first().waitFor({ timeout: 4000 });
 
     await page.getByRole('button', { name: /Mark applied/i }).click();
     await page.getByText('Marked as applied.').waitFor({ timeout: 10_000 });

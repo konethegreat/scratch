@@ -21,6 +21,13 @@ const MIME_BY_KIND = {
 const text = (value, cap) => String(value == null ? '' : value).trim().slice(0, cap);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+// No field on an application form needs a credential, and a provider key must
+// never travel in a packet, so both the builder and the sanitiser drop or
+// refuse anything that names or looks like one.
+const SECRET_FIELD = /(?:api|access|secret|private|signing)[\s_-]?key|apikey|token|password|passphrase|credential|authorization/i;
+const KEY_SHAPE = /\b(?:sk|rk)[-_](?:ant|or|proj|svcacct|admin|live|test)[-_][A-Za-z0-9_-]{8,}/i;
+const carriesSecret = (key, value) => SECRET_FIELD.test(key) || KEY_SHAPE.test(value);
+
 function money(amount, period) {
   const number = Number(amount);
   if (!Number.isFinite(number) || number <= 0) return '';
@@ -75,11 +82,13 @@ export function buildApplyPacketV2({
     key: text(doc.key, 40), label: text(doc.label, LABEL_CAP), fileName: text(doc.fileName, 200), available: Boolean(doc.available)
   }));
   const base = buildApplyPacket({ profile, job, answerBank, supportingDocs });
+  const identity = base.identity.filter((entry) => !carriesSecret(entry.key, entry.value));
+  const questions = base.questions.filter((entry) => !carriesSecret(entry.key, entry.value));
 
   const fields = [];
   const add = (key, label, value, source = 'profile') => {
     const clean = text(value, VALUE_CAP);
-    if (clean) fields.push({ key, label, value: clean, source });
+    if (clean && !carriesSecret(key, clean)) fields.push({ key, label, value: clean, source });
   };
   const name = text(profile.fullName, VALUE_CAP);
   const [firstName, ...rest] = name.split(' ').filter(Boolean);
@@ -119,7 +128,7 @@ export function buildApplyPacketV2({
     add('gender', 'Gender', answers.gender);
     add('disability', 'Disability', answers.disability);
   }
-  for (const entry of base.questions.filter((question) => question.source === 'answer-bank')) {
+  for (const entry of questions.filter((question) => question.source === 'answer-bank')) {
     const key = entry.key.startsWith('bank-') ? `bank:${entry.key.slice('bank-'.length)}` : entry.key;
     add(key, entry.label, entry.value, 'answer-bank');
   }
@@ -129,8 +138,8 @@ export function buildApplyPacketV2({
     packetId: text(newId(), MAX_PACKET_ID),
     createdAt: now().toISOString(),
     job: { ...base.job, applyUrl: text(job && job.applyUrl, 2000) },
-    identity: base.identity,
-    questions: base.questions,
+    identity,
+    questions,
     fields: fields.slice(0, MAX_FIELDS),
     attachments: cleanAttachments,
     checklist: base.checklist,
@@ -156,6 +165,7 @@ export function sanitisePacketV2(raw) {
       const label = text(entry.label, LABEL_CAP);
       const value = text(entry.value, VALUE_CAP);
       if (!key || !label) throw new TypeError('That packet has an invalid field.');
+      if (carriesSecret(key, value)) throw new TypeError('That packet carries a field that looks like a credential.');
       return withSource ? { key, label, value, source: text(entry.source, 20) || 'profile' } : { key, label, value };
     });
   };
@@ -190,9 +200,19 @@ export function sanitisePacketV2(raw) {
     return { key, kind, label, fileName, mime, size, dataBase64 };
   });
   const checklist = Array.isArray(raw.checklist)
-    ? raw.checklist.slice(0, MAX_CHECKLIST).map((entry) => ({ key: text(entry?.key, 80), label: text(entry?.label, LABEL_CAP), done: entry?.done === true }))
+    ? raw.checklist.slice(0, MAX_CHECKLIST).map((entry) => {
+      const label = text(entry?.label, LABEL_CAP);
+      if (KEY_SHAPE.test(label)) throw new TypeError('That packet carries a field that looks like a credential.');
+      return { key: text(entry?.key, 80), label, done: entry?.done === true };
+    })
     : [];
-  const warnings = Array.isArray(raw.warnings) ? raw.warnings.slice(0, MAX_WARNINGS).map((entry) => text(entry, LABEL_CAP)) : [];
+  const warnings = Array.isArray(raw.warnings)
+    ? raw.warnings.slice(0, MAX_WARNINGS).map((entry) => {
+      const warning = text(entry, LABEL_CAP);
+      if (KEY_SHAPE.test(warning)) throw new TypeError('That packet carries a field that looks like a credential.');
+      return warning;
+    })
+    : [];
   return {
     version: PACKET_VERSION,
     packetId,

@@ -16,6 +16,13 @@ test('accented text and punctuation do not throw', async () => {
   assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
 });
 
+test('control characters outside WinAnsi are dropped instead of throwing', async () => {
+  const text = '# CV\nName\u0093with\u0080controls\u009fhere';
+  const bytes = await createCvPdf({ text, title: 'CV' });
+  assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
+  assert.ok(bytes.byteLength > 500);
+});
+
 test('empty and oversized text are refused with plain messages', async () => {
   await assert.rejects(() => createCvPdf({ text: '   ' }), /empty/);
   await assert.rejects(() => createCvPdf({ text: 'x'.repeat(120001) }), /too long/);

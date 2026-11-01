@@ -23,7 +23,10 @@ function winAnsiSafe(value) {
     const mapped = REPLACEMENTS.get(char) ?? char;
     for (const piece of mapped) {
       const code = piece.codePointAt(0);
-      if (code === 10 || code === 13 || code === 9 || (code >= 32 && code <= 255)) out += piece;
+      // Helvetica is WinAnsi: printable ASCII plus 160-255. 127-159 are control
+      // codes pdf-lib cannot encode, so they are dropped like any other glyph.
+      if (code === 10 || code === 13 || code === 9
+        || (code >= 32 && code <= 126) || (code >= 160 && code <= 255)) out += piece;
     }
   }
   return out;

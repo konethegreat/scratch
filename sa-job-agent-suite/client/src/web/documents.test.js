@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DOCX_MIME, MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_TOTAL_DOCUMENT_BYTES, PDF_MIME, TEXT_MIME,
-  base64ToBytes, bytesToBase64, createDocumentRecord, documentMetadata,
+  base64ToBytes, bytesToBase64, createDocumentRecord, detectMime, documentMetadata,
   exportDocumentRecords, sanitiseDocumentRecords, sanitiseFileName, sniffDocumentType, textToBytes
 } from './documents.js';
 
@@ -31,6 +31,13 @@ test('type sniffing reads the magic bytes and refuses binary text', () => {
   assert.equal(sniffDocumentType(docxBytes), 'docx');
   assert.equal(sniffDocumentType(textToBytes('hello')), 'text');
   assert.equal(sniffDocumentType(new Uint8Array([0, 1, 2, 3])), '');
+});
+
+test('the upload MIME type comes from the bytes, not the file extension', () => {
+  assert.equal(detectMime(pdfBytes), PDF_MIME);
+  assert.equal(detectMime(docxBytes), DOCX_MIME);
+  assert.equal(detectMime(textToBytes('hello')), TEXT_MIME);
+  assert.equal(detectMime(new Uint8Array([0, 1, 2, 3])), '');
 });
 
 test('base64 round-trips and rejects malformed input', () => {

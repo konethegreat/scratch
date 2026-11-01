@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, FileText, Loader2, ShieldCheck, Star, Trash2, Upload } from 'lucide-react';
 import { bytesToBase64, textToBytes } from './web/documents.js';
-import { extractPdfText } from './web/extract/pdf.js';
-import { extractDocxText } from './web/extract/docx.js';
+import { readDocumentFile } from './web/readDocumentFile.js';
 
 const KINDS = [
   ['cv', 'CV'], ['cover-letter', 'Cover letter'], ['certified-id', 'Certified ID'],
@@ -11,11 +10,9 @@ const KINDS = [
 
 const ACCEPT = '.pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain';
 
-async function readFile(file) {
-  const data = await file.arrayBuffer();
-  if (file.type === 'application/pdf') return { mime: 'application/pdf', text: await extractPdfText(data), data };
-  if (file.type.includes('wordprocessingml')) return { mime: file.type, text: await extractDocxText(data), data };
-  return { mime: 'text/plain', text: new TextDecoder().decode(data), data };
+async function responseError(res, fallback) {
+  const body = await res.json().catch(() => ({}));
+  return new Error(body.error || fallback);
 }
 
 export default function DocumentsPanel({ apiBase, toasts }) {
@@ -24,20 +21,25 @@ export default function DocumentsPanel({ apiBase, toasts }) {
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
+  const toastsRef = useRef(toasts);
+  toastsRef.current = toasts;
 
   const refresh = useCallback(async () => {
     const res = await fetch(`${apiBase}/documents`);
-    const list = await res.json().catch(() => []);
+    if (!res.ok) throw await responseError(res, 'Could not load your documents.');
+    const list = await res.json().catch(() => null);
     setDocuments(Array.isArray(list) ? list : []);
   }, [apiBase]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh().catch((error) => toastsRef.current?.error?.(error.message));
+  }, [refresh]);
 
   const upload = async (file) => {
     if (!file) return;
     setBusy(true);
     try {
-      const { mime, text, data } = await readFile(file);
+      const { mime, text, data } = await readDocumentFile(file);
       const res = await fetch(`${apiBase}/documents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -61,28 +63,43 @@ export default function DocumentsPanel({ apiBase, toasts }) {
   };
 
   const download = async (doc) => {
-    const res = await fetch(`${apiBase}/documents/${doc.id}/file`);
-    const body = await res.json();
-    const bytes = Uint8Array.from(atob(body.dataBase64), (char) => char.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: body.mime }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = body.fileName;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    try {
+      const res = await fetch(`${apiBase}/documents/${doc.id}/file`);
+      if (!res.ok) throw await responseError(res, 'Could not download that document.');
+      const body = await res.json();
+      const bytes = Uint8Array.from(atob(body.dataBase64), (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: body.mime }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = body.fileName;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (error) {
+      toasts?.error?.(error.message);
+    }
   };
 
   const makeDefault = async (doc) => {
-    await fetch(`${apiBase}/documents/${doc.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isDefault: true })
-    });
-    await refresh();
+    try {
+      const res = await fetch(`${apiBase}/documents/${doc.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isDefault: true })
+      });
+      if (!res.ok) throw await responseError(res, 'Could not set that default.');
+      await refresh();
+    } catch (error) {
+      toasts?.error?.(error.message);
+    }
   };
 
   const remove = async (doc) => {
     if (!window.confirm(`Delete ${doc.label}? This cannot be undone.`)) return;
-    await fetch(`${apiBase}/documents/${doc.id}`, { method: 'DELETE' });
-    await refresh();
+    try {
+      const res = await fetch(`${apiBase}/documents/${doc.id}`, { method: 'DELETE' });
+      if (!res.ok) throw await responseError(res, 'Could not delete that document.');
+      await refresh();
+    } catch (error) {
+      toasts?.error?.(error.message);
+    }
   };
 
   const addPasted = async () => {

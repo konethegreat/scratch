@@ -87,6 +87,16 @@ function expectedType(mime) {
   return 'text';
 }
 
+// The declared file type can be empty or wrong, so the upload path decides the
+// MIME type from the bytes it actually read.
+export function detectMime(bytes) {
+  const sniffed = sniffDocumentType(bytes);
+  if (sniffed === 'pdf') return PDF_MIME;
+  if (sniffed === 'docx') return DOCX_MIME;
+  if (sniffed === 'text') return TEXT_MIME;
+  return '';
+}
+
 export function createDocumentRecord(input, existing = []) {
   const kind = String(input?.kind || '');
   if (!DOCUMENT_KINDS.includes(kind)) throw invalid('Choose a document type.');

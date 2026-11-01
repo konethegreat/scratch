@@ -11,7 +11,11 @@ const MAX_DEPTH = 8;
 export const MAX_FIELD_LENGTH = 1_000_000;
 const BLOCKED_FIELDS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 const SECRET_FIELD = /api[_-]?key|keyvault|anthropic[_-]?key|secret[_-]?key|api[_-]?token|access[_-]?token/i;
-const PROFILE_URL_FIELDS = Object.freeze(['linkedInUrl', 'portfolioUrl']);
+const PROFILE_URL_FIELDS = Object.freeze(['linkedInUrl', 'portfolioUrl', 'githubUrl']);
+const PROFILE_FLAT_OBJECT_FIELDS = Object.freeze(['address', 'applicationProfile']);
+const PROFILE_STRING_LIST_FIELDS = Object.freeze(['skills', 'languages']);
+const PROFILE_RECORD_LIST_FIELDS = Object.freeze(['workHistory', 'education', 'certifications', 'references']);
+const PROFILE_PREFERENCE_LIST_FIELDS = Object.freeze(['roles', 'sectors', 'locations']);
 const TRACKER_STATUSES = Object.freeze(['found', 'tailoring', 'tailored', 'applied', 'interviewing', 'offer', 'rejected']);
 const APPLICATION_SCALAR_FIELDS = Object.freeze([
   'id', 'jobId', 'title', 'company', 'appliedAt', 'outcome', 'delivery', 'submittedBy', 'site'
@@ -91,12 +95,97 @@ function cleanJob(value) {
   return job;
 }
 
+function assertStringArray(value, store) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw invalidRecord(store);
+  return value;
+}
+
+// Profile v2 stores lists of small flat records (roles, qualifications,
+// certifications, references). Scalars and string lists are safe to render;
+// anything nested would be handed to React as an object child.
+function assertFlatRecordList(value, store) {
+  if (!Array.isArray(value)) throw invalidRecord(store);
+  for (const entry of value) {
+    if (!isPlainObject(entry)) throw invalidRecord(store);
+    for (const child of Object.values(entry)) {
+      if (Array.isArray(child)) {
+        if (child.some((item) => typeof item !== 'string')) throw invalidRecord(store);
+      } else if (child !== null && typeof child === 'object') {
+        throw invalidRecord(store);
+      }
+    }
+  }
+  return value;
+}
+
+function cleanSalary(value) {
+  if (!isPlainObject(value)) throw invalidRecord('profile');
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'currentAmount' || key === 'expectedAmount') {
+      if (child !== null && !Number.isFinite(child)) throw invalidRecord('profile');
+    } else if (key === 'currentPeriod' || key === 'expectedPeriod') {
+      if (typeof child !== 'string') throw invalidRecord('profile');
+      value[key] = child === 'year' ? 'year' : 'month';
+    } else if (key === 'negotiable') {
+      if (typeof child !== 'boolean') throw invalidRecord('profile');
+    } else if (child !== null && typeof child === 'object') {
+      throw invalidRecord('profile');
+    }
+  }
+  return value;
+}
+
+function cleanPreferences(value) {
+  if (!isPlainObject(value)) throw invalidRecord('profile');
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (PROFILE_PREFERENCE_LIST_FIELDS.includes(key)) {
+      out[key] = assertStringArray(child, 'profile');
+    } else if (key === 'remote') {
+      if (typeof child !== 'string') throw invalidRecord('profile');
+      out[key] = ['yes', 'hybrid', 'no'].includes(child) ? child : '';
+    } else if (key === 'minSalary') {
+      if (child !== null && !Number.isFinite(child)) throw invalidRecord('profile');
+      out[key] = child;
+    } else if (child !== null && typeof child === 'object') {
+      throw invalidRecord('profile');
+    } else {
+      out[key] = child;
+    }
+  }
+  return out;
+}
+
 function cleanProfile(value) {
   const profile = cleanValue(value);
   for (const [key, field] of Object.entries(profile)) {
-    if (key === 'applicationProfile') {
+    if (PROFILE_FLAT_OBJECT_FIELDS.includes(key)) {
       if (!isPlainObject(field)) throw invalidRecord('profile');
       assertScalars(field, 'profile');
+      continue;
+    }
+    if (key === 'salary') {
+      profile[key] = cleanSalary(field);
+      continue;
+    }
+    if (key === 'preferences') {
+      profile[key] = cleanPreferences(field);
+      continue;
+    }
+    if (PROFILE_RECORD_LIST_FIELDS.includes(key)) {
+      assertFlatRecordList(field, 'profile');
+      continue;
+    }
+    if (PROFILE_STRING_LIST_FIELDS.includes(key)) {
+      assertStringArray(field, 'profile');
+      continue;
+    }
+    if (key === 'yearsExperience') {
+      if (field !== null && !Number.isFinite(field)) throw invalidRecord('profile');
+      continue;
+    }
+    if (key === 'eeOptIn') {
+      if (typeof field !== 'boolean') throw invalidRecord('profile');
       continue;
     }
     if (field !== null && typeof field === 'object') throw invalidRecord('profile');

@@ -11,6 +11,12 @@ async function seed(page) {
   await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const request = indexedDB.open('sajas-web');
+      request.onupgradeneeded = () => {
+        const created = request.result;
+        for (const store of ['profile', 'jobs', 'answers', 'memory', 'usage', 'meta', 'documents', 'keyVault']) {
+          if (!created.objectStoreNames.contains(store)) created.createObjectStore(store);
+        }
+      };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

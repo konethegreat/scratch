@@ -1,17 +1,9 @@
 import { useRef, useState } from 'react';
 import { CheckCircle2, FileUp, Loader2, Sparkles } from 'lucide-react';
 import { bytesToBase64, textToBytes } from './web/documents.js';
-import { extractPdfText } from './web/extract/pdf.js';
-import { extractDocxText } from './web/extract/docx.js';
+import { readDocumentFile } from './web/readDocumentFile.js';
 
 const ACCEPT = '.pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain';
-
-async function readCv(file) {
-  const data = await file.arrayBuffer();
-  if (file.type === 'application/pdf') return { mime: 'application/pdf', text: await extractPdfText(data), data };
-  if (file.type.includes('wordprocessingml')) return { mime: file.type, text: await extractDocxText(data), data };
-  return { mime: 'text/plain', text: new TextDecoder().decode(data), data };
-}
 
 const SCALARS = [
   ['fullName', 'Full name'], ['preferredName', 'Preferred name'], ['email', 'Email'], ['phone', 'Phone'],
@@ -31,9 +23,13 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
 
   const storeText = async (cvText, mime, data, fileName) => {
     const bytes = data ? new Uint8Array(data) : textToBytes(cvText);
-    // Becoming the default is only safe when no CV is already marked default.
-    const list = await fetch(`${apiBase}/documents`).then((res) => res.json()).catch(() => []);
-    const hasDefaultCv = Array.isArray(list) && list.some((doc) => doc.kind === 'cv' && doc.isDefault);
+    // Becoming the default is only safe when no CV is already marked default,
+    // so a failed listing must stop the upload rather than demote one.
+    const listRes = await fetch(`${apiBase}/documents`);
+    if (!listRes.ok) throw new Error('Could not check your existing documents.');
+    const list = await listRes.json().catch(() => null);
+    if (!Array.isArray(list)) throw new Error('Could not check your existing documents.');
+    const hasDefaultCv = list.some((doc) => doc.kind === 'cv' && doc.isDefault);
     const res = await fetch(`${apiBase}/documents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,7 +48,7 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
     if (!file) return;
     setBusy('read');
     try {
-      const { mime, text: cvText, data } = await readCv(file);
+      const { mime, text: cvText, data } = await readDocumentFile(file);
       setText(cvText);
       await storeText(cvText, mime, data, file.name);
       setProposals(null);
@@ -118,7 +114,8 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
     if (chosen.education) patch.education = draft.education;
     if (chosen.certifications) patch.certifications = draft.certifications;
     if (chosen.baseCv) patch.baseCv = text;
-    await onSave(patch);
+    const saved = await onSave(patch);
+    if (saved === false) return;
     toasts?.success?.('Profile updated from your CV.');
     setProposals(null);
   };

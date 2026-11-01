@@ -699,12 +699,14 @@ export default function App() {
         setRevealKey(false);
         await fetchProfile();
         if (IS_WEB) setWebKeyTick((t) => t + 1);
-      } else {
-        // A rejected key comes back as 400 { error }: show the server's own words.
-        fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
+        return true;
       }
+      // A rejected key comes back as 400 { error }: show the server's own words.
+      fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
+      return false;
     } catch (err) {
       fail(err, 'save profile', 'Network error while saving profile.');
+      return false;
     } finally {
       setIsSavingProfile(false);
     }

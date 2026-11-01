@@ -103,16 +103,20 @@ export function createVault(adapter) {
         }
         documents = sanitiseDocumentRecords(payload.data.documents);
       }
-      for (const store of EXPORT_STORES) {
+      const writes = {};
+      for (const store of EXPORT_STORES) writes[store] = data[store];
+      // A v1 backup leaves the documents library alone, matching its export.
+      if (documents) writes[STORES.documents] = documents;
+      if (typeof adapter.replaceAll === 'function') {
+        await adapter.replaceAll(writes);
+        return;
+      }
+      for (const [store, entries] of Object.entries(writes)) {
         await adapter.clear(store);
         // One export format only: each store is a keyed map of key -> value.
-        for (const [key, value] of Object.entries(data[store])) {
+        for (const [key, value] of Object.entries(entries)) {
           await adapter.put(store, key, value);
         }
-      }
-      if (documents) {
-        await adapter.clear(STORES.documents);
-        for (const [id, record] of Object.entries(documents)) await adapter.put(STORES.documents, id, record);
       }
     }
   };

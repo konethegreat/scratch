@@ -3,10 +3,10 @@ export const SERVER_ONLY_TABS = Object.freeze(['copilot', 'referrals', 'routines
 export const SERVER_ONLY_SETTINGS = Object.freeze(['answers', 'data']);
 // Tabs that only make sense in the hosted app, such as the guided Apply packet.
 export const WEB_ONLY_TABS = Object.freeze(['apply']);
-export const WEB_ONLY_SETTINGS = Object.freeze(['backup']);
+export const WEB_ONLY_SETTINGS = Object.freeze(['backup', 'documents']);
 // The demo keeps the simulated agents and the logs, and hides write-out surfaces.
 export const DEMO_HIDDEN_TABS = Object.freeze(['referrals', 'routines']);
-export const DEMO_HIDDEN_SETTINGS = Object.freeze(['backup']);
+export const DEMO_HIDDEN_SETTINGS = Object.freeze(['backup', 'documents']);
 
 export function isTabVisible(tab, isWeb, demo = false) {
   if (WEB_ONLY_TABS.includes(tab)) return Boolean(isWeb);

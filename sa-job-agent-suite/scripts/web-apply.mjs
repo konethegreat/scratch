@@ -1,5 +1,6 @@
-// Offline proof that the hosted Apply tab builds the packet, copies a field, and
-// records Mark applied in the local vault. No request leaves the machine.
+// Offline proof that the hosted Apply tab builds the packet, copies a field,
+// downloads the tailored PDF, handles an absent extension and records Mark
+// applied in the local vault. No request leaves the machine.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -26,7 +27,7 @@ const JOB = {
 
 async function seed(page) {
   await page.evaluate(async ({ profile, job }) => {
-    const stores = ['profile', 'jobs', 'answers', 'memory', 'usage', 'meta', 'keyVault'];
+    const stores = ['profile', 'jobs', 'answers', 'memory', 'usage', 'meta', 'documents', 'keyVault'];
     const db = await new Promise((resolve, reject) => {
       const request = indexedDB.open('sajas-web');
       request.onupgradeneeded = () => {
@@ -109,6 +110,19 @@ async function main() {
 
     await page.getByRole('button', { name: /^Copy$/ }).first().click();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'Thandi Mokoena');
+
+    const downloadEvent = page.waitForEvent('download');
+    await page.getByTestId('download-tailored-pdf').click();
+    const savedPdf = await downloadEvent;
+    assert.match(savedPdf.suggestedFilename(), /\.pdf$/);
+    const pdfPath = await savedPdf.path();
+    assert.ok(pdfPath, 'the browser reported no file for the PDF download');
+    const pdfBytes = await fs.readFile(pdfPath);
+    assert.equal(new TextDecoder().decode(pdfBytes.subarray(0, 5)), '%PDF-');
+    assert.ok(pdfBytes.byteLength > 500, 'the PDF was suspiciously small');
+
+    await page.getByTestId('send-to-extension').click();
+    await page.getByText(/extension is not installed/i).first().waitFor({ timeout: 5000 });
 
     await page.getByRole('button', { name: /Mark applied/i }).click();
     await page.getByText('Marked as applied.').waitFor({ timeout: 10_000 });

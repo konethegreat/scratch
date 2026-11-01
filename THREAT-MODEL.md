@@ -124,7 +124,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 
 **Scenario.** Demo data or the demo key stub leaks into the real vault, or the demo makes real network calls.
 
-**Controls.** The isolation contract in [SECURITY.md](SECURITY.md) has seven rules, each enforced by a test: separate storage prefix, stub key store, no network, no bleed on exit, no export, no generation path, no collision with the desktop fixture. `check-demo-bundle.mjs` also keeps the demo fixtures out of the entry chunk.
+**Controls.** The isolation contract in [SECURITY.md](SECURITY.md) has seven rules, each enforced by a test: separate storage prefix, stub key store, no network, no bleed on exit, no export, no generation path, no collision with the desktop fixture. The demo's sample documents live only in the session vault, and a sentinel document in the real documents store proves the demo never writes there. `check-demo-bundle.mjs` also keeps the demo fixtures out of the entry chunk.
 
 **Residual.** None known. A regression here is a test failure, not a silent leak.
 
@@ -201,7 +201,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 |---|---|
 | Key never leaves its lane | `scripts/web-canary.mjs`, `scripts/web-tailor.mjs` |
 | No cross-profile leakage | `scripts/web-isolation.mjs` |
-| Demo isolation | `client/src/web/demo/isolation.test.js`, `scripts/web-demo.mjs`, `scripts/check-demo-bundle.mjs` |
+| Demo isolation | `client/src/web/demo/isolation.test.js`, `scripts/web-demo.mjs`, `scripts/check-demo-bundle.mjs`; the browser proof seeds sentinel profile, job and document records in the real vault |
 | No third-party scripts, strict headers | `scripts/check-ui.mjs` plus the deployed header check |
 | Feed text is bounded and tag-free | `packages/core/src/feeds/shape.test.js` |
 | Only http(s) apply links are stored | `client/src/web/api.test.js`, `packages/core/src/scrape/cardSchema.test.js` |

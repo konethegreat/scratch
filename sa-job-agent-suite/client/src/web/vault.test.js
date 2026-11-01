@@ -35,9 +35,9 @@ test('export excludes key material', async () => {
   await vault.put(STORES.keyVault, 'anthropic', { v: 1, ciphertext: 'abc' });
   const dump = await vault.exportAll();
   assert.equal(dump.app, 'sajas-web');
-  assert.equal(dump.schemaVersion, 1);
+  assert.equal(dump.schemaVersion, 2);
   assert.match(dump.exportedAt, /^\d{4}-\d{2}-\d{2}T/);
-  assert.deepEqual(Object.keys(dump.data).sort(), [...EXPORT_STORES].sort());
+  assert.deepEqual(Object.keys(dump.data).sort(), [...EXPORT_STORES, 'documents'].sort());
   assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
 });
 
@@ -66,7 +66,7 @@ test('import replaces exported stores but never touches keyVault', async () => {
 test('import rejects foreign or newer payloads', async () => {
   const { vault } = make();
   await assert.rejects(() => vault.importAll({ app: 'other', schemaVersion: 1, data: {} }), (e) => e.code === 'VALIDATION');
-  await assert.rejects(() => vault.importAll({ app: 'sajas-web', schemaVersion: 2, data: {} }), (e) => e.code === 'VALIDATION');
+  await assert.rejects(() => vault.importAll({ app: 'sajas-web', schemaVersion: 3, data: {} }), (e) => e.code === 'VALIDATION');
   await assert.rejects(() => vault.importAll(null), (e) => e.code === 'VALIDATION');
 });
 
@@ -209,4 +209,115 @@ test('import strips a hostile link and key material before writing', async () =>
   }));
   assert.deepEqual(await vault.get(STORES.profile, 'current'), { fullName: 'Thandi' });
   assert.equal((await vault.get(STORES.jobs, 'job-9')).applyUrl, '');
+});
+
+test('export includes documents with base64 bytes and excludes key material', async () => {
+  const { vault } = make();
+  const bytes = new TextEncoder().encode('%PDF-1.4\nCV\n');
+  await vault.put(STORES.documents, 'doc-1', {
+    id: 'doc-1', kind: 'cv', label: 'My CV', fileName: 'cv.pdf', mime: 'application/pdf',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true,
+    text: 'Thandi Mokoena', data: bytes.buffer
+  });
+  const dump = await vault.exportAll();
+  assert.equal(dump.schemaVersion, 2);
+  assert.equal(typeof dump.data.documents['doc-1'].data, 'string');
+  assert.equal(dump.data.documents['doc-1'].text, 'Thandi Mokoena');
+  assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
+});
+
+test('schema v2 round-trips documents and schema v1 leaves them untouched', async () => {
+  const keepBytes = new TextEncoder().encode('%PDF-1.4\nK');
+  const { vault } = make({ documents: { keep: {
+    id: 'keep', kind: 'cv', label: 'Keep', fileName: 'keep.pdf', mime: 'application/pdf',
+    size: keepBytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: false, text: '', data: keepBytes.buffer
+  } } });
+  const bytes = new TextEncoder().encode('%PDF-1.4\nNew\n');
+  await vault.put(STORES.documents, 'doc-2', {
+    id: 'doc-2', kind: 'other', label: 'New', fileName: 'new.pdf', mime: 'application/pdf',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true, text: '', data: bytes.buffer
+  });
+  const dump = await vault.exportAll();
+
+  await vault.wipe();
+  await vault.importAll(dump);
+  const restored = await vault.get(STORES.documents, 'doc-2');
+  assert.equal(restored.label, 'New');
+  assert.ok(restored.data instanceof ArrayBuffer);
+  assert.equal(new TextDecoder().decode(new Uint8Array(restored.data)), '%PDF-1.4\nNew\n');
+
+  await vault.importAll({
+    app: 'sajas-web', schemaVersion: 1, exportedAt: '2026-11-01T00:00:00.000Z',
+    data: { profile: {}, jobs: {}, answers: {}, memory: {}, usage: {}, meta: {} }
+  });
+  assert.equal((await vault.get(STORES.documents, 'doc-2')).label, 'New');
+});
+
+test('a full v2 profile and its documents survive export, wipe and import', async () => {
+  const { vault } = make();
+  const profile = {
+    v: 2, fullName: 'Thandi Mokoena', email: 'thandi@example.test', yearsExperience: 8,
+    address: { line1: '', line2: '', suburb: 'City Bowl', city: 'Cape Town', province: 'Western Cape', postalCode: '8001' },
+    salary: { currentAmount: 55000, currentPeriod: 'month', expectedAmount: 720000, expectedPeriod: 'year', negotiable: true },
+    preferences: { roles: ['Backend Engineer'], sectors: [], locations: ['Cape Town'], remote: 'hybrid', minSalary: null },
+    skills: ['Node.js'], languages: ['English'],
+    workHistory: [{ company: 'Yoco', title: 'Senior Engineer', start: '2021-03', end: '', current: true, location: 'Cape Town', bullets: ['Built payments'] }],
+    education: [{ institution: 'UCT', qualification: 'BSc', field: 'Computer Science', year: '2015', result: 'Distinction' }],
+    certifications: [], references: [], eeOptIn: false, applicationProfile: { noticePeriod: '30 days' }
+  };
+  const bytes = new TextEncoder().encode('%PDF-1.4\nCV\n');
+  await vault.put(STORES.profile, 'current', profile);
+  await vault.put(STORES.documents, 'cv-1', {
+    id: 'cv-1', kind: 'cv', label: 'CV', fileName: 'cv.pdf', mime: 'application/pdf',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true, text: 'Thandi Mokoena', data: bytes.buffer
+  });
+
+  const dump = await vault.exportAll();
+  await vault.wipe();
+  await vault.importAll(dump);
+
+  assert.deepEqual(await vault.get(STORES.profile, 'current'), profile);
+  const restored = await vault.get(STORES.documents, 'cv-1');
+  assert.equal(restored.label, 'CV');
+  assert.equal(restored.text, 'Thandi Mokoena');
+  assert.equal(new TextDecoder().decode(new Uint8Array(restored.data)), '%PDF-1.4\nCV\n');
+});
+
+test('a v2 backup with hostile documents is rejected before anything is cleared', async () => {
+  const { vault } = make();
+  await vault.put(STORES.profile, 'current', { fullName: 'Keep me' });
+  const payload = {
+    app: 'sajas-web', schemaVersion: 2, exportedAt: '2026-11-01T00:00:00.000Z',
+    data: {
+      profile: {}, jobs: {}, answers: {}, memory: {}, usage: {}, meta: {},
+      documents: { bad: { id: 'bad', kind: 'cv', label: 'x', fileName: 'x.pdf', mime: 'application/pdf', size: 1, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: false, text: '', data: 'AAAA' } }
+    }
+  };
+  await assert.rejects(() => vault.importAll(payload), (error) => error.code === 'VALIDATION');
+  assert.equal((await vault.get(STORES.profile, 'current')).fullName, 'Keep me');
+  assert.deepEqual(await vault.getAll(STORES.documents), []);
+});
+
+test('import replaces every store in one call so a write failure costs nothing', async () => {
+  const { vault, adapter } = make();
+  await seedExisting(vault);
+  const calls = [];
+  adapter.replaceAll = async (entriesByStore) => {
+    calls.push(Object.keys(entriesByStore).sort());
+    throw new Error('disk gone');
+  };
+  await assert.rejects(
+    () => vault.importAll(backup({
+      profile: { current: { fullName: 'New' } }, jobs: {}, answers: {}, memory: {}, usage: {}, meta: {}
+    })),
+    /disk gone/
+  );
+  assert.deepEqual(calls, [['answers', 'jobs', 'memory', 'meta', 'profile', 'usage']]);
+  await assertExisting(vault);
+});
+
+test('the memory adapter swaps stores only after every record clones', async () => {
+  const adapter = createMemoryAdapter({ jobs: { old: { title: 'Old' } } });
+  await assert.rejects(() => adapter.replaceAll({ jobs: { new: { broken() {} } } }));
+  assert.deepEqual(await adapter.getAll(STORES.jobs), [{ title: 'Old' }]);
 });

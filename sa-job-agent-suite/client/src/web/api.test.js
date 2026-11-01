@@ -5,6 +5,7 @@ import { createMemoryAdapter } from './memoryAdapter.js';
 import { createKeyStore } from './keyStore.js';
 import { createActivity } from './activity.js';
 import { createWebApi } from './api.js';
+import { bytesToBase64 } from './documents.js';
 import { fakeClient } from '@sajas/core/testing';
 import { callClaude } from '@sajas/core/ai';
 import { MODEL_IDS } from '@sajas/core/models';
@@ -435,4 +436,137 @@ test('bank answers are readable and marking applied records the packet', async (
   const memory = await json(await call('/memory'));
   assert.equal(memory.applications.length, 1);
   assert.equal(memory.applications[0].delivery, 'web-guided');
+});
+
+test('the answer bank applies v2 defaults without rewriting storage', async () => {
+  const { call, vault } = harness({ answers: { q1: { id: 'q1', question: 'Notice period?', answer: 'One month', normalized: 'notice period' } } });
+  const list = await json(await call('/application/bank'));
+  assert.equal(list[0].category, 'other');
+  assert.equal(list[0].source, 'manual');
+  assert.equal(list[0].timesUsed, 0);
+  assert.equal(list[0].lastUsed, null);
+  const stored = await vault.get(STORES.answers, 'q1');
+  assert.equal(Object.hasOwn(stored, 'category'), false);
+});
+
+test('GET /profile migrates a v1 record once and keeps unknown keys', async () => {
+  const { call, vault } = harness({
+    profile: { current: { fullName: 'Thandi', applicationProfile: { noticePeriod: '30 days' }, legacyFlag: true } }
+  });
+  const first = await json(await call('/profile'));
+  assert.equal(first.v, 2);
+  assert.equal(first.fullName, 'Thandi');
+  assert.equal(first.legacyFlag, true);
+  assert.deepEqual(first.address, {
+    line1: '', line2: '', suburb: '', city: '', province: '', postalCode: ''
+  });
+  const stored = await vault.get(STORES.profile, 'current');
+  assert.equal(stored.v, 2);
+
+  stored.fullName = 'Thandi M.';
+  await vault.put(STORES.profile, 'current', stored);
+  const second = await json(await call('/profile'));
+  assert.equal(second.fullName, 'Thandi M.');
+  assert.equal((await vault.get(STORES.profile, 'current')).fullName, 'Thandi M.');
+});
+
+test('GET /profile creates nothing when no profile record exists', async () => {
+  const { call, vault } = harness();
+  const profile = await json(await call('/profile'));
+  assert.equal(profile.hasAnthropicKey, false);
+  assert.equal(await vault.get(STORES.profile, 'current'), undefined);
+});
+
+const PDF = new TextEncoder().encode('%PDF-1.4\nCV\n');
+
+function docBody(overrides = {}) {
+  return {
+    kind: 'cv', label: 'My CV', fileName: 'cv.pdf', mime: 'application/pdf',
+    size: PDF.byteLength, dataBase64: bytesToBase64(PDF), text: 'Thandi Mokoena', isDefault: true,
+    ...overrides
+  };
+}
+
+test('documents round-trip through the API without leaking bytes into lists', async () => {
+  const { call } = harness();
+  const created = await call('/documents', { method: 'POST', body: docBody() });
+  assert.equal(created.status, 200);
+  const { document } = await json(created);
+  assert.equal(document.label, 'My CV');
+  assert.equal(document.hasText, true);
+
+  const list = await json(await call('/documents'));
+  assert.equal(list.length, 1);
+  assert.equal(Object.hasOwn(list[0], 'data'), false);
+  assert.equal(Object.hasOwn(list[0], 'text'), false);
+
+  const detail = await json(await call(`/documents/${document.id}`));
+  assert.equal(detail.text, 'Thandi Mokoena');
+  assert.equal(Object.hasOwn(detail, 'data'), false);
+
+  const file = await json(await call(`/documents/${document.id}/file`));
+  assert.equal(file.mime, 'application/pdf');
+  assert.equal(file.dataBase64, bytesToBase64(PDF));
+
+  const patched = await call(`/documents/${document.id}`, { method: 'PATCH', body: { label: 'CV 2026' } });
+  assert.equal((await json(patched)).document.label, 'CV 2026');
+
+  const removed = await call(`/documents/${document.id}`, { method: 'DELETE' });
+  assert.equal((await json(removed)).success, true);
+  assert.deepEqual(await json(await call('/documents')), []);
+});
+
+test('only one CV can be the default at a time', async () => {
+  const { call } = harness();
+  const first = await json(await call('/documents', { method: 'POST', body: docBody({ label: 'First' }) }));
+  const second = await json(await call('/documents', { method: 'POST', body: docBody({ label: 'Second', isDefault: true }) }));
+  const list = await json(await call('/documents'));
+  assert.equal(list.filter((doc) => doc.isDefault).length, 1);
+  assert.equal(list.find((doc) => doc.id === second.document.id).isDefault, true);
+  assert.equal(list.find((doc) => doc.id === first.document.id).isDefault, false);
+});
+
+test('an unknown document is NOT_FOUND and a bad body is VALIDATION', async () => {
+  const { call } = harness();
+  for (const [path, method] of [['/documents/nope', 'GET'], ['/documents/nope/file', 'GET'], ['/documents/nope', 'DELETE'], ['/documents/nope', 'PATCH']]) {
+    const res = await call(path, { method });
+    assert.equal(res.status, 404, `${method} ${path}`);
+    assert.equal((await json(res)).code, 'NOT_FOUND');
+  }
+  const bad = await call('/documents', { method: 'POST', body: docBody({ mime: 'image/png' }) });
+  assert.equal(bad.status, 400);
+  assert.equal((await json(bad)).code, 'VALIDATION');
+  assert.deepEqual(await json(await call('/documents')), []);
+});
+
+const INTAKE_PROPOSALS = {
+  fullName: 'Thandi Mokoena', preferredName: 'Thandi', email: 'thandi@example.test', phone: '+27 71 234 5678',
+  linkedInUrl: 'https://linkedin.com/in/thandi', portfolioUrl: '', githubUrl: '',
+  city: 'Cape Town', province: 'Western Cape', headline: 'Senior Backend Engineer',
+  summary: 'Eight years building payment systems.', skills: ['Node.js'], languages: ['English'],
+  workHistory: [{ company: 'Acme', title: 'Engineer', start: '2020', end: '', current: true, location: 'Cape Town', bullets: [] }],
+  education: [], certifications: [], yearsExperience: 8, highestQualification: 'BSc Computer Science'
+};
+
+test('POST /profile/intake returns proposals without writing the profile', async () => {
+  const vault = createVault(createMemoryAdapter());
+  const keyStore = createKeyStore({ vault });
+  keyStore.setKey(API_KEY);
+  const bytes = new TextEncoder().encode('Thandi Mokoena Senior Backend Engineer');
+  await vault.put(STORES.documents, 'doc-1', {
+    id: 'doc-1', kind: 'cv', label: 'CV', fileName: 'cv.txt', mime: 'text/plain',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true,
+    text: 'Thandi Mokoena Senior Backend Engineer', data: bytes.buffer
+  });
+  const loadAi = async () => ({
+    makeClient: () => ({}),
+    callClaude: async () => ({ text: JSON.stringify(INTAKE_PROPOSALS) })
+  });
+  const api = createWebApi({ apiBase: API_BASE, vault, keyStore, activity: createActivity(), loadAi });
+  const res = await api.handle(`${API_BASE}/profile/intake`, { method: 'POST', body: JSON.stringify({ documentId: 'doc-1' }) });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.proposals.fullName, 'Thandi Mokoena');
+  assert.equal(body.inputTruncated, false);
+  assert.equal(await vault.get(STORES.profile, 'current'), undefined);
 });

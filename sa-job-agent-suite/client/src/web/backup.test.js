@@ -246,3 +246,46 @@ test('a realistic export survives unchanged', () => {
   assert.equal(data.memory.dossier.insights[0].text, 'Prefers remote');
   assert.equal(data.usage.days.days['2026-10-30'].calls, 2);
 });
+
+test('a realistic v2 profile survives unchanged', () => {
+  const profile = {
+    v: 2,
+    fullName: 'Thandi Mokoena',
+    email: 'thandi@example.test',
+    githubUrl: 'https://github.com/thandi',
+    yearsExperience: 8,
+    eeOptIn: false,
+    address: { line1: '12 Long Street', line2: '', suburb: 'City Bowl', city: 'Cape Town', province: 'Western Cape', postalCode: '8001' },
+    salary: { currentAmount: 55000, currentPeriod: 'month', expectedAmount: 720000, expectedPeriod: 'year', negotiable: true },
+    preferences: { roles: ['Backend Engineer'], sectors: ['Fintech'], locations: ['Cape Town'], remote: 'hybrid', minSalary: 60000 },
+    skills: ['Node.js', 'PostgreSQL'],
+    languages: ['English', 'isiXhosa'],
+    workHistory: [{ company: 'Yoco', title: 'Senior Engineer', start: '2021-03', end: '', current: true, location: 'Cape Town', bullets: ['Built payments', 'Led four engineers'] }],
+    education: [{ institution: 'UCT', qualification: 'BSc', field: 'Computer Science', year: '2015', result: 'Distinction' }],
+    certifications: [{ name: 'AWS SAA', issuer: 'Amazon', year: '2022' }],
+    references: [{ name: 'Lerato Dlamini', relationship: 'Manager', contact: 'lerato@example.test' }],
+    applicationProfile: { noticePeriod: '30 days' }
+  };
+  const data = sanitiseBackupData(stores({}, { profile: { current: profile } }));
+  assert.deepEqual(data.profile.current, profile);
+});
+
+test('a hostile v2 profile is rejected', () => {
+  const cases = [
+    { address: { city: { text: 'Cape Town' } } },
+    { salary: { expectedAmount: 'free' } },
+    { preferences: { roles: [{ name: 'Engineer' }] } },
+    { preferences: { remote: true } },
+    { workHistory: [{ company: 'Yoco', bullets: [{ text: 'Built payments' }] }] },
+    { skills: ['Node.js', { name: 'SQL' }] },
+    { yearsExperience: 'eight' },
+    { eeOptIn: 'yes' }
+  ];
+  for (const extra of cases) {
+    assert.throws(
+      () => sanitiseBackupData(stores({}, { profile: { current: { v: 2, ...extra } } })),
+      (error) => error.code === 'VALIDATION',
+      `${JSON.stringify(extra)} was accepted`
+    );
+  }
+});

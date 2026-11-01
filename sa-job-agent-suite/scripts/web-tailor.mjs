@@ -59,7 +59,7 @@ async function seed(page) {
   await page.evaluate(async ({ profile, job }) => {
     const stores = ['profile', 'jobs', 'answers', 'memory', 'usage', 'meta', 'keyVault'];
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('sajas-web', 1);
+      const request = indexedDB.open('sajas-web');
       request.onupgradeneeded = () => {
         for (const store of stores) {
           if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store);
@@ -82,7 +82,7 @@ async function seed(page) {
 async function forceBudget(page) {
   await page.evaluate(async ({ today }) => {
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('sajas-web', 1);
+      const request = indexedDB.open('sajas-web');
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -215,7 +215,7 @@ async function main() {
     const storage = await page.evaluate(async () => {
       const dump = { local: JSON.stringify(localStorage), session: JSON.stringify(sessionStorage) };
       const db = await new Promise((resolve, reject) => {
-        const request = indexedDB.open('sajas-web', 1);
+        const request = indexedDB.open('sajas-web');
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });

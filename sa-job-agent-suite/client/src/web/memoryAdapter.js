@@ -37,6 +37,16 @@ export function createMemoryAdapter(seed = {}) {
     },
     async clearAll() {
       for (const entries of data.values()) entries.clear();
+    },
+    async replaceAll(entriesByStore) {
+      // Clone every record into fresh maps first, then swap them in; a clone
+      // failure leaves the old maps exactly as they were, like a rolled-back
+      // IndexedDB transaction.
+      const next = new Map();
+      for (const [name, entries] of Object.entries(entriesByStore)) {
+        next.set(name, new Map(Object.entries(entries).map(([key, value]) => [key, cloneSeed(value)])));
+      }
+      for (const [name, entries] of next) data.set(name, entries);
     }
   };
 }

@@ -54,6 +54,9 @@ import WebHunter from './web/WebHunter.jsx';
 import JobFilters from './JobFilters.jsx';
 import ApplyPacket from './ApplyPacket.jsx';
 import SettingsBackup from './SettingsBackup.jsx';
+import ProfileEditor from './ProfileEditor.jsx';
+import CvIntake from './CvIntake.jsx';
+import DocumentsPanel from './DocumentsPanel.jsx';
 import SourceHealth from './SourceHealth.jsx';
 import SocialLinks, { SAFlag } from './SocialLinks.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
@@ -394,7 +397,7 @@ export default function App() {
   useEffect(() => {
     if (!isTabVisible(activeTab, IS_WEB, demoMode) && activeTab !== 'landing') setActiveTab('dashboard');
     if (IS_WEB && SERVER_ONLY_SETTINGS.includes(settingsTab)) setSettingsTab('ai');
-    if (demoMode && settingsTab === 'backup') setSettingsTab('ai');
+    if (demoMode && (settingsTab === 'backup' || settingsTab === 'documents')) setSettingsTab('ai');
   }, [activeTab, settingsTab, demoMode]);
 
   const [jobs, setJobs] = useState([]);
@@ -674,15 +677,16 @@ export default function App() {
   };
 
   /* -------------------- Actions -------------------- */
-  const handleSaveProfile = async (e) => {
+  const handleSaveProfile = async (e, patch = {}) => {
     e?.preventDefault?.();
     setIsSavingProfile(true);
     try {
+      const merged = { ...profile, ...patch };
       // Send the key when: no key is saved yet (new entry), or the user clicked Replace
       // Blank it out only when a key is already saved and the user left it masked
       const payload = {
-        ...profile,
-        anthropicApiKey: (!profile.hasAnthropicKey || revealKey) ? profile.anthropicApiKey : ''
+        ...merged,
+        anthropicApiKey: (!merged.hasAnthropicKey || revealKey) ? merged.anthropicApiKey : ''
       };
       const res = await fetch(`${API_BASE}/profile`, {
         method: 'POST',
@@ -695,12 +699,14 @@ export default function App() {
         setRevealKey(false);
         await fetchProfile();
         if (IS_WEB) setWebKeyTick((t) => t + 1);
-      } else {
-        // A rejected key comes back as 400 { error }: show the server's own words.
-        fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
+        return true;
       }
+      // A rejected key comes back as 400 { error }: show the server's own words.
+      fail(contractFromBody(data, res.status, 'Could not save profile.'), 'save profile');
+      return false;
     } catch (err) {
       fail(err, 'save profile', 'Network error while saving profile.');
+      return false;
     } finally {
       setIsSavingProfile(false);
     }
@@ -2231,6 +2237,7 @@ export default function App() {
                 { id: 'search',  label: 'Job Search',          icon: <Search size={13} /> },
                 { id: 'answers', label: 'Application Answers', icon: <Database size={13} /> },
                 { id: 'data',    label: 'Documents & Data',    icon: <ShieldCheck size={13} /> },
+                { id: 'documents', label: 'Documents',          icon: <FileText size={13} /> },
                 { id: 'backup',  label: 'Backup',              icon: <ShieldCheck size={13} /> }
               ], IS_WEB, demoMode)}
             />
@@ -2502,33 +2509,41 @@ export default function App() {
               </section>
 
               {/* Base CV */}
-              <section>
-                <div className="flex-between" style={{ marginBottom: 8 }}>
-                  <div>
-                    <h4 style={{ fontSize: 14 }}>Base CV</h4>
-                    <p className="hint" style={{ marginTop: 2 }}>Paste your full resume. The tailor agent rewrites this for each role.</p>
+              {IS_WEB && !demoMode ? (
+                <CvIntake apiBase={API_BASE} profile={profile} toasts={toasts} onSave={(patch) => handleSaveProfile(null, patch)} />
+              ) : (
+                <section>
+                  <div className="flex-between" style={{ marginBottom: 8 }}>
+                    <div>
+                      <h4 style={{ fontSize: 14 }}>Base CV</h4>
+                      <p className="hint" style={{ marginTop: 2 }}>Paste your full resume. The tailor agent rewrites this for each role.</p>
+                    </div>
+                    <div className="flex-gap">
+                      <input
+                        ref={cvFileInputRef}
+                        type="file"
+                        accept=".txt,.md,.markdown"
+                        style={{ display: 'none' }}
+                        onChange={handleCvFileUpload}
+                      />
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => cvFileInputRef.current?.click()}>
+                        <Upload size={12} /> Upload .txt / .md
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-gap">
-                    <input
-                      ref={cvFileInputRef}
-                      type="file"
-                      accept=".txt,.md,.markdown"
-                      style={{ display: 'none' }}
-                      onChange={handleCvFileUpload}
-                    />
-                    <button type="button" className="btn-secondary btn-sm" onClick={() => cvFileInputRef.current?.click()}>
-                      <Upload size={12} /> Upload .txt / .md
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  placeholder="Paste your complete resume (work experience, skills, metrics, education, contact info)..."
-                  value={profile.baseCv || ''}
-                  onChange={(e) => setProfile({ ...profile, baseCv: e.target.value })}
-                  style={{ minHeight: 260, fontSize: 12, fontFamily: 'JetBrains Mono, monospace', resize: 'vertical' }}
-                />
-                <span className="hint">{(profile.baseCv || '').length.toLocaleString()} characters.</span>
-              </section>
+                  <textarea
+                    placeholder="Paste your complete resume (work experience, skills, metrics, education, contact info)..."
+                    value={profile.baseCv || ''}
+                    onChange={(e) => setProfile({ ...profile, baseCv: e.target.value })}
+                    style={{ minHeight: 260, fontSize: 12, fontFamily: 'JetBrains Mono, monospace', resize: 'vertical' }}
+                  />
+                  <span className="hint">{(profile.baseCv || '').length.toLocaleString()} characters.</span>
+                </section>
+              )}
+
+              {IS_WEB && !demoMode && (
+                <ProfileEditor profile={profile} onChange={setProfile} />
+              )}
             </>)}
 
             {settingsTab === 'search' && (<>
@@ -2783,6 +2798,10 @@ export default function App() {
                 </div>
               </section>
             </>)}
+
+            {IS_WEB && !demoMode && settingsTab === 'documents' && (
+              <DocumentsPanel apiBase={API_BASE} toasts={toasts} />
+            )}
 
             {IS_WEB && !demoMode && settingsTab === 'backup' && (
               <SettingsBackup vault={webRuntime.vault} toasts={toasts} onImported={refreshAll} />

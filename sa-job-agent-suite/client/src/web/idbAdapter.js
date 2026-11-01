@@ -1,12 +1,12 @@
 // IndexedDB adapter for the hosted app. One database, one object store per data
 // area, created on the first open. Quota failures are translated here because
-// the desktop recovery hint (delete documents) does not fit the web app, where
-// documents are never stored locally.
+// the desktop recovery hint does not fit the web app, where documents live in
+// the same browser storage.
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import { VAULT_STORES } from './vault.js';
 
 const DB_NAME = 'sajas-web';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export function toStorageError(error) {
   if (error?.name !== 'QuotaExceededError') return error;
@@ -34,6 +34,11 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(toStorageError(request.error));
       request.onblocked = () => reject(new AppError(ERROR_CODES.STORAGE_UNAVAILABLE, 'Close other SA-JAS tabs, then reload.'));
+    }).catch((error) => {
+      // A failed open must not be cached, or every later call fails with the
+      // first transient error even after the user closes the other tab.
+      opening = null;
+      throw error;
     });
     return opening;
   }
@@ -109,6 +114,40 @@ export function createIdbAdapter({ factory = globalThis.indexedDB, name = DB_NAM
     },
     async clearAll() {
       await Promise.all(VAULT_STORES.map((store) => run(store, 'readwrite', (s) => s.clear())));
+    },
+    async replaceAll(entriesByStore) {
+      const names = Object.keys(entriesByStore);
+      if (!names.length) return;
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        let tx;
+        try {
+          // One transaction for every store: a failed import rolls back as a
+          // unit instead of leaving the vault half wiped.
+          tx = db.transaction(names, 'readwrite');
+          for (const name of names) {
+            const objectStore = tx.objectStore(name);
+            objectStore.clear();
+            for (const [key, value] of Object.entries(entriesByStore[name])) objectStore.put(value, key);
+          }
+        } catch (error) {
+          reject(toStorageError(error));
+          return;
+        }
+        let settled = false;
+        const fail = (error) => {
+          if (settled) return;
+          settled = true;
+          reject(toStorageError(error));
+        };
+        tx.oncomplete = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        tx.onerror = () => fail(tx.error);
+        tx.onabort = () => fail(tx.error);
+      });
     }
   };
 }

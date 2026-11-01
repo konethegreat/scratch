@@ -79,7 +79,7 @@ async function seed(page) {
   await page.evaluate(async ({ profile, jobs }) => {
     const stores = ['profile', 'jobs', 'answers', 'memory', 'usage', 'meta', 'keyVault'];
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('sajas-web', 1);
+      const request = indexedDB.open('sajas-web');
       request.onupgradeneeded = () => {
         for (const store of stores) {
           if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store);

@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@sajas/core": "*",
-    "lucide-react": "^0.379.0",
+    "lucide-react": "^1.64.0",
     "mammoth": "^1.13.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
@@ -22,8 +22,8 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^5.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "jszip": "^3.10.2",
-    "vite": "^7.3.6"
+    "vite": "^8.3.5"
   }
 }

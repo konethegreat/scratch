@@ -1,4 +1,4 @@
-import { Linkedin, Github, Award } from 'lucide-react';
+import { Award, Briefcase, Code2 } from 'lucide-react';
 
 /**
  * Inline South African flag. Windows cannot render the flag emoji, so it shows as
@@ -26,8 +26,8 @@ export function SAFlag({ size = 24 }) {
  * Pass size="lg" for the larger landing-page variant.
  */
 export const SOCIALS = [
-  { label: 'LinkedIn', href: 'https://www.linkedin.com/in/kone-tshivhinda-32a760233', Icon: Linkedin },
-  { label: 'GitHub',   href: 'https://github.com/konethegreat',                       Icon: Github },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/in/kone-tshivhinda-32a760233', Icon: Briefcase },
+  { label: 'GitHub',   href: 'https://github.com/konethegreat',                       Icon: Code2 },
   { label: 'Credly',   href: 'https://www.credly.com/users/kone-tshivhinda',          Icon: Award },
 ];
 

@@ -35,9 +35,9 @@ test('export excludes key material', async () => {
   await vault.put(STORES.keyVault, 'anthropic', { v: 1, ciphertext: 'abc' });
   const dump = await vault.exportAll();
   assert.equal(dump.app, 'sajas-web');
-  assert.equal(dump.schemaVersion, 1);
+  assert.equal(dump.schemaVersion, 2);
   assert.match(dump.exportedAt, /^\d{4}-\d{2}-\d{2}T/);
-  assert.deepEqual(Object.keys(dump.data).sort(), [...EXPORT_STORES].sort());
+  assert.deepEqual(Object.keys(dump.data).sort(), [...EXPORT_STORES, 'documents'].sort());
   assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
 });
 
@@ -66,7 +66,7 @@ test('import replaces exported stores but never touches keyVault', async () => {
 test('import rejects foreign or newer payloads', async () => {
   const { vault } = make();
   await assert.rejects(() => vault.importAll({ app: 'other', schemaVersion: 1, data: {} }), (e) => e.code === 'VALIDATION');
-  await assert.rejects(() => vault.importAll({ app: 'sajas-web', schemaVersion: 2, data: {} }), (e) => e.code === 'VALIDATION');
+  await assert.rejects(() => vault.importAll({ app: 'sajas-web', schemaVersion: 3, data: {} }), (e) => e.code === 'VALIDATION');
   await assert.rejects(() => vault.importAll(null), (e) => e.code === 'VALIDATION');
 });
 
@@ -209,4 +209,61 @@ test('import strips a hostile link and key material before writing', async () =>
   }));
   assert.deepEqual(await vault.get(STORES.profile, 'current'), { fullName: 'Thandi' });
   assert.equal((await vault.get(STORES.jobs, 'job-9')).applyUrl, '');
+});
+
+test('export includes documents with base64 bytes and excludes key material', async () => {
+  const { vault } = make();
+  const bytes = new TextEncoder().encode('%PDF-1.4\nCV\n');
+  await vault.put(STORES.documents, 'doc-1', {
+    id: 'doc-1', kind: 'cv', label: 'My CV', fileName: 'cv.pdf', mime: 'application/pdf',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true,
+    text: 'Thandi Mokoena', data: bytes.buffer
+  });
+  const dump = await vault.exportAll();
+  assert.equal(dump.schemaVersion, 2);
+  assert.equal(typeof dump.data.documents['doc-1'].data, 'string');
+  assert.equal(dump.data.documents['doc-1'].text, 'Thandi Mokoena');
+  assert.equal(Object.hasOwn(dump.data, 'keyVault'), false);
+});
+
+test('schema v2 round-trips documents and schema v1 leaves them untouched', async () => {
+  const keepBytes = new TextEncoder().encode('%PDF-1.4\nK');
+  const { vault } = make({ documents: { keep: {
+    id: 'keep', kind: 'cv', label: 'Keep', fileName: 'keep.pdf', mime: 'application/pdf',
+    size: keepBytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: false, text: '', data: keepBytes.buffer
+  } } });
+  const bytes = new TextEncoder().encode('%PDF-1.4\nNew\n');
+  await vault.put(STORES.documents, 'doc-2', {
+    id: 'doc-2', kind: 'other', label: 'New', fileName: 'new.pdf', mime: 'application/pdf',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true, text: '', data: bytes.buffer
+  });
+  const dump = await vault.exportAll();
+
+  await vault.wipe();
+  await vault.importAll(dump);
+  const restored = await vault.get(STORES.documents, 'doc-2');
+  assert.equal(restored.label, 'New');
+  assert.ok(restored.data instanceof ArrayBuffer);
+  assert.equal(new TextDecoder().decode(new Uint8Array(restored.data)), '%PDF-1.4\nNew\n');
+
+  await vault.importAll({
+    app: 'sajas-web', schemaVersion: 1, exportedAt: '2026-11-01T00:00:00.000Z',
+    data: { profile: {}, jobs: {}, answers: {}, memory: {}, usage: {}, meta: {} }
+  });
+  assert.equal((await vault.get(STORES.documents, 'doc-2')).label, 'New');
+});
+
+test('a v2 backup with hostile documents is rejected before anything is cleared', async () => {
+  const { vault } = make();
+  await vault.put(STORES.profile, 'current', { fullName: 'Keep me' });
+  const payload = {
+    app: 'sajas-web', schemaVersion: 2, exportedAt: '2026-11-01T00:00:00.000Z',
+    data: {
+      profile: {}, jobs: {}, answers: {}, memory: {}, usage: {}, meta: {},
+      documents: { bad: { id: 'bad', kind: 'cv', label: 'x', fileName: 'x.pdf', mime: 'application/pdf', size: 1, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: false, text: '', data: 'AAAA' } }
+    }
+  };
+  await assert.rejects(() => vault.importAll(payload), (error) => error.code === 'VALIDATION');
+  assert.equal((await vault.get(STORES.profile, 'current')).fullName, 'Keep me');
+  assert.deepEqual(await vault.getAll(STORES.documents), []);
 });

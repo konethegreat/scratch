@@ -1,12 +1,12 @@
 // IndexedDB adapter for the hosted app. One database, one object store per data
 // area, created on the first open. Quota failures are translated here because
-// the desktop recovery hint (delete documents) does not fit the web app, where
-// documents are never stored locally.
+// the desktop recovery hint does not fit the web app, where documents live in
+// the same browser storage.
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import { VAULT_STORES } from './vault.js';
 
 const DB_NAME = 'sajas-web';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export function toStorageError(error) {
   if (error?.name !== 'QuotaExceededError') return error;

@@ -126,7 +126,7 @@ async function main() {
 
     await page.getByRole('button', { name: /Profile & Settings/i }).click();
     await page.getByTestId('demo-key-note').waitFor();
-    assert.equal(await page.getByTestId('key-input').count(), 0, 'the key input is reachable in demo mode');
+    assert.equal(await page.getByTestId('key-input').count(), 0, 'demo mode showed the key input');
 
     await page.getByRole('button', { name: /^Documents$/ }).click();
     await page.getByTestId('demo-documents-note').waitFor({ timeout: 20_000 });
@@ -134,8 +134,8 @@ async function main() {
     await page.getByText('Certified ID copy (sample)', { exact: false }).first().waitFor();
     await page.getByText('BSc Computer Science certificate (sample)', { exact: false }).first().waitFor();
     await page.getByText('Cover letter template', { exact: false }).first().waitFor();
-    assert.equal(await page.getByRole('button', { name: /Upload file/i }).count(), 0, 'demo documents allow uploads');
-    assert.equal(await page.getByRole('button', { name: /Delete Base CV/i }).count(), 0, 'demo documents allow deletion');
+    assert.equal(await page.getByRole('button', { name: /Upload file/i }).count(), 0, 'demo documents offered an upload button');
+    assert.equal(await page.getByRole('button', { name: /Delete Base CV/i }).count(), 0, 'demo documents offered a delete button');
 
     await page.getByRole('button', { name: /^Job Feeds$/ }).click();
     await page.getByTestId('feed-source-remotive').waitFor({ timeout: 20_000 });
@@ -194,8 +194,7 @@ async function main() {
     await page.getByTestId('demo-field-phone').fill('011 555 0100');
     await page.getByTestId('demo-form-continue').click();
     await page.getByTestId('demo-question').waitFor();
-    const criminal = page.getByTestId('demo-field-bank-criminal-record-check');
-    if (await criminal.count()) await criminal.fill('No');
+    await page.getByTestId('demo-field-bank-criminal-record-check').fill('No');
     await page.getByTestId('demo-question').fill('The accessibility dashboard project.');
     await page.getByTestId('demo-question-continue').click();
     await page.getByTestId('demo-review').waitFor();
@@ -203,7 +202,11 @@ async function main() {
     assert.match(review, /011 555 0100/);
     assert.match(review, /Base CV/);
     assert.match(review, /Tailored CV/);
-    if (await criminal.count()) assert.match(review, /No/);
+    assert.match(
+      await page.getByTestId('demo-review-row-bank-criminal-record-check').innerText(),
+      /\bNo\b/,
+      'the edited criminal record answer was not the one reviewed'
+    );
     await page.getByTestId('demo-review-submit').click();
     await page.getByTestId('demo-confirm').click();
     await page.getByTestId('demo-receipt').waitFor({ timeout: 15_000 });

@@ -18,6 +18,19 @@ test('fields are grouped into details, eligibility and employer questions', () =
   assert.deepEqual(sections[2].fields.map((field) => field.key), ['bank:credit-check']);
 });
 
+test('only this job\'s questions appear in the employer section', () => {
+  const withSaved = [
+    ...fields,
+    { key: 'bank:notice period', label: 'What is your notice period?', value: '30 days', source: 'answer-bank' }
+  ];
+  const sections = portalSections(withSaved, new Set(['bank:credit-check']));
+  assert.deepEqual(sections.find((section) => section.id === 'employer').fields.map((field) => field.key), ['bank:credit-check']);
+  assert.deepEqual(
+    sections.find((section) => section.id === 'eligibility').fields.map((field) => field.key),
+    ['noticePeriod', 'rightToWorkSA', 'bank:notice period']
+  );
+});
+
 test('edits replace only known fields and are trimmed', () => {
   const edited = withEdits(fields, {
     fullName: '  Naledi M. Mokoena  ',
@@ -31,12 +44,13 @@ test('edits replace only known fields and are trimmed', () => {
   assert.equal(edited.some((field) => field.key === 'unknown'), false);
 });
 
-test('submission fields carry keys, labels, values and drop empty rows', () => {
+test('submission fields keep their keys so a cleared row overwrites the old answer', () => {
   const edited = withEdits(fields, { rightToWorkSA: '   ' });
   assert.deepEqual(submissionFields(edited), [
     { key: 'fullName', label: 'Full name', value: 'Naledi Mokoena' },
     { key: 'email', label: 'Email address', value: 'naledi@example.test' },
     { key: 'noticePeriod', label: 'Notice period', value: '30 days' },
+    { key: 'rightToWorkSA', label: 'Right to work in South Africa', value: '' },
     { key: 'bank:credit-check', label: 'Do you consent to a credit check?', value: 'Yes' }
   ]);
 });

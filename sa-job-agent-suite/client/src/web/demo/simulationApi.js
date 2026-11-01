@@ -11,6 +11,7 @@ import { tailoredDocuments } from './jobs.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const SIMULATED = 'Simulated';
+const CREDENTIAL_ASSIGNMENT = /\b(?:password|passphrase|api[\s_-]?key|secret|token)\s*[:=]\s*\S+/i;
 
 function ok(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -179,9 +180,21 @@ export function createSimulationRouter({
         key, label, fileName: String(document?.fileName || '').trim(), available: true
       });
     }
+    if (!documentMeta.length) {
+      const base = String(job.title || 'application').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'application';
+      if (job.tailoredCvText) {
+        documentMeta.push({ key: 'tailored-cv', label: 'Tailored CV', fileName: `${base}-cv.pdf`, available: true });
+      }
+      if (job.tailoredCoverLetterText) {
+        documentMeta.push({ key: 'tailored-letter', label: 'Tailored cover letter', fileName: `${base}-cover-letter.pdf`, available: true });
+      }
+    }
     const profile = (await vault.get(STORES.profile, 'current', {})) || {};
     const answerBank = await vault.getAll(STORES.answers);
     const extra = String(answer || '').trim();
+    if (extra && CREDENTIAL_ASSIGNMENT.test(extra)) {
+      throw new AppError(ERROR_CODES.VALIDATION, 'That answer looks like a credential, so it was not recorded.');
+    }
     const jobQuestions = Array.isArray(job.questions) ? job.questions : [];
     const packetAnswers = [
       ...answerBank,

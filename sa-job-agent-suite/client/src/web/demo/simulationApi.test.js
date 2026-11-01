@@ -122,6 +122,43 @@ test('an edit that looks like a credential is refused and nothing is recorded', 
   assert.equal((await vault.get(STORES.answers, 'demo-visitor-answer')), undefined);
 });
 
+test('an answer that reads like a credential is refused before anything is written', async () => {
+  const { vault, router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+    answer: 'The password: hunter2 is in the brief.'
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'VALIDATION');
+  assert.equal((await vault.get(STORES.jobs, 'demo-job-1')).status, 'tailored');
+  assert.equal((await vault.get(STORES.answers, 'demo-visitor-answer')), undefined);
+});
+
+test('a cleared edit replaces the old value instead of keeping it', async () => {
+  const { router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'phone', label: 'Phone number', value: '   ' }],
+    answer: 'The accessibility dashboard project.'
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.application.fields.some((field) => field.label === 'Phone number'), false);
+});
+
+test('documents falling back to the tailored copies when none are posted', async () => {
+  const { router } = harness();
+  const response = await router.handle(`${API_BASE}/demo/apply/demo-job-1`, post({
+    fields: [{ key: 'phone', label: 'Phone number', value: '011 555 0100' }],
+    answer: 'The accessibility dashboard project.'
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.application.documents.map((doc) => doc.key).sort(), ['tailored-cv', 'tailored-letter']);
+  const cv = body.application.documents.find((doc) => doc.key === 'tailored-cv');
+  assert.equal(cv.label, 'Tailored CV');
+  assert.match(cv.fileName, /-cv\.pdf$/);
+});
+
 test('ordinary routes delegate to the demo API', async () => {
   const { router } = harness();
   const jobs = await (await router.handle(`${API_BASE}/jobs`, get())).json();

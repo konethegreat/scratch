@@ -164,7 +164,11 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
   const confirmRef = useRef(null);
 
   const site = useMemo(() => hostOf(job), [job]);
-  const sections = useMemo(() => portalSections(packet?.fields || []), [packet]);
+  const employerKeys = useMemo(
+    () => new Set((Array.isArray(job?.questions) ? job.questions : []).map((question) => `bank:${question.normalized}`)),
+    [job]
+  );
+  const sections = useMemo(() => portalSections(packet?.fields || [], employerKeys), [packet, employerKeys]);
   const section = (id) => sections.find((entry) => entry.id === id) || { fields: [] };
 
   useEffect(() => {
@@ -295,15 +299,15 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
         Simulated apply copilot <span className="badge badge-warning">Simulated</span>
       </h3>
       <p className="muted" style={{ fontSize: 13, marginTop: 4, marginBottom: 18 }}>
-        A fictional portal inside this page, built from a version 2 apply packet. Nothing is sent to an employer and no site outside this origin is opened.
+        A fictional portal inside this page, filled from the demo persona. Nothing is sent to an employer and no site outside this origin is opened.
       </p>
 
       {stage === 'idle' && (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             <span className="badge"><Globe size={12} aria-hidden="true" style={{ marginRight: 4 }} />{site}</span>
-            <span className="badge">{packet ? packet.fields.length : 0} answers ready</span>
-            <span className="badge">{attachments.length} documents ready</span>
+            {packet && <span className="badge">{packet.fields.length} answers ready</span>}
+            {attachments.length > 0 && <span className="badge">{attachments.length} documents ready</span>}
           </div>
           <p className="tiny" style={{ marginBottom: 12 }}>
             Target: <strong>{job.title}</strong> at {job.company} <span className="muted">({job.salaryBand})</span>
@@ -401,7 +405,7 @@ export default function SimulatedCopilot({ profile, jobs, answerBank = [], onJob
                 {entry.fields.map((field) => {
                   const value = edits[field.key] ?? field.value;
                   return (
-                    <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+                    <div key={field.key} data-testid={`demo-review-row-${testIdFor(field.key)}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
                       <span className="tiny muted">{field.label}</span>
                       <span className="tiny" style={{ textAlign: 'right' }}>{value}</span>
                     </div>

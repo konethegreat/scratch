@@ -4,11 +4,14 @@ const IDENTITY_KEYS = new Set([
   'country', 'currentCompany', 'currentTitle', 'yearsExperience', 'highestQualification'
 ]);
 
-export function portalSections(fields = []) {
+export function portalSections(fields = [], employerKeys = new Set()) {
+  const fromEmployer = employerKeys.size
+    ? (field) => employerKeys.has(field.key)
+    : (field) => field.source === 'answer-bank';
   const identity = fields.filter((field) => IDENTITY_KEYS.has(field.key));
-  const employer = fields.filter((field) => field.source === 'answer-bank');
+  const employer = fields.filter((field) => !IDENTITY_KEYS.has(field.key) && fromEmployer(field));
   const eligibility = fields.filter(
-    (field) => !IDENTITY_KEYS.has(field.key) && field.source !== 'answer-bank'
+    (field) => !IDENTITY_KEYS.has(field.key) && !fromEmployer(field)
   );
   return [
     { id: 'identity', title: 'Your details', fields: identity },
@@ -27,6 +30,6 @@ export function withEdits(fields = [], edits = {}) {
 
 export function submissionFields(fields = []) {
   return fields
-    .filter((field) => field.key && field.label && field.value)
-    .map(({ key, label, value }) => ({ key, label, value }));
+    .filter((field) => field.key && field.label)
+    .map(({ key, label, value }) => ({ key, label, value: String(value ?? '').trim() }));
 }

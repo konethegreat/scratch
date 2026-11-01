@@ -12,7 +12,7 @@ test('a tailored CV becomes a valid multi-page PDF', async () => {
 });
 
 test('accented text and punctuation do not throw', async () => {
-  const bytes = await createCvPdf({ text: '# André Mokoena — Engineer’s CV\nThe café cost R 50.', title: 'CV' });
+  const bytes = await createCvPdf({ text: '# Andr\u00e9 Mokoena \u2014 Engineer\u2019s CV\nThe caf\u00e9 cost R 50.', title: 'CV' });
   assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
 });
 

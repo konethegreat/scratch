@@ -28,7 +28,9 @@
           return;
         }
         if (data.type !== 'sajas:ready') return;
-        setTimeout(() => post({ type: 'sajas:packet', packet: window.__PACKET__ }), 300);
+        const job = new URLSearchParams(location.search).get('job');
+        const packet = (window.__PACKETS__ && job ? window.__PACKETS__[job] : null) || window.__PACKET__;
+        setTimeout(() => post({ type: 'sajas:packet', packet }), 300);
       });
       window.addEventListener('message', (event) => {
         const data = event.data || {};

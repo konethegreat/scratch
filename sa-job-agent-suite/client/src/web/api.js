@@ -10,6 +10,7 @@ import { limit } from './limits.js';
 import { createUsageLedger } from './usage.js';
 import { createWebTailor } from './tailor.js';
 import { createWebRag } from './rag.js';
+import { createWebIntake } from './cvIntake.js';
 import { MAX_FIELD_LENGTH } from './backup.js';
 import { webLink } from './links.js';
 import { migrateProfile } from './profile.js';
@@ -84,6 +85,7 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   const usage = createUsageLedger({ vault, now });
   const tailor = createWebTailor({ vault, keyStore, usage, activity, now, ...(loadAi ? { loadAi } : {}) });
   const rag = createWebRag({ vault, keyStore, usage, activity, now, ...(loadAi ? { loadAi } : {}) });
+  const intake = createWebIntake({ vault, keyStore, usage, activity, ...(loadAi ? { loadAi } : {}) });
 
   function pathOf(input) {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url;
@@ -477,6 +479,11 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if ((match = path.match(/^\/profile\/key\/([^/]+)$/)) && method === 'DELETE') return await clearKey(input, init, match[1]);
       if (path === '/profile' && method === 'GET') return ok(await getProfile());
       if (path === '/profile' && method === 'POST') return await saveProfile(input, init);
+      if (path === '/profile/intake' && method === 'POST') {
+        const { documentId } = await bodyOf(input, init);
+        const result = await intake.propose(documentId);
+        return ok(result);
+      }
       if (path === '/models' && method === 'GET') return ok(publicModels());
       if (path === '/status' && method === 'GET') {
         return ok({ hunter: { isRunning: false, lastResult: null }, apply: {}, routines: [], uptime: 0 });

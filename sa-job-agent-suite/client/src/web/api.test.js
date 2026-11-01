@@ -527,3 +527,35 @@ test('an unknown document is NOT_FOUND and a bad body is VALIDATION', async () =
   assert.equal((await json(bad)).code, 'VALIDATION');
   assert.deepEqual(await json(await call('/documents')), []);
 });
+
+const INTAKE_PROPOSALS = {
+  fullName: 'Thandi Mokoena', preferredName: 'Thandi', email: 'thandi@example.test', phone: '+27 71 234 5678',
+  linkedInUrl: 'https://linkedin.com/in/thandi', portfolioUrl: '', githubUrl: '',
+  city: 'Cape Town', province: 'Western Cape', headline: 'Senior Backend Engineer',
+  summary: 'Eight years building payment systems.', skills: ['Node.js'], languages: ['English'],
+  workHistory: [{ company: 'Acme', title: 'Engineer', start: '2020', end: '', current: true, location: 'Cape Town', bullets: [] }],
+  education: [], certifications: [], yearsExperience: 8, highestQualification: 'BSc Computer Science'
+};
+
+test('POST /profile/intake returns proposals without writing the profile', async () => {
+  const vault = createVault(createMemoryAdapter());
+  const keyStore = createKeyStore({ vault });
+  keyStore.setKey(API_KEY);
+  const bytes = new TextEncoder().encode('Thandi Mokoena Senior Backend Engineer');
+  await vault.put(STORES.documents, 'doc-1', {
+    id: 'doc-1', kind: 'cv', label: 'CV', fileName: 'cv.txt', mime: 'text/plain',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true,
+    text: 'Thandi Mokoena Senior Backend Engineer', data: bytes.buffer
+  });
+  const loadAi = async () => ({
+    makeClient: () => ({}),
+    callClaude: async () => ({ text: JSON.stringify(INTAKE_PROPOSALS) })
+  });
+  const api = createWebApi({ apiBase: API_BASE, vault, keyStore, activity: createActivity(), loadAi });
+  const res = await api.handle(`${API_BASE}/profile/intake`, { method: 'POST', body: JSON.stringify({ documentId: 'doc-1' }) });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.proposals.fullName, 'Thandi Mokoena');
+  assert.equal(body.inputTruncated, false);
+  assert.equal(await vault.get(STORES.profile, 'current'), undefined);
+});

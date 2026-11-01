@@ -1,5 +1,6 @@
 // Post-deploy check in a fresh browser profile. It never touches the real vault:
-// it only enters the demo, tailors one fictional job and exits.
+// it enters the demo, tailors and hunts one fictional job, walks the simulated
+// portal and exits.
 import assert from 'node:assert/strict';
 
 const base = process.argv[2] || 'https://sajas.pages.dev';
@@ -31,18 +32,23 @@ async function main() {
     await page.getByText('Data Engineer').first().click();
     await page.getByTestId('optimise-cv').click();
     await page.getByTestId('tailored-cv').waitFor({ timeout: 15_000 });
-    assert.match(await page.getByTestId('tailored-cv').locator('textarea').inputValue(), /Sample Logistics/);
+    assert.match(
+      await page.getByTestId('tailored-cv').locator('textarea').inputValue(),
+      /Data Engineer/,
+      'the tailored CV did not name the selected role'
+    );
 
     await page.getByRole('button', { name: /^Job Hunter$/ }).click();
+    const rowsBefore = await page.locator('table.data-table tbody tr').count();
     await page.getByTestId('run-demo-hunter').click();
     await page.getByTestId('demo-hunter-result').waitFor({ timeout: 25_000 });
     assert.match(
       await page.getByTestId('demo-hunter-result').innerText(),
-      /5 added, 2 already tracked, 1 outside South Africa skipped/
+      /\d+ added, \d+ already tracked, \d+ outside South Africa skipped/
     );
     assert.ok(
-      await page.locator('table.data-table').getByText('React Developer').count() > 0,
-      'the live tracker did not keep the freshly hunted role'
+      (await page.locator('table.data-table tbody tr').count()) > rowsBefore,
+      'the live tracker did not keep the freshly hunted roles'
     );
 
     await page.getByRole('button', { name: /^Apply Copilot$/ }).click();

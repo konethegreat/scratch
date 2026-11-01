@@ -204,7 +204,11 @@ test('usage counters must be numbers so the panel can format them', () => {
     { days: { days: { '2026-10-30': 'two calls' } } },
     { days: { days: { 'not-a-date': { calls: 1 } } } },
     { days: { days: { '2026-10-30': { calls: 1, byBucket: [] } } } },
-    { days: { days: { '2026-10-30': { calls: 1, byTask: { tailor: 'one' } } } } }
+    { days: { days: { '2026-10-30': { calls: 1, byTask: { tailor: 'one' } } } } },
+    { days: { days: { '2026-10-30': { byTask: { tailor: { runs: '2' } } } } } },
+    { days: { days: { '2026-10-30': { byTask: { tailor: { failures: null } } } } } },
+    { days: { days: { '2026-10-30': { byTask: { tailor: { avgCostUSD: '0.1' } } } } } },
+    { days: { days: { '2026-10-30': { byTask: { tailor: { cacheHitRatio: {} } } } } } }
   ];
   for (const usage of cases) {
     assert.throws(
@@ -217,7 +221,8 @@ test('usage counters must be numbers so the panel can format them', () => {
 
 test('a realistic usage record survives unchanged', () => {
   const zero = { calls: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.01 };
-  const usage = { days: { days: { '2026-10-30': { ...zero, byBucket: { core: { ...zero } }, byTask: { tailor: { ...zero } } } } } };
+  const task = { runs: 1, failures: 0, calls: 1, estCostUSD: 0.01, inputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, cacheHitRatio: 0, avgCostUSD: 0.01 };
+  const usage = { days: { days: { '2026-10-30': { ...zero, byBucket: { core: { ...zero } }, byTask: { tailor: task } } } } };
   const data = sanitiseBackupData(stores({}, { usage }));
   assert.deepEqual(data.usage, usage);
 });

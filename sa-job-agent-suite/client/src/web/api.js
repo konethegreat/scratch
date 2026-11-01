@@ -110,6 +110,25 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
     return { ...rest, hasAnthropicKey: keyStore.hasKey() };
   }
 
+  const PROFILE_LINKS = Object.freeze({ linkedInUrl: 'LinkedIn', portfolioUrl: 'Portfolio' });
+
+  // A value the app refuses to restore is a value it must refuse to save.
+  function assertFieldSizes(value) {
+    if (typeof value === 'string') {
+      if (value.length > MAX_FIELD_LENGTH) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'One of your profile fields is too large to save in this browser. Shorten it, or attach the long text as a document.');
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) assertFieldSizes(item);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      for (const item of Object.values(value)) assertFieldSizes(item);
+    }
+  }
+
   async function saveProfile(input, init) {
     const incoming = await bodyOf(input, init);
     if (incoming.anthropicApiKey && String(incoming.anthropicApiKey).trim()) {
@@ -121,13 +140,29 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
     delete next.anthropicApiKey;
     delete next.hasAnthropicKey;
     // Store links in the same form a backup restore expects, so a bare host
-    // such as "linkedin.com/in/me" survives an export and import.
-    for (const field of ['linkedInUrl', 'portfolioUrl']) {
-      if (next[field] !== undefined) next[field] = webLink(next[field]);
+    // such as "linkedin.com/in/me" survives an export and import. Only fields
+    // in this request are touched, and a non-link is refused rather than
+    // silently blanked.
+    for (const [field, label] of Object.entries(PROFILE_LINKS)) {
+      if (rest[field] === undefined) continue;
+      const raw = rest[field];
+      if (typeof raw !== 'string') {
+        throw new AppError(ERROR_CODES.VALIDATION, `${label} must be a web address, or left blank.`);
+      }
+      if (!raw.trim()) {
+        next[field] = '';
+        continue;
+      }
+      const link = webLink(raw);
+      if (!link) {
+        throw new AppError(ERROR_CODES.VALIDATION, `${label} must be a full web address, such as https://example.com/you, or left blank.`);
+      }
+      next[field] = link;
     }
     if (typeof next.baseCv === 'string' && next.baseCv.length > MAX_FIELD_LENGTH) {
-      throw new AppError(ERROR_CODES.VALIDATION, 'Your CV is too large to save in this browser. Paste the text of the CV instead.');
+      throw new AppError(ERROR_CODES.VALIDATION, 'Your CV is too large to save in this browser. Attach it as a document instead.');
     }
+    assertFieldSizes(next);
     await vault.put(STORES.profile, 'current', next);
     activity.add('Profile settings saved.', 'system');
     return ok({ success: true, profile: { ...next, hasAnthropicKey: keyStore.hasKey() } });

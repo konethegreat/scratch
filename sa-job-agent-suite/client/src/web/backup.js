@@ -20,6 +20,9 @@ const APPLICATION_LIST_FIELDS = Object.freeze(['transcript', 'documents', 'field
 const COUNTER_FIELDS = Object.freeze([
   'calls', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'webSearches', 'estCostUSD'
 ]);
+// Per-task entries are summarised by the desktop server, and the usage panel
+// formats these too, so they need the same numeric guarantee as the counters.
+const TASK_COUNTER_FIELDS = Object.freeze(['runs', 'failures', 'avgCostUSD', 'cacheHitRatio']);
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 function isPlainObject(value) {
@@ -189,7 +192,7 @@ function cleanMemoryRecord(value) {
 }
 
 function cleanCounters(record) {
-  for (const field of COUNTER_FIELDS) {
+  for (const field of [...COUNTER_FIELDS, ...TASK_COUNTER_FIELDS]) {
     if (record[field] === undefined) continue;
     if (typeof record[field] !== 'number' || !Number.isFinite(record[field])) throw invalidRecord('usage');
   }

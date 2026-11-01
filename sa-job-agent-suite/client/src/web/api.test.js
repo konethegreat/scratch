@@ -73,6 +73,29 @@ test('profile starts empty, stores only non-secret fields, and reports hasAnthro
   assert.equal(JSON.stringify(await vault.exportAll()).includes(API_KEY), false);
 });
 
+test('profile links are normalised on save so a backup can restore them', async () => {
+  const { call, vault } = harness();
+  const res = await call('/profile', {
+    method: 'POST',
+    body: { linkedInUrl: 'linkedin.com/in/thandi', portfolioUrl: 'javascript:alert(1)' }
+  });
+  assert.equal(res.status, 200);
+  const stored = await vault.get(STORES.profile, 'current');
+  assert.equal(stored.linkedInUrl, 'https://linkedin.com/in/thandi');
+  assert.equal(stored.portfolioUrl, '');
+});
+
+test('an oversized base CV is rejected instead of making every backup unrestorable', async () => {
+  const { call, vault } = harness();
+  const res = await call('/profile', {
+    method: 'POST',
+    body: { baseCv: 'x'.repeat(1_000_001) }
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await json(res)).code, 'VALIDATION');
+  assert.equal((await vault.get(STORES.profile, 'current', {})).baseCv, undefined);
+});
+
 test('key material is rejected at the profile boundary and leaves the key store untouched', async () => {
   const { call, keyStore } = harness();
   keyStore.setKey(API_KEY);

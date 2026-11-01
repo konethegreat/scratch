@@ -178,6 +178,28 @@ test('import rejects a nested object where the tracker expects text and leaves e
   await assertExisting(vault);
 });
 
+test('import rejects hostile memory and usage values and leaves existing records intact', async () => {
+  const { vault } = make();
+  await seedExisting(vault);
+  const base = { profile: {}, jobs: {}, answers: {}, memory: {}, usage: {}, meta: {} };
+  await assert.rejects(
+    () => vault.importAll(backup({
+      ...base,
+      memory: { dossier: { version: 1, insights: [{ id: 'i1', text: { oops: true } }] } }
+    })),
+    (e) => e.code === 'VALIDATION'
+  );
+  await assertExisting(vault);
+  await assert.rejects(
+    () => vault.importAll(backup({
+      ...base,
+      usage: { days: { days: { '2026-10-30': { calls: 1, estCostUSD: 'free' } } } }
+    })),
+    (e) => e.code === 'VALIDATION'
+  );
+  await assertExisting(vault);
+});
+
 test('import strips a hostile link and key material before writing', async () => {
   const { vault } = make();
   await vault.importAll(backup({

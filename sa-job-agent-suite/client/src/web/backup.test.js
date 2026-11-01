@@ -147,6 +147,81 @@ test('an oversized field is rejected instead of silently clipped', () => {
   );
 });
 
+test('a bare host is accepted as a link and normalised', () => {
+  const data = sanitiseBackupData(stores({ a: { title: 'A', applyUrl: 'linkedin.com/jobs/1' } }, {
+    profile: { current: { linkedInUrl: 'linkedin.com/in/thandi', portfolioUrl: 'not a link' } }
+  }));
+  assert.equal(data.jobs.a.applyUrl, 'https://linkedin.com/jobs/1');
+  assert.equal(data.profile.current.linkedInUrl, 'https://linkedin.com/in/thandi');
+  assert.equal(data.profile.current.portfolioUrl, '');
+});
+
+test('memory text that would crash the panel rejects the import', () => {
+  const cases = [
+    { insights: [{ id: 'i1', text: { text: 'Prefers remote' } }] },
+    { insights: [{ id: 'i1', text: 'Prefers remote', category: {} }] },
+    { employers: [{ id: 'e1', company: 'Acme', notes: [{}] }] },
+    { employers: [{ id: 'e1', company: {}, applications: 1 }] },
+    { employers: [{ id: 'e1', company: 'Acme', applications: 'two' }] },
+    { applications: [{ id: 'a1', title: {}, company: 'Acme' }] },
+    { applications: [{ id: 'a1', title: 'Engineer', transcript: ['not a record'] }] },
+    { applications: [{ id: 'a1', title: 'Engineer', confirmation: { text: {} } }] },
+    { lastDream: { at: {}, reinforced: 1 } }
+  ];
+  for (const dossier of cases) {
+    assert.throws(
+      () => sanitiseBackupData(stores({}, { memory: { dossier } })),
+      (error) => error.code === 'VALIDATION',
+      `${JSON.stringify(dossier)} was accepted`
+    );
+  }
+});
+
+test('a realistic dossier survives unchanged', () => {
+  const dossier = {
+    version: 1,
+    updatedAt: '2026-10-30T10:00:00.000Z',
+    insights: [{ id: 'i1', text: 'Strong in distributed systems', category: 'strength', source: 'manual', weight: 1 }],
+    employers: [{ id: 'e1', company: 'Acme', normalized: 'acme', notes: ['Referred by Sipho'], applications: 1 }],
+    applications: [{
+      id: 'a1', jobId: 'job-1', title: 'Backend Engineer', company: 'Acme',
+      appliedAt: '2026-10-30T10:00:00.000Z', outcome: 'applied', salarySnapshot: null,
+      transcript: [], delivery: 'web-guided', submittedBy: 'user', site: 'example.test',
+      documents: [{ key: 'cv', label: 'Tailored CV', fileName: 'cv.pdf' }],
+      fields: [{ label: 'Email address', value: 'thandi@example.test' }],
+      confirmation: null
+    }],
+    lastDream: { at: '2026-10-30T11:00:00.000Z', reinforced: 1, pruned: 0, added: 2 }
+  };
+  const data = sanitiseBackupData(stores({}, { memory: { dossier } }));
+  assert.deepEqual(data.memory.dossier, dossier);
+});
+
+test('usage counters must be numbers so the panel can format them', () => {
+  const cases = [
+    { days: { days: { '2026-10-30': { calls: 2, estCostUSD: '0.5' } } } },
+    { days: { days: { '2026-10-30': { calls: 2, estCostUSD: null } } } },
+    { days: { days: { '2026-10-30': 'two calls' } } },
+    { days: { days: { 'not-a-date': { calls: 1 } } } },
+    { days: { days: { '2026-10-30': { calls: 1, byBucket: [] } } } },
+    { days: { days: { '2026-10-30': { calls: 1, byTask: { tailor: 'one' } } } } }
+  ];
+  for (const usage of cases) {
+    assert.throws(
+      () => sanitiseBackupData(stores({}, { usage })),
+      (error) => error.code === 'VALIDATION',
+      `${JSON.stringify(usage)} was accepted`
+    );
+  }
+});
+
+test('a realistic usage record survives unchanged', () => {
+  const zero = { calls: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0, estCostUSD: 0.01 };
+  const usage = { days: { days: { '2026-10-30': { ...zero, byBucket: { core: { ...zero } }, byTask: { tailor: { ...zero } } } } } };
+  const data = sanitiseBackupData(stores({}, { usage }));
+  assert.deepEqual(data.usage, usage);
+});
+
 test('a realistic export survives unchanged', () => {
   const profile = { fullName: 'Thandi Mokoena', email: 'thandi@example.test', baseCv: 'CV text', applicationProfile: { noticePeriod: '30 days' } };
   const job = {

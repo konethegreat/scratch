@@ -10,6 +10,8 @@ import { limit } from './limits.js';
 import { createUsageLedger } from './usage.js';
 import { createWebTailor } from './tailor.js';
 import { createWebRag } from './rag.js';
+import { MAX_FIELD_LENGTH } from './backup.js';
+import { webLink } from './links.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
@@ -118,6 +120,14 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
     const next = { ...current, ...rest };
     delete next.anthropicApiKey;
     delete next.hasAnthropicKey;
+    // Store links in the same form a backup restore expects, so a bare host
+    // such as "linkedin.com/in/me" survives an export and import.
+    for (const field of ['linkedInUrl', 'portfolioUrl']) {
+      if (next[field] !== undefined) next[field] = webLink(next[field]);
+    }
+    if (typeof next.baseCv === 'string' && next.baseCv.length > MAX_FIELD_LENGTH) {
+      throw new AppError(ERROR_CODES.VALIDATION, 'Your CV is too large to save in this browser. Paste the text of the CV instead.');
+    }
     await vault.put(STORES.profile, 'current', next);
     activity.add('Profile settings saved.', 'system');
     return ok({ success: true, profile: { ...next, hasAnthropicKey: keyStore.hasKey() } });

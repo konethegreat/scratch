@@ -49,6 +49,9 @@ Stored at `profile/current`. Existing flat fields stay exactly as they are, beca
 ```
 v: 2
 fullName, preferredName, email, phone
+headline, summary
+yearsExperience: number|null
+highestQualification
 linkedInUrl, portfolioUrl, githubUrl
 address: { line1, line2, suburb, city, province, postalCode }
 eeOptIn: boolean
@@ -123,6 +126,8 @@ Rules:
 | `DELETE /documents/:id` | Remove the record. |
 
 All validation failures use the existing error contract. The routes are removed from the web server-only list. In demo mode they answer from the session simulation and never reach the real vault.
+
+Phase 1 hides the documents tab, CV file intake and `/profile/intake` in demo mode; the simulated documents experience belongs to phase 4. The API still answers from the demo session vault, which never touches IndexedDB.
 
 ## CV intake
 

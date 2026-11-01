@@ -1,6 +1,6 @@
 import { VALUE_CAP, LABEL_CAP } from './packet.js';
 
-export const SUBMISSION_DELIVERIES = Object.freeze(['web-guided', 'desktop-copilot']);
+export const SUBMISSION_DELIVERIES = Object.freeze(['web-guided', 'desktop-copilot', 'extension']);
 export const SUBMISSION_SUBMITTERS = Object.freeze(['user', 'copilot-confirmed']);
 const MAX_FIELDS = 80;
 const MAX_DOCUMENTS = 20;

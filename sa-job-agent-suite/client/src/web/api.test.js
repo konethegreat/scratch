@@ -436,3 +436,31 @@ test('bank answers are readable and marking applied records the packet', async (
   assert.equal(memory.applications.length, 1);
   assert.equal(memory.applications[0].delivery, 'web-guided');
 });
+
+test('GET /profile migrates a v1 record once and keeps unknown keys', async () => {
+  const { call, vault } = harness({
+    profile: { current: { fullName: 'Thandi', applicationProfile: { noticePeriod: '30 days' }, legacyFlag: true } }
+  });
+  const first = await json(await call('/profile'));
+  assert.equal(first.v, 2);
+  assert.equal(first.fullName, 'Thandi');
+  assert.equal(first.legacyFlag, true);
+  assert.deepEqual(first.address, {
+    line1: '', line2: '', suburb: '', city: '', province: '', postalCode: ''
+  });
+  const stored = await vault.get(STORES.profile, 'current');
+  assert.equal(stored.v, 2);
+
+  stored.fullName = 'Thandi M.';
+  await vault.put(STORES.profile, 'current', stored);
+  const second = await json(await call('/profile'));
+  assert.equal(second.fullName, 'Thandi M.');
+  assert.equal((await vault.get(STORES.profile, 'current')).fullName, 'Thandi M.');
+});
+
+test('GET /profile creates nothing when no profile record exists', async () => {
+  const { call, vault } = harness();
+  const profile = await json(await call('/profile'));
+  assert.equal(profile.hasAnthropicKey, false);
+  assert.equal(await vault.get(STORES.profile, 'current'), undefined);
+});

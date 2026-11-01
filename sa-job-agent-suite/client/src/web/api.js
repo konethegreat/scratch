@@ -12,6 +12,7 @@ import { createWebTailor } from './tailor.js';
 import { createWebRag } from './rag.js';
 import { MAX_FIELD_LENGTH } from './backup.js';
 import { webLink } from './links.js';
+import { migrateProfile } from './profile.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
@@ -105,8 +106,14 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
   }
 
   async function getProfile() {
-    const stored = (await vault.get(STORES.profile, 'current', {})) || {};
-    const { anthropicApiKey, hasAnthropicKey, ...rest } = stored;
+    const stored = await vault.get(STORES.profile, 'current');
+    // No record means no profile yet: creating one here would make a fresh
+    // visitor look onboarded when they are not.
+    const migrated = stored ? migrateProfile(stored) : {};
+    if (stored && migrated !== stored) {
+      await vault.put(STORES.profile, 'current', migrated);
+    }
+    const { anthropicApiKey, hasAnthropicKey, ...rest } = migrated || {};
     return { ...rest, hasAnthropicKey: keyStore.hasKey() };
   }
 

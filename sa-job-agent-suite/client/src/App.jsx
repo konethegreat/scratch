@@ -2043,6 +2043,8 @@ export default function App() {
             onMarkApplied={markApplied}
             demo={demoMode}
             onOpenPortal={demoMode ? () => setActiveTab('copilot') : null}
+            apiBase={API_BASE}
+            toasts={toasts}
           />
         )}
 

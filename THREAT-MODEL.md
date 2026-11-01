@@ -2,7 +2,7 @@
 
 This document describes what SA-JAS protects, from whom, and where the protection stops. It covers the hosted web app at https://sajas.pages.dev and the desktop build. It replaces the earlier June 2026 model, which described an accounts, payments and managed-key architecture that no longer exists.
 
-Last reviewed: 30 October 2026. Owner: Kone Tshivhinda.
+Last reviewed: 1 November 2026. Owner: Kone Tshivhinda.
 
 ---
 
@@ -33,6 +33,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 3. **Untrusted content boundary.** Job postings, employer pages, uploaded CVs and supporting files, backup files and model output are inputs, never instructions.
 4. **Browser storage boundary.** IndexedDB and `localStorage` are per origin and per browser profile. Another profile, another browser, or a private window starts empty.
 5. **Demo boundary.** Demo mode must not touch the real vault, the real key, or the network.
+6. **Extension boundary.** The optional extension receives one packet through the page's own `postMessage` channel. The app trusts nothing that answers it: every inbound message is checked for source, origin, version and the live nonce, and every outbound packet is rebuilt by `sanitisePacketV2` first.
 
 ## 4. Threats and controls
 
@@ -156,6 +157,19 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 
 **Residual.** A parsing bug in pdf.js or mammoth runs inside the page origin. The controls are the CSP, the fact that local parsing needs no key, and keeping both libraries current.
 
+### T12. Extension hand-off impersonation or packet abuse
+
+**Scenario.** The job page or another script on the origin posts a forged `sajas:ready` or `sajas:ack`, or a page message tries to make the app send a packet elsewhere, navigate the tab, or expose the key.
+
+**Controls.**
+- The packet is posted only to the same window and origin, never to a job-site origin and never as a navigable URL.
+- An inbound message is accepted only when `event.source === window`, `event.origin === location.origin`, the version matches and the nonce equals the live per-load `crypto.randomUUID()`. A message from another origin, another source or another nonce is ignored, and the bridge has no handler that navigates or fetches.
+- Before posting, `sanitisePacketV2` rebuilds the packet from known fields, re-caps every string, refuses a non-`http(s)` apply URL, re-checks attachment MIME types, base64 and both size caps, and drops unknown fields. The packet carries no key, no key-shaped field name, no ID number and no bank detail.
+- The extension is optional. Without it the copy sheet still works and the UI says the extension is not installed; demo mode shows neither control.
+- The Phase 3 extension validates the packet again on receipt and submits only after the user confirms on the job page, so a forged packet cannot cause an unattended submission.
+
+**Residual.** An extension installed by the user runs with browser privileges the page cannot inspect. Users should install only a build they trust, and store distribution will require independent review and a privacy declaration.
+
 ## 5. Out of scope
 
 - Vulnerabilities in Anthropic, Cloudflare, the job boards, or employer sites.
@@ -176,6 +190,9 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 | Only http(s) apply links are stored | `client/src/web/api.test.js`, `packages/core/src/scrape/cardSchema.test.js` |
 | Documents stay within their caps and on the origin | `client/src/web/documents.test.js`, `scripts/web-documents.mjs`, `scripts/web-cv-intake.mjs` |
 | A hostile backup document is refused before anything is cleared | `client/src/web/vault.test.js` |
+| Packet v2 carries no key and stays within its caps | `packages/core/src/apply/packetV2.test.js` |
+| The bridge ignores foreign, unversioned and wrong-nonce messages | `client/src/web/extensionBridge.test.js` |
+| An extension delivery records the same tracker and memory effects | `client/src/web/api.test.js`, `packages/core/src/apply/submission.test.js`, `scripts/web-apply.mjs` |
 | Trust documents ship and stay current | `scripts/check-trust.mjs` |
 
 ## 7. Review

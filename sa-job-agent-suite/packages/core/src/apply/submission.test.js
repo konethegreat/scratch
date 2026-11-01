@@ -42,3 +42,20 @@ test('submission data is capped and empty rows are dropped', () => {
   assert.equal(clean.confirmation.text.length, 500);
   assert.deepEqual(cleanSubmission({ fields: [{ label: '', value: '' }] }).fields, []);
 });
+
+test('an extension delivery is accepted and keeps the user as submitter', () => {
+  const packet = {
+    job: { site: 'acme.example.test' },
+    documents: [{ key: 'cv', label: 'Tailored CV', fileName: 'cv.pdf', available: true }],
+    identity: [], questions: []
+  };
+  const submission = summariseSubmission(packet, {
+    delivery: 'extension',
+    fields: [{ label: 'Email address', value: 'thandi@example.test' }],
+    confirmation: { confirmedAt: '2026-11-01T10:00:00.000Z', text: 'Submit application' }
+  });
+  assert.equal(submission.delivery, 'extension');
+  assert.equal(submission.submittedBy, 'user');
+  assert.deepEqual(submission.fields, [{ label: 'Email address', value: 'thandi@example.test' }]);
+  assert.equal(submission.confirmation.text, 'Submit application');
+});

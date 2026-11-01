@@ -438,6 +438,43 @@ test('bank answers are readable and marking applied records the packet', async (
   assert.equal(memory.applications[0].delivery, 'web-guided');
 });
 
+test('an extension result is recorded with its fields and confirmation', async () => {
+  const { call, vault } = harness({
+    jobs: { j1: { id: 'j1', title: 'Backend Engineer', company: 'Acme', status: 'tailored', tailoredCvText: '# CV', applyUrl: 'https://acme.example.test/1' } },
+    profile: { current: { fullName: 'Thandi', email: 'thandi@example.test', v: 2 } }
+  });
+  const res = await call('/jobs/j1/applied', {
+    method: 'POST',
+    body: {
+      delivery: 'extension',
+      fields: [{ label: 'Email address', value: 'thandi@example.test' }],
+      confirmation: { confirmedAt: '2026-11-01T10:00:00.000Z', text: 'Submit application' }
+    }
+  });
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.job.status, 'applied');
+  assert.equal(body.application.delivery, 'extension');
+  assert.deepEqual(body.application.fields, [{ label: 'Email address', value: 'thandi@example.test' }]);
+  assert.equal(body.application.confirmation.text, 'Submit application');
+  assert.equal((await vault.get(STORES.jobs, 'j1')).status, 'applied');
+});
+
+test('an unknown delivery is rejected without touching the job', async () => {
+  const { call, vault } = harness({ jobs: { j1: { id: 'j1', title: 'T', company: 'C', status: 'tailored', tailoredCvText: '# CV' } } });
+  const res = await call('/jobs/j1/applied', { method: 'POST', body: { delivery: 'desktop-copilot' } });
+  assert.equal(res.status, 400);
+  assert.equal((await json(res)).code, 'VALIDATION');
+  assert.equal((await vault.get(STORES.jobs, 'j1')).status, 'tailored');
+});
+
+test('an empty body still records a web-guided submission', async () => {
+  const { call } = harness({ jobs: { j1: { id: 'j1', title: 'T', company: 'C', status: 'tailored', tailoredCvText: '# CV' } } });
+  const res = await call('/jobs/j1/applied', { method: 'POST' });
+  assert.equal(res.status, 200);
+  assert.equal((await json(res)).application.delivery, 'web-guided');
+});
+
 test('the answer bank applies v2 defaults without rewriting storage', async () => {
   const { call, vault } = harness({ answers: { q1: { id: 'q1', question: 'Notice period?', answer: 'One month', normalized: 'notice period' } } });
   const list = await json(await call('/application/bank'));

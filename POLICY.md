@@ -31,6 +31,7 @@ Last reviewed: 30 October 2026.
 | API key (saved) | `keyVault` record, AES-GCM encrypted with a PBKDF2 key from your passphrase | Until you forget it or clear site data |
 | Theme choice, job filter defaults, dismissed notices | `localStorage` keys `sajas-theme`, `sajas.jobFilters.v1` and `sajas.betaNotice.v1` | Until you clear site data |
 | Demo-mode data | `sessionStorage`: vault data under the `sajas:demo:` prefix, plus the mode flag `sajas:mode` | Until the demo is exited or the tab closes |
+| Extension packets and results | The extension's own IndexedDB database `sajas-extension`, separate from `sajas-web` | Packets expire after eight hours (five at most); results are removed when the app records or discards them (fifty at most); a pending submission expires after one minute (five at most) |
 
 No cookie carries user data. No analytics, telemetry, advertising ID, or fingerprinting script is loaded.
 
@@ -53,7 +54,7 @@ Five kinds of request, each triggered by an action you take:
 1. **AI tasks.** Your prompt and the text it needs (for example a CV and a job description) go to `api.anthropic.com` with your key in the `x-api-key` header. Anthropic processes that text as the operator of its own service under its own terms. Nothing goes to the origin serving this site.
 2. **Public job feeds.** The browser fetches Remotive, Arbeitnow and Jobicy directly. Their operators see your IP address and request headers, exactly as when you visit them.
 3. **Application pages.** Opening an application loads the employer's site in your browser. In the hosted app the copilot fills a form only when you run it and leaves the final Submit to you; in the desktop app the copilot clicks Submit only after you confirm in the app.
-4. **Extension hand-off.** When you press **Send to extension**, the Apply tab posts one packet of your profile answers and the files you selected to the installed extension in the same page and device. It never goes to this site's origin, Anthropic or a feed, and it never contains the key.
+4. **Extension hand-off.** When you press **Send to extension**, the Apply tab posts one packet of your profile answers and the files you selected to the installed extension in the same page and device. It never goes to this site's origin, Anthropic or a feed, and it never contains the key. The extension reads and fills only the application page you open, sends no request of its own, and reports the result back through the same page channel. It adds no new kind of request to the five above.
 5. **Static assets.** Loading the app requests its own files from Cloudflare, which keeps standard access logs (IP address, requested path, user agent, timestamp, response status) under Cloudflare's policy. That is the only record the operator of this site can see, and it is not joined to any profile, document or key.
 
 The key is never written to storage in plain text, never placed in a URL, log, backup or error report, and never sent to this site's origin. `scripts/web-canary.mjs` fails the build if any of that changes.

@@ -80,6 +80,21 @@ async function main() {
     page.on('pageerror', (error) => errors.push(String(error)));
     page.on('request', (request) => requests.push(request.url()));
 
+    // Count bridge hellos the app posts. Demo mode must never create the
+    // extension bridge, so a postMessage is as much a leak as a request.
+    await page.addInitScript(() => {
+      window.__sajasBridgePosts = 0;
+      const post = window.postMessage.bind(window);
+      window.postMessage = (data, targetOrigin, transfer) => {
+        try {
+          if (data && data.source === 'sajas-app') window.__sajasBridgePosts += 1;
+        } catch {
+          // ignore: not a bridge message
+        }
+        return transfer === undefined ? post(data, targetOrigin) : post(data, targetOrigin, transfer);
+      };
+    });
+
     await page.goto(server.url, { waitUntil: 'networkidle' });
     await page.getByTestId('onboarding').waitFor({ timeout: 20_000 });
     await seed(page);
@@ -91,6 +106,8 @@ async function main() {
 
     await page.getByTestId('try-demo-landing').click();
     await page.getByTestId('demo-banner').waitFor({ timeout: 20_000 });
+    // Real mode may have posted a hello before the demo started; count from here.
+    await page.evaluate(() => { window.__sajasBridgePosts = 0; });
     assert.match(await page.getByTestId('demo-banner').innerText(), /Demo mode\. Everything here is simulated\./);
     await page.getByTestId('demo-trial-strip').waitFor();
     await page.getByText('Example Studio', { exact: false }).first().waitFor({ timeout: 20_000 });
@@ -159,10 +176,20 @@ async function main() {
     await page.getByTestId('demo-confirm').click();
     await page.getByTestId('demo-receipt').waitFor({ timeout: 15_000 });
     assert.match(await page.getByTestId('demo-receipt').innerText(), /Nothing was sent to an employer\./);
+    assert.equal(
+      await page.evaluate(() => window.__sajasBridgePosts),
+      0,
+      'demo mode posted an extension bridge message'
+    );
 
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByTestId('demo-banner').waitFor({ timeout: 20_000 });
     await page.getByText('Example Studio', { exact: false }).first().waitFor({ timeout: 20_000 });
+    assert.equal(
+      await page.evaluate(() => window.__sajasBridgePosts),
+      0,
+      'demo mode posted an extension bridge message after a reload'
+    );
 
     await page.getByTestId('exit-demo').click();
     await page.getByRole('button', { name: /Enter the Suite/i }).waitFor({ timeout: 20_000 });

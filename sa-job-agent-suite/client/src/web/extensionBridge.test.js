@@ -102,3 +102,52 @@ test('probe ignores a ready message with a different nonce', async () => {
   assert.equal(await ready, false);
   bridge.dispose();
 });
+
+test('pullResults asks with this nonce and returns the queued results', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', resultsTimeoutMs: 50 });
+  const pending = bridge.pullResults();
+  assert.deepEqual(win.sent.at(-2), {
+    data: { source: 'sajas-app', type: 'sajas:hello', version: 1, nonce: 'n1' },
+    origin: 'https://sajas.pages.dev'
+  });
+  assert.deepEqual(win.sent.at(-1), {
+    data: { source: 'sajas-app', type: 'sajas:results-request', version: 1, nonce: 'n1' },
+    origin: 'https://sajas.pages.dev'
+  });
+  win.receive({ source: 'sajas-extension', type: 'sajas:results', version: 1, nonce: 'n1', results: [{ id: 'r1' }] });
+  assert.deepEqual(await pending, [{ id: 'r1' }]);
+  bridge.dispose();
+});
+
+test('ackResults posts the ids and waits for the extension confirmation', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', resultsTimeoutMs: 50 });
+  const pending = bridge.ackResults(['r1', 'r2']);
+  assert.equal(win.sent.at(-1).data.type, 'sajas:results-ack');
+  assert.deepEqual(win.sent.at(-1).data.ids, ['r1', 'r2']);
+  win.receive({ source: 'sajas-extension', type: 'sajas:results-acked', version: 1, nonce: 'n1', ids: ['r1', 'r2'] });
+  assert.equal(await pending, true);
+  bridge.dispose();
+});
+
+test('pullResults gives up quietly when no extension answers', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', resultsTimeoutMs: 10 });
+  assert.deepEqual(await bridge.pullResults(), []);
+  bridge.dispose();
+});
+
+test('results and acks from a foreign origin or another nonce are ignored', async () => {
+  const win = fakeWindow();
+  const bridge = createExtensionBridge({ window: win, nonce: 'n1', resultsTimeoutMs: 10 });
+  const results = bridge.pullResults();
+  win.receive({ source: 'sajas-extension', type: 'sajas:results', version: 1, nonce: 'n1', results: [{ id: 'r1' }] }, { origin: 'https://evil.example' });
+  win.receive({ source: 'sajas-extension', type: 'sajas:results', version: 1, nonce: 'n2', results: [{ id: 'r1' }] });
+  assert.deepEqual(await results, []);
+  const ack = bridge.ackResults(['r1']);
+  win.receive({ source: 'sajas-extension', type: 'sajas:results-acked', version: 1, nonce: 'n2', ids: ['r1'] });
+  assert.equal(await ack, false);
+  assert.equal(await bridge.ackResults([]), false);
+  bridge.dispose();
+});

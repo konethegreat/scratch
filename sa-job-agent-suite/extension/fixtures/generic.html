@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Generic application fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Operations Coordinator</h1>
+      <p>Kalahari Logistics, Bloemfontein</p>
+      <form id="apply">
+        <label for="given">Given name</label>
+        <input id="given" autocomplete="given-name" />
+        <label for="family">Family name</label>
+        <input id="family" autocomplete="family-name" />
+        <label for="email">Email address</label>
+        <input id="email" type="email" autocomplete="email" />
+        <label for="right-to-work">Right to work in South Africa</label>
+        <select id="right-to-work">
+          <option value="">Select</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+        <label for="licence">Driver's licence</label>
+        <select id="licence">
+          <option value="">Select</option>
+          <option value="code-b">Code B</option>
+          <option value="none">None</option>
+        </select>
+        <label for="salary">Expected salary</label>
+        <input id="salary" />
+        <label for="cv">CV</label>
+        <input id="cv" type="file" />
+        <label for="pronouns">Preferred pronouns</label>
+        <input id="pronouns" />
+        <button type="submit">Submit application</button>
+      </form>
+    </main>
+    <script>
+      document.getElementById('apply').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const box = document.createElement('p');
+        box.className = 'application-confirmation';
+        box.textContent = 'Application submitted. We have received your application.';
+        document.querySelector('main').append(box);
+      });
+    </script>
+  </body>
+</html>

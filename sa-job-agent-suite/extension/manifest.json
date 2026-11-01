@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "SA-JAS Apply Assistant",
+  "version": "0.1.0",
+  "description": "Fills a job application from an SA-JAS packet you send from the app. You review and submit.",
+  "permissions": ["storage", "scripting", "activeTab", "tabs"],
+  "host_permissions": ["https://sajas.pages.dev/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "sw.js", "type": "module" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SA-JAS Apply Assistant",
+    "default_icon": { "128": "icons/icon-128.png" }
+  },
+  "icons": { "128": "icons/icon-128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://sajas.pages.dev/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["appBridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

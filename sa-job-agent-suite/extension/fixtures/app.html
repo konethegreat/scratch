@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SA-JAS app fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>App fixture</h1>
+      <p id="state">Waiting for the extension.</p>
+    </main>
+    <script>
+      window.__sajasAck = null;
+      window.__sajasAcked = null;
+      const nonce = 'fixture-nonce';
+      const post = (data) => window.postMessage({ source: 'sajas-app', version: 1, nonce, ...data }, location.origin);
+      window.addEventListener('message', (event) => {
+        if (event.source !== window || event.origin !== location.origin) return;
+        const data = event.data || {};
+        if (data.source !== 'sajas-extension' || data.nonce !== nonce) return;
+        if (data.type === 'sajas:results-request') {
+          post({ type: 'sajas:results', results: window.__RESULTS__ || [] });
+          return;
+        }
+        if (data.type === 'sajas:results-ack') {
+          window.__sajasAcked = data.ids;
+          post({ type: 'sajas:results-acked', ids: data.ids });
+          return;
+        }
+        if (data.type !== 'sajas:ready') return;
+        const job = new URLSearchParams(location.search).get('job');
+        const packet = (window.__PACKETS__ && job ? window.__PACKETS__[job] : null) || window.__PACKET__;
+        setTimeout(() => post({ type: 'sajas:packet', packet }), 300);
+      });
+      window.addEventListener('message', (event) => {
+        const data = event.data || {};
+        if (data.source === 'sajas-extension' && data.type === 'sajas:ack') {
+          window.__sajasAck = data.packetId;
+          document.getElementById('state').textContent = 'Packet accepted: ' + data.packetId;
+        }
+      });
+      post({ type: 'sajas:hello' });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lever fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Data Analyst</h1>
+      <p>Umoya Retail, Durban</p>
+      <form id="application-form" novalidate>
+        <label for="name">Full name</label>
+        <input id="name" name="name" />
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" />
+        <label for="phone">Phone number</label>
+        <input id="phone" name="phone" type="tel" />
+        <label for="linkedin">LinkedIn URL</label>
+        <input id="linkedin" name="urls[LinkedIn]" />
+        <label for="comments">Anything else</label>
+        <textarea id="comments" name="comments"></textarea>
+        <label for="resume">Resume/CV</label>
+        <input id="resume" name="resume" type="file" />
+        <button class="template-btn-submit" type="submit">Submit application</button>
+      </form>
+    </main>
+    <script>
+      document.getElementById('application-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const box = document.createElement('div');
+        box.className = 'application-confirmation';
+        box.textContent = 'Application submitted. We have received your application.';
+        document.querySelector('main').append(box);
+      });
+    </script>
+  </body>
+</html>

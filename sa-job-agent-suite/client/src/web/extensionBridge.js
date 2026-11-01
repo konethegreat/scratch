@@ -11,7 +11,8 @@ export function createExtensionBridge({
   origin = win?.location?.origin || '',
   nonce = globalThis.crypto?.randomUUID?.() || String(Date.now()),
   timeoutMs = 1200,
-  ackTimeoutMs = 3000
+  ackTimeoutMs = 3000,
+  resultsTimeoutMs = 1500
 } = {}) {
   const listeners = new Set();
   let disposed = false;
@@ -67,6 +68,22 @@ export function createExtensionBridge({
       const received = await ack;
       if (received) return { ok: true };
       return { ok: false, reason: 'timeout', message: 'The extension did not confirm the packet. Check that it is installed and enabled, then try again.' };
+    },
+    async pullResults() {
+      // The content script accepts nothing until a hello has set its nonce, and
+      // a fresh page load may pull before anything else has said hello.
+      const reply = waitFor('sajas:results', (data) => Array.isArray(data.results), resultsTimeoutMs);
+      post({ source: APP, type: 'sajas:hello', version: BRIDGE_VERSION, nonce });
+      post({ source: APP, type: 'sajas:results-request', version: BRIDGE_VERSION, nonce });
+      const received = await reply;
+      return Array.isArray(received?.results) ? received.results : [];
+    },
+    async ackResults(ids) {
+      const clean = (Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean).slice(0, 50);
+      if (!clean.length) return false;
+      const reply = waitFor('sajas:results-acked', (data) => Array.isArray(data.ids) && clean.every((id) => data.ids.includes(id)), resultsTimeoutMs);
+      post({ source: APP, type: 'sajas:results-ack', version: BRIDGE_VERSION, nonce, ids: clean });
+      return Boolean(await reply);
     },
     dispose() {
       disposed = true;

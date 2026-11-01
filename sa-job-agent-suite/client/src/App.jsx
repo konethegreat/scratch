@@ -82,6 +82,8 @@ import { isTabVisible, filterSettingsTabs, SERVER_ONLY_SETTINGS } from './web/mo
 import WebStartup from './web/WebStartup.jsx';
 import WebKeyPanel from './web/WebKeyPanel.jsx';
 import { webRuntime, enterDemo, exitDemo } from './web/runtime.js';
+import { createExtensionBridge } from './web/extensionBridge.js';
+import { syncExtensionResults } from './web/extensionSync.js';
 import { isDemoMode, storageAvailable, subscribeMode } from './web/demo/mode.js';
 import { clearFeedCache } from './web/feeds.js';
 import {
@@ -592,6 +594,61 @@ export default function App() {
     if (!IS_WEB) return undefined;
     return subscribeMode((mode) => setDemoMode(mode === 'demo'));
   }, []);
+
+  // Submissions made through the extension wait in its own queue. Opening the
+  // app, or coming back to its tab after submitting on a job page, drains them
+  // into the tracker. Demo mode never creates the bridge.
+  useEffect(() => {
+    if (!IS_WEB || SYNTHETIC_DEMO || !webReady || demoMode) return undefined;
+    const bridge = createExtensionBridge();
+    let alive = true;
+    let running = false;
+    const record = async (result) => {
+      try {
+        const res = await fetch(`${API_BASE}/jobs/${result.jobId}/applied`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            delivery: 'extension',
+            submitter: 'user',
+            fields: result.fields,
+            confirmation: result.confirmation
+          })
+        });
+        if (res.status === 404) return 'gone';
+        return res.ok ? 'synced' : 'failed';
+      } catch {
+        return 'failed';
+      }
+    };
+    const run = async () => {
+      if (!alive || running) return;
+      running = true;
+      try {
+        const outcome = await syncExtensionResults({ bridge, record });
+        if (!alive) return;
+        if (outcome.synced) {
+          toasts.success(`Synced ${outcome.synced} application${outcome.synced === 1 ? '' : 's'} from the extension.`, 'Extension sync');
+          fetchJobs();
+        }
+        if (outcome.dropped) {
+          toasts.info(`${outcome.dropped} extension result${outcome.dropped === 1 ? '' : 's'} pointed at a job that is no longer in the tracker.`, 'Extension sync');
+        }
+      } catch {
+        // The next focus retries; a missing extension is quiet by design.
+      } finally {
+        running = false;
+      }
+    };
+    const onFocus = () => { run(); };
+    run();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', onFocus);
+      bridge.dispose();
+    };
+  }, [webReady, demoMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live polling for active state
   useEffect(() => {

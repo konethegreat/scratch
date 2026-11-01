@@ -126,6 +126,19 @@ Each phase has a **goal**, **why now**, **build checklist**, and **done-when**. 
 
 ---
 
+### Phase A1 — Hosted Apply Assistant extension ✅ DONE
+**Goal:** Close the loop between the hosted app and a real job form without a server.
+**Shipped 2026-11-01.**
+
+- [x] Packet v2, a pure field matcher and generic, Greenhouse and Lever adapters in `@sajas/core`.
+- [x] An unpacked Manifest V3 extension: service worker, app content script, injected page script with a review panel, and an action popup.
+- [x] Packets and results in the extension's own IndexedDB, with expiry and caps; results sync into the tracker as delivery `extension`.
+- [x] Static gates (`build:extension`, `check:extension`) and an offline browser proof of fill, review, submit, CAPTCHA refusal and result sync.
+
+**Next:** the richer hosted demo (Phase 4 of the automation arc) and store publication only after independent review.
+
+---
+
 ### Phase T5 — MCP server (reach & credibility, not revenue)
 **Goal:** Let power users plug SA-JAS hunter/tailor/apply tools into Claude Desktop / Code.
 **Why now:** Second distribution surface + the ecosystem-contribution that gets you noticed by Anthropic.

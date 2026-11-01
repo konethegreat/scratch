@@ -34,3 +34,6 @@ server/src/hunter/fixtures/recorded/
 # manual debug snapshots from `node scripts/hunter-debug.mjs` (real page HTML
 # and captured JSON responses)
 hunter-debug/
+
+# built unpacked extension (extension/dist)
+extension/dist/

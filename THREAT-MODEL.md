@@ -34,6 +34,7 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 4. **Browser storage boundary.** IndexedDB and `localStorage` are per origin and per browser profile. Another profile, another browser, or a private window starts empty.
 5. **Demo boundary.** Demo mode must not touch the real vault, the real key, or the network.
 6. **Extension boundary.** The optional extension receives one packet through the page's own `postMessage` channel. The app trusts nothing that answers it: every inbound message is checked for source, origin, version and the live nonce, and every outbound packet is rebuilt by `sanitisePacketV2` first.
+7. **Application page boundary.** The extension can read and fill the page it is invoked on, and that page is untrusted input. The page script runs in an isolated world, reads only field descriptors, never executes page text, injects only on a user action, and records a result only for the host that matches the stored packet.
 
 ## 4. Threats and controls
 
@@ -170,6 +171,22 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 
 **Residual.** An extension installed by the user runs with browser privileges the page cannot inspect. Users should install only a build they trust, and store distribution will require independent review and a privacy declaration.
 
+### T13. Extension fills or submits the wrong thing
+
+**Scenario.** The popup injects into a tab that is not the job's site, a forged page or app message moves a packet, a stored result is stale, or a submission is recorded without the person reviewing it.
+
+**Controls and tests.**
+
+| Threat | Control | Test |
+|---|---|---|
+| Wrong-page fill | The popup asks for every match by tab host and the user picks one; the worker refuses injection unless that packet exists and the active tab's host equals the packet's site; the page script re-checks its own host before reading anything. | `extension/src/sw.test.js`, `scripts/web-extension.mjs` |
+| Forged app message | The content script accepts only same-window, same-origin messages that pass `isAppMessage`, and ignores everything until a hello has set the live nonce. | `extension/src/appBridge.js`, `client/src/web/extensionBridge.test.js` |
+| Forged page message | A result is accepted only from a tab whose host equals `result.site`; `begin-submit` and `cancel-submit` apply the same check; the worker adds its own timestamp, and the store re-validates every field, label, URL and key-shaped value. | `extension/src/worker.js`, `extension/src/store.test.js` |
+| Stale packets or results | Eight-hour packet expiry, five-packet and fifty-result caps with time-ordered eviction; pending submissions expire after one minute, cap at five and clear on cancel or record; the app acknowledges only what it recorded or found gone, and leaves failures queued. | `extension/src/store.test.js`, `client/src/web/extensionSync.test.js` |
+| Submitted without review | The panel's Submit stays disabled until the review box is ticked; the page script matches one visible submit control, refuses while a CAPTCHA is present, and records only after the page shows a confirmation or, for a navigating form, the tab lands on a confirmation URL on the same site. | `extension/src/panel.js`, `extension/src/worker.js`, `scripts/web-extension.mjs` |
+
+**Residual.** A real site can show a confirmation without actually accepting the application, or change its form after the fill. The extension reports what the page said, marks the tracker as applied, and leaves the page open for the person to check.
+
 ## 5. Out of scope
 
 - Vulnerabilities in Anthropic, Cloudflare, the job boards, or employer sites.
@@ -193,6 +210,13 @@ There is no SA-JAS server holding user data, no login, and no payment flow.
 | Packet v2 carries no key and stays within its caps | `packages/core/src/apply/packetV2.test.js` |
 | The bridge ignores foreign, unversioned and wrong-nonce messages | `client/src/web/extensionBridge.test.js` |
 | An extension delivery records the same tracker and memory effects | `client/src/web/api.test.js`, `packages/core/src/apply/submission.test.js`, `scripts/web-apply.mjs` |
+| The extension fills only exact matches and shows every skip | `packages/core/src/apply/matcher.test.js`, `scripts/web-extension.mjs` |
+| The worker refuses foreign senders, off-site tabs and unknown messages | `extension/src/sw.test.js` |
+| Packets and results expire, cap and evict in order | `extension/src/store.test.js` |
+| A navigating form is confirmed only by a same-site confirmation URL | `extension/src/sw.test.js`, `extension/src/store.test.js`, `scripts/web-extension.mjs` |
+| Several applications on one host are all offered and picked explicitly | `extension/src/sw.test.js`, `extension/src/store.test.js` |
+| The extension makes no network request and holds minimal permissions | `scripts/check-extension.mjs` |
+| The whole hand-off fills, reviews, submits and syncs offline | `scripts/web-extension.mjs` |
 | Trust documents ship and stay current | `scripts/check-trust.mjs` |
 
 ## 7. Review

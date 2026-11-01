@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Greenhouse fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Backend Engineer</h1>
+      <p>Acme Bank, Cape Town</p>
+      <form id="application_form">
+        <label for="first_name">First name</label>
+        <input id="first_name" name="first_name" autocomplete="given-name" />
+        <label for="last_name">Last name</label>
+        <input id="last_name" name="last_name" autocomplete="family-name" />
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" />
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" type="tel" />
+        <label for="location">Location</label>
+        <select id="location" name="job_application[location]">
+          <option value="">Choose a location</option>
+          <option value="cape-town">Cape Town</option>
+          <option value="johannesburg">Johannesburg</option>
+        </select>
+        <label for="notice_period">Notice period (days)</label>
+        <input id="notice_period" name="notice_period" />
+        <label for="pronouns">Preferred pronouns</label>
+        <input id="pronouns" name="pronouns" />
+        <label for="resume">Resume</label>
+        <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx" />
+        <button id="submit_app" type="submit">Submit application</button>
+      </form>
+    </main>
+    <script>
+      document.getElementById('application_form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const box = document.createElement('div');
+        box.className = 'application-confirmation';
+        box.textContent = 'Thank you for applying to Acme Bank.';
+        document.querySelector('main').append(box);
+      });
+    </script>
+  </body>
+</html>

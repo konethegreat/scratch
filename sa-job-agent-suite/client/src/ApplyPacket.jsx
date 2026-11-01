@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react';
-import { CheckCircle2, Circle, Copy, ExternalLink, Printer, ShieldCheck } from 'lucide-react';
-import { buildApplyPacket } from '@sajas/core/apply';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Circle, Copy, Download, ExternalLink, Printer, Send, ShieldCheck } from 'lucide-react';
+import { buildApplyPacket, buildApplyPacketV2 } from '@sajas/core/apply';
 import { copyToClipboard } from './clipboard.js';
 import { printDocument } from './print.js';
+import { createCvPdf, safePdfFileName } from './web/pdf/cvPdf.js';
+import { createExtensionBridge } from './web/extensionBridge.js';
+import { downloadBytes } from './web/download.js';
+
+const APPLY_DOCUMENT_KINDS = ['cv', 'certified-id', 'qualification', 'cover-letter'];
 
 function CopyButton({ text }) {
   const [state, setState] = useState('idle');
@@ -34,9 +39,15 @@ function Row({ label, value }) {
   );
 }
 
-export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkApplied, busyJobId = null, demo = false, onOpenPortal = null }) {
+export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkApplied, busyJobId = null, demo = false, onOpenPortal = null, apiBase = '', toasts = null }) {
   const ready = useMemo(() => jobs.filter((job) => job.tailoredCvText), [jobs]);
   const [pickedId, setPickedId] = useState('');
+  const [documents, setDocuments] = useState([]);
+  const [chosenDocs, setChosenDocs] = useState(() => new Set());
+  const [bridgeReady, setBridgeReady] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const bridgeRef = useRef(null);
   const job = ready.find((entry) => entry.id === pickedId) || ready[0] || null;
   const packet = useMemo(() => {
     if (!job) return null;
@@ -51,6 +62,100 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
     });
   }, [profile, job, answerBank]);
 
+  useEffect(() => {
+    if (demo || !apiBase) return undefined;
+    let live = true;
+    fetch(`${apiBase}/documents`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list) => {
+        if (!live) return;
+        const usable = Array.isArray(list) ? list.filter((doc) => APPLY_DOCUMENT_KINDS.includes(doc.kind)) : [];
+        setDocuments(usable);
+        setChosenDocs(new Set(usable.filter((doc) => doc.kind === 'cv' && doc.isDefault).map((doc) => doc.id)));
+      })
+      .catch(() => {});
+    const bridge = createExtensionBridge();
+    bridgeRef.current = bridge;
+    bridge.probe().then((isReady) => { if (live) setBridgeReady(isReady); });
+    return () => {
+      live = false;
+      bridge.dispose();
+      bridgeRef.current = null;
+    };
+  }, [apiBase, demo]);
+
+  const tailoredPdf = useCallback(() => {
+    if (!job?.tailoredCvText) return null;
+    return createCvPdf({ text: job.tailoredCvText, title: `${job.title} CV` });
+  }, [job]);
+
+  const downloadTailored = async () => {
+    if (!job) return;
+    setPdfBusy(true);
+    try {
+      const bytes = await tailoredPdf();
+      if (bytes) downloadBytes(bytes, safePdfFileName(`${job.title}-cv`));
+    } catch (error) {
+      toasts?.error?.(error.message);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const toggleDoc = (id) => {
+    setChosenDocs((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const sendToExtension = async () => {
+    if (!bridgeRef.current) return;
+    if (!bridgeReady) {
+      toasts?.error?.('The extension is not installed yet, or it is still starting. Check that it is installed and enabled, then reload this page.');
+      return;
+    }
+    if (!job) return;
+    setSending(true);
+    try {
+      const pdf = await tailoredPdf();
+      const attachments = [];
+      if (pdf) attachments.push({
+        key: 'tailored-cv', kind: 'tailored-cv', label: 'Tailored CV',
+        fileName: safePdfFileName(`${job.title}-cv`), mime: 'application/pdf', bytes: pdf
+      });
+      for (const doc of documents.filter((entry) => chosenDocs.has(entry.id))) {
+        const res = await fetch(`${apiBase}/documents/${doc.id}/file`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Could not read one of your documents.');
+        const body = await res.json();
+        const binary = atob(body.dataBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        attachments.push({
+          key: doc.id, kind: 'document', label: doc.label, fileName: body.fileName,
+          mime: body.mime, bytes
+        });
+      }
+      const v2 = buildApplyPacketV2({
+        profile: profile || {}, job, answerBank, attachments,
+        documents: [
+          ...(pdf ? [{ key: 'tailored-cv', label: 'Tailored CV', fileName: safePdfFileName(`${job.title}-cv`), available: true }] : []),
+          ...documents.map((doc) => ({ key: doc.id, label: doc.label, fileName: doc.fileName, available: chosenDocs.has(doc.id) }))
+        ]
+      });
+      const result = await bridgeRef.current.send(v2);
+      if (result.ok) toasts?.success?.('Packet sent to the extension. It will not submit until you confirm on the job page.');
+      else toasts?.error?.(result.message);
+    } catch (error) {
+      toasts?.error?.(error.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const baseCv = documents.find((doc) => doc.kind === 'cv' && doc.isDefault) || documents.find((doc) => doc.kind === 'cv') || null;
+
   if (!ready.length) {
     return (
       <section className="panel" style={{ padding: 24 }}>
@@ -64,7 +169,9 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
     <section className="panel" style={{ padding: 24 }}>
       <h3 style={{ fontSize: 18, marginBottom: 4 }}>Apply with a packet</h3>
       <p className="muted" style={{ marginBottom: 16 }}>
-        The web app cannot type into another site's form. Copy each answer, paste it on the job site, and press Mark applied when the site confirms your submission.
+        {demo
+          ? "The web app cannot type into another site's form. Copy each answer, paste it on the job site, and press Mark applied when the site confirms your submission."
+          : "Copy each answer, or send the packet to the installed extension to fill the job site's form. You confirm the submission on the job site, then press Mark applied."}
       </p>
 
       <label className="tiny" htmlFor="apply-job" style={{ display: 'block', marginBottom: 6 }}>Job</label>
@@ -116,6 +223,48 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
               </button>
             )}
           </div>
+          {!demo && (
+            <div style={{ marginTop: 12 }}>
+              <p className="tiny" style={{ margin: '4px 0' }}>
+                {baseCv ? `Base CV: ${baseCv.fileName}` : 'No CV is stored yet. Add one in Profile & Settings > Documents.'}
+              </p>
+              {documents.length > 0 && (
+                <div data-testid="apply-documents" style={{ display: 'grid', gap: 4, margin: '8px 0' }}>
+                  {documents.map((doc) => (
+                    <label key={doc.id} className="tiny" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="checkbox" checked={chosenDocs.has(doc.id)} onChange={() => toggleDoc(doc.id)} />
+                      {doc.label} ({doc.kind})
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div className="flex-gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  data-testid="download-tailored-pdf"
+                  disabled={pdfBusy}
+                  onClick={downloadTailored}
+                >
+                  <Download size={13} /> {pdfBusy ? 'Making the PDF...' : 'Download tailored CV PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  data-testid="send-to-extension"
+                  disabled={sending}
+                  onClick={sendToExtension}
+                >
+                  <Send size={13} /> {sending ? 'Sending...' : 'Send to extension'}
+                </button>
+              </div>
+              {!bridgeReady && (
+                <p className="tiny" style={{ marginTop: 6 }}>
+                  The extension is not installed yet. Install it from the project repository, then reload this page.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div>

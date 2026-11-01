@@ -13,6 +13,9 @@ import { createWebRag } from './rag.js';
 import { MAX_FIELD_LENGTH } from './backup.js';
 import { webLink } from './links.js';
 import { migrateProfile } from './profile.js';
+import {
+  DOCUMENT_KINDS, bytesToBase64, createDocumentRecord, documentMetadata, normaliseDocumentLabel
+} from './documents.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_TEXT = 20000;
@@ -64,7 +67,6 @@ const SERVER_ONLY = [
   /^\/profile\/preset$/,
   /^\/application\/pending(?:\/.*)?$/,
   /^\/backup(?:\/.*)?$/,
-  /^\/documents(?:\/[^/]+)?$/, // GET /documents is answered above; uploads are server-only
   /^\/jobs\/hunter(?:\/stop)?$/,
   /^\/jobs\/revalidate$/,
   /^\/jobs\/tailor-batch$/,
@@ -179,6 +181,73 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
     if (provider !== 'anthropic') return notFound('Unknown provider');
     await keyStore.forget();
     activity.add('Anthropic API key cleared.', 'system');
+    return ok({ success: true });
+  }
+
+  async function documentList() {
+    const documents = await vault.getAll(STORES.documents);
+    return documents
+      .slice()
+      .sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)))
+      .map(documentMetadata);
+  }
+
+  async function getDocument(id) {
+    const document = await vault.get(STORES.documents, id);
+    if (!document) throw new AppError(ERROR_CODES.NOT_FOUND, 'Document not found.');
+    return document;
+  }
+
+  async function addDocument(input, init) {
+    const body = await bodyOf(input, init);
+    const existing = await vault.getAll(STORES.documents);
+    const record = {
+      id: crypto.randomUUID(),
+      ...createDocumentRecord(body, existing),
+      uploadedAt: now().toISOString(),
+      isDefault: body.isDefault === true
+    };
+    if (record.isDefault) {
+      for (const other of existing.filter((entry) => entry.isDefault)) {
+        await vault.put(STORES.documents, other.id, { ...other, isDefault: false });
+      }
+    }
+    await vault.put(STORES.documents, record.id, record);
+    activity.add(`Document added: ${record.label}.`, 'system');
+    return ok({ success: true, document: documentMetadata(record) });
+  }
+
+  async function patchDocument(input, init, id) {
+    const document = await getDocument(id);
+    const body = await bodyOf(input, init);
+    const next = { ...document };
+    if (body.label !== undefined) {
+      const label = normaliseDocumentLabel(body.label);
+      if (!label) throw new AppError(ERROR_CODES.VALIDATION, 'Give this document a label.');
+      next.label = label;
+    }
+    if (body.kind !== undefined) {
+      if (!DOCUMENT_KINDS.includes(body.kind)) throw new AppError(ERROR_CODES.VALIDATION, 'Choose a document type.');
+      next.kind = body.kind;
+    }
+    if (body.isDefault !== undefined) {
+      if (typeof body.isDefault !== 'boolean') throw new AppError(ERROR_CODES.VALIDATION, 'That default flag is invalid.');
+      next.isDefault = body.isDefault;
+      if (next.isDefault) {
+        for (const other of await vault.getAll(STORES.documents)) {
+          if (other.id !== id && other.isDefault) {
+            await vault.put(STORES.documents, other.id, { ...other, isDefault: false });
+          }
+        }
+      }
+    }
+    await vault.put(STORES.documents, id, next);
+    return ok({ success: true, document: documentMetadata(next) });
+  }
+
+  async function deleteDocument(id) {
+    await getDocument(id);
+    await vault.delete(STORES.documents, id);
     return ok({ success: true });
   }
 
@@ -426,7 +495,18 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if (path === '/rag/status' && method === 'GET') return ok(await rag.status());
       if (path === '/rag/ask' && method === 'POST') return ok(await rag.ask(await bodyOf(input, init)));
       if (path === '/rag/check' && method === 'POST') return ok(await rag.check(await bodyOf(input, init)));
-      if (path === '/documents' && method === 'GET') return ok([]);
+      if (path === '/documents' && method === 'GET') return ok(await documentList());
+      if (path === '/documents' && method === 'POST') return await addDocument(input, init);
+      if ((match = path.match(/^\/documents\/([^/]+)\/file$/)) && method === 'GET') {
+        const document = await getDocument(match[1]);
+        return ok({ fileName: document.fileName, mime: document.mime, dataBase64: bytesToBase64(new Uint8Array(document.data)) });
+      }
+      if ((match = path.match(/^\/documents\/([^/]+)$/)) && method === 'GET') {
+        const document = await getDocument(match[1]);
+        return ok({ ...documentMetadata(document), text: document.text });
+      }
+      if ((match = path.match(/^\/documents\/([^/]+)$/)) && method === 'PATCH') return await patchDocument(input, init, match[1]);
+      if ((match = path.match(/^\/documents\/([^/]+)$/)) && method === 'DELETE') return await deleteDocument(match[1]);
       if (path === '/application/bank' && method === 'GET') return ok(await vault.getAll(STORES.answers));
       if (path === '/jobs' && method === 'GET') return await getJobs();
       if (path === '/jobs' && method === 'POST') return await addJob(input, init);

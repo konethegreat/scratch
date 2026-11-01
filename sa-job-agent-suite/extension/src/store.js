@@ -5,10 +5,13 @@ import { sanitisePacketV2 } from '@sajas/core/apply';
 import { resultFrom, RESULT_CAP } from './protocol.js';
 
 export const PACKET_TTL_MS = 8 * 60 * 60 * 1000;
+export const PENDING_TTL_MS = 60 * 1000;
 export const MAX_PACKETS = 5;
 export const MAX_RESULTS = RESULT_CAP;
+export const MAX_PENDING = 5;
 const PACKETS = 'packets';
 const RESULTS = 'results';
+const PENDING = 'pending';
 
 const host = (value) => String(value || '').toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
 
@@ -50,11 +53,49 @@ export function createExtensionStore(storage, { now = () => Date.now() } = {}) {
         return null;
       }
     },
-    async matchingPacket(site) {
+    async matchingPackets(site) {
       const wanted = host(site);
-      if (!wanted) return null;
-      const record = (await freshPackets()).find((entry) => host(entry.packet?.job?.site) === wanted);
-      return record ? sanitisePacketV2(record.packet) : null;
+      if (!wanted) return [];
+      const matches = [];
+      for (const record of await freshPackets()) {
+        if (host(record.packet?.job?.site) !== wanted) continue;
+        try {
+          matches.push(sanitisePacketV2(record.packet));
+        } catch {
+          await storage.remove(PACKETS, record.id);
+        }
+      }
+      return matches;
+    },
+    // A form that navigates takes the page script with it, so the worker holds
+    // the submission open here until the tab's next URL confirms or the entry
+    // expires.
+    async beginSubmit(raw, { tabId, startedUrl } = {}) {
+      const result = resultFrom(raw);
+      const entries = await storage.readAll(PENDING);
+      const live = entries
+        .filter((entry) => at() - Number(entry.startedAt || 0) <= PENDING_TTL_MS)
+        .sort((left, right) => left.startedAt - right.startedAt);
+      for (const entry of entries) {
+        if (!live.includes(entry)) await storage.remove(PENDING, entry.id);
+      }
+      while (live.length >= MAX_PENDING) await storage.remove(PENDING, live.shift().id);
+      const record = { id: result.id, tabId: Number(tabId) || 0, startedUrl: String(startedUrl || ''), startedAt: at(), result };
+      await storage.put(PENDING, record);
+      return record;
+    },
+    async pendingForTab(tabId) {
+      const entries = await storage.readAll(PENDING);
+      const live = [];
+      for (const entry of entries) {
+        if (at() - Number(entry.startedAt || 0) > PENDING_TTL_MS) await storage.remove(PENDING, entry.id);
+        else live.push(entry);
+      }
+      return live.find((entry) => Number(entry.tabId) === Number(tabId)) || null;
+    },
+    async clearPending(id) {
+      const key = String(id || '').trim().slice(0, 80);
+      if (key) await storage.remove(PENDING, key);
     },
     async addResult(raw) {
       const result = resultFrom(raw);

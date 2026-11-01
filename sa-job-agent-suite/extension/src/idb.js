@@ -1,8 +1,8 @@
 // IndexedDB lives in the extension's own origin, so packets and results never
 // share storage with the app vault.
 const DB_NAME = 'sajas-extension';
-const DB_VERSION = 1;
-const STORES = ['packets', 'results'];
+const DB_VERSION = 2;
+const STORES = ['packets', 'results', 'pending'];
 
 function openDatabase() {
   return new Promise((resolve, reject) => {

@@ -97,6 +97,15 @@ const readResults = (worker) => worker.evaluate(async () => {
   });
 });
 
+async function waitForResults(worker, count, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await readResults(worker)).length === count) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`expected ${count} queued results`);
+}
+
 const tabIdFor = (worker, needle) => worker.evaluate(async (text) => {
   const tabs = await chrome.tabs.query({});
   return tabs.find((tab) => String(tab.url || '').includes(text))?.id ?? null;
@@ -160,6 +169,7 @@ async function main() {
         { key: 'rightToWorkSA', label: 'Right to work in South Africa', value: 'Yes', source: 'profile' },
         { key: 'expectedSalary', label: 'Expected salary', value: 'R 720 000 per year', source: 'profile' }
       ]),
+      navigating: packet('ext-job-5', 'Junior Data Analyst', `${fixtureUrl}/navigating.html`),
       captcha: packet('ext-job-4', 'Store Manager', `${fixtureUrl}/captcha.html`)
     };
     await appPage.addInitScript((packets) => { window.__PACKETS__ = packets; }, jobs);
@@ -218,6 +228,24 @@ async function main() {
     results = await readResults(worker);
     assert.equal(results.length, 3, 'generic did not queue a result');
 
+    // Navigation: the form submits itself, so the page script is gone before it
+    // can report. The worker finishes the submission from the confirmation URL.
+    const navigating = await context.newPage();
+    await navigating.goto(`${fixtureUrl}/navigating.html`);
+    await inject(worker, await tabIdFor(worker, 'navigating.html'), jobs.navigating.packetId);
+    await navigating.locator('#sajas-submit').waitFor({ timeout: 15_000 });
+    assert.equal(await navigating.locator('#given').inputValue(), 'Thandi');
+    await navigating.locator('#sajas-review').check();
+    await navigating.locator('#sajas-submit').click();
+    await navigating.waitForURL(/thanks\.html/, { timeout: 10_000 });
+    await waitForResults(worker, 4);
+    results = await readResults(worker);
+    const navigated = results.find((entry) => entry.jobId === 'ext-job-5');
+    assert.ok(navigated, 'the navigating form did not queue a result');
+    assert.match(navigated.site, /^127\.0\.0\.1/);
+    assert.equal(navigated.confirmation.text, 'The page moved to a confirmation page.');
+    assert.equal(navigated.confirmation.confirmedAt, navigated.submittedAt);
+
     // CAPTCHA: the panel refuses to submit and nothing is queued.
     const captcha = await context.newPage();
     await captcha.goto(`${fixtureUrl}/captcha.html`);
@@ -226,7 +254,7 @@ async function main() {
     await captcha.locator('#sajas-review').check();
     await captcha.locator('#sajas-submit').click();
     await captcha.locator('#sajas-panel').getByText('then press Submit application again').waitFor({ timeout: 5000 });
-    assert.equal((await readResults(worker)).length, 3, 'a CAPTCHA page queued a result');
+    assert.equal((await readResults(worker)).length, 4, 'a CAPTCHA page queued a result');
 
     // App sync: only the tracked job is recorded; the other two are dropped.
     const app = await context.newPage();

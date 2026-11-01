@@ -16,6 +16,8 @@ export function hostOf(value) {
 
 const isAppSender = (sender) => APP_HOSTS.includes(hostOf(sender?.url || sender?.tab?.url));
 const isExtensionPage = (sender) => Boolean(sender?.id) && String(sender?.url || '').startsWith(`chrome-extension://${sender.id}/`);
+const sameSite = (sender, site) => Boolean(hostOf(sender?.tab?.url)) && hostOf(sender.tab.url) === hostOf(site);
+const CONFIRM_URL = /thank|confirm|success|applied|submitted|complete/i;
 
 const matchSummary = (packet) => ({
   packetId: packet.packetId,
@@ -45,8 +47,8 @@ export function createWorkerHandlers({ store, chrome, now = () => Date.now() }) 
           if (!isAppSender(sender) && !isExtensionPage(sender)) {
             return { ok: false, error: 'Only the SA-JAS app or its popup can look for an application.' };
           }
-          const packet = await store.matchingPacket(message.host);
-          return { ok: true, match: packet ? matchSummary(packet) : null };
+          const packets = await store.matchingPackets(message.host);
+          return { ok: true, matches: packets.map(matchSummary) };
         }
         case 'sajas:take-results': {
           if (!isAppSender(sender)) return { ok: false, error: 'Only the SA-JAS app can collect results.' };
@@ -58,16 +60,34 @@ export function createWorkerHandlers({ store, chrome, now = () => Date.now() }) 
           return { ok: true };
         }
         case 'sajas:record-result': {
-          const site = hostOf(message.result?.site);
-          if (!site || hostOf(sender.tab?.url) !== site) {
+          if (!sameSite(sender, message.result?.site)) {
             return { ok: false, error: 'That result does not match the page it came from.' };
           }
           try {
             await store.addResult({ ...message.result, recordedAt: new Date(clock()).toISOString() });
+            await store.clearPending?.(message.result?.id || message.result?.packetId);
             return { ok: true };
           } catch {
             return { ok: false, error: 'That result was refused.' };
           }
+        }
+        case 'sajas:begin-submit': {
+          if (!sameSite(sender, message.result?.site)) {
+            return { ok: false, error: 'That submission does not match the page it came from.' };
+          }
+          try {
+            await store.beginSubmit(message.result, { tabId: sender.tab?.id, startedUrl: sender.tab?.url });
+            return { ok: true };
+          } catch {
+            return { ok: false, error: 'That submission could not be tracked.' };
+          }
+        }
+        case 'sajas:cancel-submit': {
+          if (!sameSite(sender, message.site)) {
+            return { ok: false, error: 'That submission does not match the page it came from.' };
+          }
+          await store.clearPending(message.packetId);
+          return { ok: true };
         }
         case 'sajas:packet-by-id': {
           const packet = await store.getPacket(message.packetId);
@@ -93,6 +113,28 @@ export function createWorkerHandlers({ store, chrome, now = () => Date.now() }) 
         default:
           return { ok: false, error: 'Unknown message.' };
       }
+    },
+    // A form that submits by navigation destroys the page script before it can
+    // report anything. The tab's own URL change is the confirmation then.
+    async onTabUpdated(tabId, changeInfo = {}) {
+      const url = String(changeInfo.url || '');
+      if (!url) return { finalised: false };
+      const pending = await store.pendingForTab(tabId);
+      if (!pending) return { finalised: false };
+      if (url === pending.startedUrl) return { finalised: false };
+      if (hostOf(url) !== hostOf(pending.result?.site)) {
+        await store.clearPending(pending.id);
+        return { finalised: false };
+      }
+      if (!CONFIRM_URL.test(url)) return { finalised: false };
+      const submittedAt = new Date(clock()).toISOString();
+      await store.addResult({
+        ...pending.result,
+        submittedAt,
+        confirmation: { confirmedAt: submittedAt, text: 'The page moved to a confirmation page.' }
+      });
+      await store.clearPending(pending.id);
+      return { finalised: true };
     }
   };
 }

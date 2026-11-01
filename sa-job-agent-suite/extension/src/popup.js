@@ -1,5 +1,6 @@
 const statusEl = document.getElementById('status');
 const jobEl = document.getElementById('job');
+const matchesEl = document.getElementById('matches');
 const fillEl = document.getElementById('fill');
 
 function say(message) {
@@ -31,18 +32,43 @@ async function main() {
     return;
   }
   const response = await send({ type: 'sajas:matching-packet', host });
-  const match = response?.match;
-  if (!match) {
+  const matches = Array.isArray(response?.matches) ? response.matches : [];
+  if (!matches.length) {
     say('No application is waiting for this site. Press Send to extension in the app, then open the application link.');
     return;
   }
-  jobEl.textContent = `${match.title} at ${match.company}`;
+  // One host can carry several roles, so let the person pick the one they are
+  // looking at rather than guessing from the newest packet.
+  let chosen = matches[0];
+  jobEl.textContent = matches.length === 1
+    ? `${chosen.title} at ${chosen.company}`
+    : `${matches.length} applications are waiting for this site. Pick the one on this page.`;
   jobEl.hidden = false;
+  if (matches.length > 1) {
+    matchesEl.hidden = false;
+    matchesEl.textContent = '';
+    for (const match of matches) {
+      const label = document.createElement('label');
+      label.className = 'match';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'match';
+      radio.value = match.packetId;
+      radio.checked = match.packetId === chosen.packetId;
+      radio.addEventListener('change', () => {
+        if (radio.checked) chosen = match;
+      });
+      const text = document.createElement('span');
+      text.textContent = `${match.title} at ${match.company}`;
+      label.append(radio, text);
+      matchesEl.append(label);
+    }
+  }
   fillEl.hidden = false;
-  say(`Ready to fill ${match.site}.`);
+  say(`Ready to fill ${chosen.site}.`);
   fillEl.addEventListener('click', async () => {
     fillEl.disabled = true;
-    const result = await send({ type: 'sajas:inject', tabId: tab.id, packetId: match.packetId });
+    const result = await send({ type: 'sajas:inject', tabId: tab.id, packetId: chosen.packetId });
     if (result?.ok) {
       say('Filling the page. Check the review panel before you submit.');
       setTimeout(() => window.close(), 1500);

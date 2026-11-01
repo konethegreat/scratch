@@ -4,8 +4,11 @@ import { hasCaptcha, visible } from './dom.js';
 
 export function findSubmit(document, adapter) {
   for (const selector of adapter?.submitSelectors || []) {
+    // An untyped button is only a submit candidate inside a form; outside one
+    // it is usually a link or a navigation control.
+    const inForm = selector.includes(':not([type])');
     const candidate = [...(document.querySelectorAll?.(selector) || [])]
-      .find((element) => !element.disabled && visible(element));
+      .find((element) => !element.disabled && visible(element) && (!inForm || element.closest?.('form')));
     if (candidate) return candidate;
   }
   return null;
@@ -77,7 +80,11 @@ export function watchSuccess(document, adapter, { timeoutMs = 8000, intervalMs =
         return;
       }
       const href = view?.location?.href || '';
-      if (startedHref && href && href !== startedHref) finish(true, 'The page changed after submitting.');
+      // A URL change alone is not a confirmation. Only a URL that reads like a
+      // thank-you or receipt page counts, and never the page we started on.
+      if (startedHref && href && href !== startedHref && /thank|confirm|success|applied|submitted|complete/i.test(href)) {
+        finish(true, 'The page moved to a confirmation page.');
+      }
     };
 
     const Observer = view?.MutationObserver;

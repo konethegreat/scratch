@@ -209,6 +209,21 @@ The desktop copilot can drive the form because it runs a real browser on your ma
 
 Job site logins are per domain. Connect a site under Profile and Settings, sign in in the window that opens, and the copilot reuses that session only while the site is connected. Disconnect clears that site's cookies and local storage. SA-JAS never stores a password, and a site without consent uses a temporary browser session that shares nothing with your other logins.
 
+### Apply Assistant extension
+
+The optional Chromium extension closes the gap for hosted users. It receives the same packet the Apply tab builds, fills the fields it recognises on the application page, and shows a review panel with what was filled, what was skipped and why. It presses the page's own Submit button only after you tick the review box and press Submit application in the panel. The confirmation then returns to SA-JAS, which records the application as delivery `extension`.
+
+Build it once from the repository:
+
+```bash
+# from sa-job-agent-suite/
+npm run build:extension
+```
+
+Then open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and select `sa-job-agent-suite/extension/dist`. Reload the extension after a rebuild. The popup lists every application whose site matches the tab you are on, newest first, and lets you pick the one on the page. The Fill button appears only for that tab.
+
+What it does: reads the page you invoke it on, fills exact matches from the packet, attaches the files you selected, and reports the result back to the app. A form that submits by navigating away is recorded from the page it lands on, as long as that page stays on the same site and reads like a confirmation. The app collects results when it loads and again whenever you return to its window. What it does not do: solve CAPTCHAs, create accounts, submit without your review, read the app's vault or key, or make any network request of its own. Packets and results live in the extension's own IndexedDB store, separate from `sajas-web`; packets expire after eight hours. To remove it, remove the extension from `chrome://extensions`. Its store goes with it, and the app keeps working with the copy sheet.
+
 ---
 
 ## First-launch checklist

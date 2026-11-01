@@ -11,3 +11,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   });
   return true;
 });
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  handlers.onTabUpdated(tabId, changeInfo).catch(() => {});
+});

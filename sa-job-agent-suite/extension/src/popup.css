@@ -46,6 +46,27 @@ h1 {
   font-weight: 600;
 }
 
+.matches {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.match {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.match input {
+  margin-top: 3px;
+}
+
 button {
   width: 100%;
   padding: 10px 12px;

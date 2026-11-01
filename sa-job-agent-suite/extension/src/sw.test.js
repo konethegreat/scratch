@@ -17,14 +17,22 @@ const POPUP = { id: 'extid', url: 'chrome-extension://extid/popup.html' };
 const JOB_PAGE = { id: 'extid', url: 'https://boards.example.test/apply', tab: { id: 7, url: 'https://boards.example.test/apply' } };
 
 function harness({ tabUrl = 'https://boards.example.test/apply', store = {} } = {}) {
-  const calls = { saved: [], acked: [], added: [], injected: [], sent: [] };
+  const calls = { saved: [], acked: [], added: [], injected: [], sent: [], begun: [], cleared: [], pending: new Map() };
   const fakeStore = {
     async savePacket(packet) { calls.saved.push(packet); return { ...packet, packetId: packet.packetId || 'p1' }; },
     async getPacket(id) { return id === 'p1' ? PACKET : null; },
-    async matchingPacket(host) { return hostOf(host) === 'boards.example.test' ? PACKET : null; },
+    async matchingPackets(host) { return hostOf(host) === 'boards.example.test' ? [PACKET] : []; },
     async takeResults() { return [{ id: 'r1', jobId: 'job-1', site: 'boards.example.test' }]; },
     async ackResults(ids) { calls.acked.push(...ids); },
     async addResult(result) { calls.added.push(result); },
+    async beginSubmit(result, meta) {
+      calls.begun.push({ result, meta });
+      calls.pending.set(result.id, { id: result.id, tabId: meta.tabId, startedUrl: meta.startedUrl, result });
+    },
+    async pendingForTab(tabId) {
+      return [...calls.pending.values()].find((entry) => Number(entry.tabId) === Number(tabId)) || null;
+    },
+    async clearPending(id) { calls.cleared.push(id); calls.pending.delete(id); },
     ...store
   };
   const chrome = {
@@ -59,13 +67,15 @@ test('a refused packet reports a plain error and stores nothing', async () => {
   assert.equal(calls.saved.length, 0);
 });
 
-test('the popup can look up a match and only a summary comes back', async () => {
-  const { handlers } = harness();
+test('the popup can look up every match and only summaries come back', async () => {
+  const second = { ...PACKET, packetId: 'p2', job: { ...PACKET.job, id: 'job-2', title: 'Data Engineer' } };
+  const { handlers } = harness({ store: { async matchingPackets() { return [second, PACKET]; } } });
   const response = await handlers.onMessage({ type: 'sajas:matching-packet', host: 'boards.example.test' }, POPUP);
   assert.equal(response.ok, true);
-  assert.deepEqual(response.match, {
-    packetId: 'p1', title: 'Backend Engineer', company: 'Acme', site: 'boards.example.test'
-  });
+  assert.deepEqual(response.matches, [
+    { packetId: 'p2', title: 'Data Engineer', company: 'Acme', site: 'boards.example.test' },
+    { packetId: 'p1', title: 'Backend Engineer', company: 'Acme', site: 'boards.example.test' }
+  ]);
   assert.equal(JSON.stringify(response).includes('thandi@example.test'), false);
   assert.equal(JSON.stringify(response).includes('dataBase64'), false);
   const stranger = await handlers.onMessage({ type: 'sajas:matching-packet', host: 'boards.example.test' }, JOB_PAGE);
@@ -83,15 +93,68 @@ test('results are only handed out to the app, and an ack removes them', async ()
   assert.deepEqual(calls.acked, ['r1']);
 });
 
+const RESULT = { id: 'p1', packetId: 'p1', jobId: 'job-1', site: 'boards.example.test', submittedAt: '2026-11-01T09:59:00.000Z', fields: [] };
+
 test('a result is recorded only for the page host it came from', async () => {
   const { handlers, calls } = harness();
-  const result = { id: 'r1', packetId: 'p1', jobId: 'job-1', site: 'boards.example.test', submittedAt: '2026-11-01T09:59:00.000Z', fields: [] };
-  const mismatch = await handlers.onMessage({ type: 'sajas:record-result', result }, { ...JOB_PAGE, tab: { id: 7, url: 'https://other.example.test/apply' } });
+  const mismatch = await handlers.onMessage({ type: 'sajas:record-result', result: RESULT }, { ...JOB_PAGE, tab: { id: 7, url: 'https://other.example.test/apply' } });
   assert.equal(mismatch.ok, false);
-  const allowed = await handlers.onMessage({ type: 'sajas:record-result', result }, JOB_PAGE);
+  const allowed = await handlers.onMessage({ type: 'sajas:record-result', result: RESULT }, JOB_PAGE);
   assert.equal(allowed.ok, true);
   assert.equal(calls.added.length, 1);
   assert.equal(calls.added[0].recordedAt, '2026-11-01T10:00:00.000Z');
+});
+
+test('a submission is tracked before the page navigates, and only from its own page', async () => {
+  const { handlers, calls } = harness();
+  const mismatch = await handlers.onMessage({ type: 'sajas:begin-submit', result: RESULT }, { ...JOB_PAGE, tab: { id: 7, url: 'https://other.example.test/apply' } });
+  assert.equal(mismatch.ok, false);
+  assert.equal(calls.begun.length, 0);
+  const allowed = await handlers.onMessage({ type: 'sajas:begin-submit', result: RESULT }, JOB_PAGE);
+  assert.equal(allowed.ok, true);
+  assert.deepEqual(calls.begun[0].meta, { tabId: 7, startedUrl: 'https://boards.example.test/apply' });
+});
+
+test('a navigation to a confirmation page finishes a tracked submission', async () => {
+  const { handlers, calls } = harness();
+  await handlers.onMessage({ type: 'sajas:begin-submit', result: RESULT }, JOB_PAGE);
+  assert.equal((await handlers.onTabUpdated(7, {})).finalised, false, 'a change without a URL is ignored');
+  assert.equal((await handlers.onTabUpdated(7, { url: 'https://boards.example.test/apply' })).finalised, false, 'the same URL is not a confirmation');
+  assert.equal((await handlers.onTabUpdated(7, { url: 'https://boards.example.test/step-two' })).finalised, false, 'an unclear URL is not a confirmation');
+  assert.equal(calls.added.length, 0);
+  const done = await handlers.onTabUpdated(7, { url: 'https://boards.example.test/thanks' });
+  assert.equal(done.finalised, true);
+  assert.equal(calls.added.length, 1);
+  assert.equal(calls.added[0].submittedAt, '2026-11-01T10:00:00.000Z');
+  assert.deepEqual(calls.added[0].confirmation, { confirmedAt: '2026-11-01T10:00:00.000Z', text: 'The page moved to a confirmation page.' });
+  assert.deepEqual(calls.cleared, ['p1']);
+  assert.equal((await handlers.onTabUpdated(7, { url: 'https://boards.example.test/thanks?again=1' })).finalised, false, 'the pending entry is gone');
+});
+
+test('leaving the site drops a tracked submission without recording it', async () => {
+  const { handlers, calls } = harness();
+  await handlers.onMessage({ type: 'sajas:begin-submit', result: RESULT }, JOB_PAGE);
+  await handlers.onTabUpdated(7, { url: 'https://other.example.test/thanks' });
+  assert.equal(calls.added.length, 0);
+  assert.deepEqual(calls.cleared, ['p1']);
+});
+
+test('cancelling clears the tracked submission only for its own page', async () => {
+  const { handlers, calls } = harness();
+  await handlers.onMessage({ type: 'sajas:begin-submit', result: RESULT }, JOB_PAGE);
+  const denied = await handlers.onMessage({ type: 'sajas:cancel-submit', packetId: 'p1', site: 'others.example.test' }, JOB_PAGE);
+  assert.equal(denied.ok, false);
+  assert.deepEqual(calls.cleared, []);
+  const cancel = await handlers.onMessage({ type: 'sajas:cancel-submit', packetId: 'p1', site: 'boards.example.test' }, JOB_PAGE);
+  assert.equal(cancel.ok, true);
+  assert.deepEqual(calls.cleared, ['p1']);
+});
+
+test('recording a result clears a tracked submission', async () => {
+  const { handlers, calls } = harness();
+  await handlers.onMessage({ type: 'sajas:begin-submit', result: RESULT }, JOB_PAGE);
+  await handlers.onMessage({ type: 'sajas:record-result', result: RESULT }, JOB_PAGE);
+  assert.deepEqual(calls.cleared, ['p1']);
 });
 
 test('injection needs the popup, a waiting packet and the matching tab host', async () => {
@@ -129,5 +192,5 @@ test('unknown and malformed messages are refused without side effects', async ()
   const { handlers, calls } = harness();
   assert.equal((await handlers.onMessage({ type: 'sajas:steal' }, APP)).ok, false);
   assert.equal((await handlers.onMessage(null, APP)).ok, false);
-  assert.equal(calls.saved.length + calls.acked.length + calls.added.length + calls.injected.length, 0);
+  assert.equal(calls.saved.length + calls.acked.length + calls.added.length + calls.injected.length + calls.begun.length + calls.cleared.length, 0);
 });

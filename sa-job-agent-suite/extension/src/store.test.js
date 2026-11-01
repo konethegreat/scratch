@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createExtensionStore, MAX_PACKETS, MAX_RESULTS, PACKET_TTL_MS } from './store.js';
+import { createExtensionStore, MAX_PACKETS, MAX_RESULTS, PACKET_TTL_MS, PENDING_TTL_MS } from './store.js';
 import { isAppMessage, isWorkerMessage, resultFrom } from './protocol.js';
 
 function memoryStorage() {
-  const data = new Map([['packets', new Map()], ['results', new Map()]]);
+  const data = new Map([['packets', new Map()], ['results', new Map()], ['pending', new Map()]]);
   return {
     async readAll(name) { return [...data.get(name).values()]; },
     async put(name, record) { data.get(name).set(record.id, record); },
@@ -41,9 +41,33 @@ test('a packet is validated, stored and found by site', async () => {
   const store = createExtensionStore(memoryStorage());
   await store.savePacket(packet('p1'));
   assert.equal((await store.getPacket('p1')).packetId, 'p1');
-  assert.equal((await store.matchingPacket('localhost')).packetId, 'p1');
-  assert.equal(await store.matchingPacket('other.test'), null);
+  assert.equal((await store.matchingPackets('localhost'))[0].packetId, 'p1');
+  assert.deepEqual(await store.matchingPackets('other.test'), []);
   await assert.rejects(() => store.savePacket({ ...packet('bad'), version: 1 }), /version/);
+});
+
+test('every packet for one host is offered, newest first', async () => {
+  let at = Date.parse('2026-11-01T10:00:00.000Z');
+  const store = createExtensionStore(memoryStorage(), { now: () => at });
+  await store.savePacket(packet('first'));
+  at += 1000;
+  await store.savePacket(packet('second'));
+  const matches = await store.matchingPackets('localhost');
+  assert.deepEqual(matches.map((entry) => entry.packetId), ['second', 'first']);
+});
+
+test('a pending submission is found by tab, expires and clears', async () => {
+  let at = Date.parse('2026-11-01T10:00:00.000Z');
+  const store = createExtensionStore(memoryStorage(), { now: () => at });
+  const submitted = result('r1', { confirmation: null });
+  await store.beginSubmit(submitted, { tabId: 7, startedUrl: 'http://localhost/apply' });
+  assert.equal((await store.pendingForTab(7)).id, 'r1');
+  assert.equal(await store.pendingForTab(8), null);
+  await store.clearPending('r1');
+  assert.equal(await store.pendingForTab(7), null);
+  await store.beginSubmit(submitted, { tabId: 7, startedUrl: 'http://localhost/apply' });
+  at += PENDING_TTL_MS + 1;
+  assert.equal(await store.pendingForTab(7), null);
 });
 
 test('packets expire and the cap evicts the oldest', async () => {

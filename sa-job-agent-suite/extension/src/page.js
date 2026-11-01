@@ -16,6 +16,14 @@ async function askPacket(packetId) {
   }
 }
 
+async function notify(message) {
+  try {
+    return await chrome.runtime.sendMessage(message) || {};
+  } catch {
+    return { ok: false };
+  }
+}
+
 async function run(packetId) {
   const response = await askPacket(packetId);
   current?.destroy();
@@ -41,25 +49,29 @@ async function run(packetId) {
       }
       const button = findSubmit(document, adapter);
       if (!button) return { ok: false, error: 'Could not find the submit button on this page.' };
+      const submittedAt = new Date().toISOString();
+      const result = {
+        id: packet.packetId,
+        packetId: packet.packetId,
+        jobId: packet.job.id,
+        site: location.hostname,
+        submittedAt,
+        fields: applied.map(({ label, value }) => ({ label, value })),
+        warnings: packet.warnings || []
+      };
+      // Saved before the click so a submitting form that navigates away can
+      // still be recorded from the tab's next URL by the worker.
+      await notify({ type: 'sajas:begin-submit', result });
       const watch = watchSuccess(document, adapter, { timeoutMs: 8000 });
       button.click();
       const outcome = await watch;
       if (!outcome.ok) {
+        await notify({ type: 'sajas:cancel-submit', packetId: packet.packetId, site: result.site });
         return { ok: false, error: 'Could not confirm the submission. Check the page, then mark it applied in the app.' };
       }
-      const submittedAt = new Date().toISOString();
-      await chrome.runtime.sendMessage({
+      await notify({
         type: 'sajas:record-result',
-        result: {
-          id: packet.packetId,
-          packetId: packet.packetId,
-          jobId: packet.job.id,
-          site: location.hostname,
-          submittedAt,
-          confirmation: { confirmedAt: submittedAt, text: outcome.confirmation },
-          fields: applied.map(({ label, value }) => ({ label, value })),
-          warnings: packet.warnings || []
-        }
+        result: { ...result, confirmation: { confirmedAt: submittedAt, text: outcome.confirmation } }
       });
       return { ok: true, confirmation: outcome.confirmation };
     }

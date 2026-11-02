@@ -2773,6 +2773,7 @@ export default function App() {
                 apiBase={API_BASE}
                 toasts={toasts}
                 refreshSignal={refreshTick}
+                syncPending={!IS_WEB}
                 onDraftInAsk={(question) => {
                   setAskSeed({ question, purpose: 'application-answer', at: Date.now() });
                   setActiveTab('ask');

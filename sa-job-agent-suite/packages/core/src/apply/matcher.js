@@ -1,6 +1,10 @@
 // Match a packet's answers to plain form-field descriptors. No DOM here, so the
 // rules run the same in the extension, in Node tests and in a future portal
-// simulator. A field is filled only on an exact normalised match.
+// simulator. A field is filled only on an exact or reviewed variant match.
+import { normaliseLabel, questionKey } from './questions.js';
+
+export { normaliseLabel };
+
 export const SENSITIVE = /password|passcode|pin\b|social security|credit card|cvv|csrf|secret/i;
 const HONEYPOT = /^__|honeypot|(?:^|_)fax(?:_|$)|company_website/i;
 const CAPTCHA = /captcha|not a robot|recaptcha|hcaptcha/i;
@@ -8,30 +12,31 @@ const FILE = /resume|curriculum|\bcv\b|cover letter|passport|identity|\bid\b|cer
 
 const LEAD = /^(?:do you have|do you|are you|what is|what are|please enter|please provide|tell us|your|the)\s+/;
 
+// Identity and contact fields. Application questions live in questions.js so
+// the Settings form, the packet and this matcher cannot drift apart.
 const SYNONYMS = new Map([
-  ['first name', 'firstName'], ['given name', 'firstName'], ['forename', 'firstName'],
-  ['last name', 'lastName'], ['surname', 'lastName'], ['family name', 'lastName'],
+  ['first name', 'firstName'], ['first names', 'firstName'], ['given name', 'firstName'],
+  ['given names', 'firstName'], ['forename', 'firstName'],
+  ['last name', 'lastName'], ['last names', 'lastName'], ['surname', 'lastName'], ['family name', 'lastName'],
   ['full name', 'fullName'], ['name', 'fullName'],
-  ['email', 'email'], ['email address', 'email'], ['e mail', 'email'],
-  ['phone', 'phone'], ['phone number', 'phone'], ['mobile', 'phone'], ['mobile number', 'phone'], ['cell', 'phone'],
+  ['email', 'email'], ['email address', 'email'], ['e mail', 'email'], ['e mail address', 'email'],
+  ['electronic mail', 'email'],
+  ['phone', 'phone'], ['phone number', 'phone'], ['mobile', 'phone'], ['mobile number', 'phone'],
+  ['mobile phone', 'phone'], ['mobile phone number', 'phone'], ['cell', 'phone'], ['cell number', 'phone'],
+  ['cellphone', 'phone'], ['cell phone', 'phone'], ['telephone', 'phone'], ['telephone number', 'phone'],
+  ['contact number', 'phone'], ['contact phone', 'phone'], ['tel', 'phone'],
   ['linkedin', 'linkedInUrl'], ['linkedin profile', 'linkedInUrl'], ['linkedin url', 'linkedInUrl'],
   ['portfolio', 'portfolioUrl'], ['website', 'portfolioUrl'], ['portfolio or website', 'portfolioUrl'],
+  ['personal website', 'portfolioUrl'],
   ['github', 'githubUrl'], ['github profile', 'githubUrl'],
-  ['city', 'city'], ['town', 'city'], ['province', 'province'], ['postal code', 'postalCode'], ['zip code', 'postalCode'],
-  ['country', 'country'], ['current employer', 'currentCompany'], ['current company', 'currentCompany'],
-  ['current job title', 'currentTitle'], ['job title', 'currentTitle'],
-  ['years of experience', 'yearsExperience'], ['years experience', 'yearsExperience'],
-  ['highest qualification', 'highestQualification'], ['qualification', 'highestQualification'],
-  ['notice period', 'noticePeriod'], ['notice period days', 'noticePeriod'],
-  ['availability', 'availabilityDate'], ['available from', 'availabilityDate'],
-  ['current salary', 'currentSalary'], ['expected salary', 'expectedSalary'], ['salary expectation', 'expectedSalary'],
-  ['right to work', 'rightToWorkSA'], ['right to work in south africa', 'rightToWorkSA'],
-  ['willing to relocate', 'willingToRelocate'], ['relocate', 'willingToRelocate'],
-  ['drivers licence', 'driversLicense'], ["driver's licence", 'driversLicense'], ['driver licence', 'driversLicense'],
-  ['own vehicle', 'ownVehicle'], ['do you own a vehicle', 'ownVehicle'], ['vehicle', 'ownVehicle'],
-  ['nationality', 'nationality'], ['criminal record', 'criminalRecord'],
-  ['credit check consent', 'creditCheckConsent'], ['languages', 'languages'],
-  ['employment equity group', 'eeRace'], ['race', 'eeRace'], ['gender', 'gender'], ['disability', 'disability'],
+  ['city', 'city'], ['town', 'city'], ['city of residence', 'city'],
+  ['province', 'province'], ['state', 'province'], ['province or state', 'province'],
+  ['postal code', 'postalCode'], ['postcode', 'postalCode'], ['zip code', 'postalCode'], ['zip', 'postalCode'],
+  ['country', 'country'],
+  ['current employer', 'currentCompany'], ['current company', 'currentCompany'],
+  ['current employer name', 'currentCompany'], ['employer name', 'currentCompany'],
+  ['current job title', 'currentTitle'], ['job title', 'currentTitle'], ['current position', 'currentTitle'],
+  ['current role', 'currentTitle'],
   ['preferred name', 'preferredName']
 ]);
 
@@ -52,13 +57,6 @@ for (const key of CANONICAL) {
   CANONICAL_KEYS.set(normaliseLabel(key), key);
 }
 
-export function normaliseLabel(value) {
-  return String(value == null ? '' : value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
 function stripLead(value) {
   let out = value;
   for (let index = 0; index < 4; index += 1) {
@@ -70,6 +68,8 @@ function stripLead(value) {
 }
 
 function keyOf(value) {
+  const question = questionKey(value);
+  if (question) return question;
   const normal = stripLead(normaliseLabel(value));
   return SYNONYMS.get(normal) || CANONICAL_KEYS.get(normal) || CANONICAL_KEYS.get(normal.replace(/\s+/g, '')) || null;
 }
@@ -123,12 +123,67 @@ function attachmentFor(label, attachments) {
   return null;
 }
 
+const YES = new Set(['yes', 'y', 'true', '1', 'agree', 'consent', 'i agree', 'i consent']);
+const NO = new Set(['no', 'n', 'false', '0', 'decline', 'do not']);
+
+function yesNoOf(value) {
+  const normal = normaliseLabel(value).replace(/[.!]+$/, '').trim();
+  if (YES.has(normal)) return true;
+  if (NO.has(normal)) return false;
+  return null;
+}
+
+function optionYesNo(option) {
+  for (const text of [option.label, option.value]) {
+    const head = normaliseLabel(text).split(' ')[0];
+    if (YES.has(head)) return true;
+    if (NO.has(head)) return false;
+  }
+  return null;
+}
+
+function numberIn(value) {
+  const match = normaliseLabel(value).match(/^(\d{1,2})(?:\s*(?:years?|yrs?))?(?:\s*\+)?$/);
+  return match ? Number(match[1]) : null;
+}
+
+// Experience bands ("3-5 years", "5+ years") are the usual select options for
+// a numeric answer. A band is chosen only when the number falls inside it.
+// Read the raw label and value: normalising first would erase the dash in "3-5".
+function optionBand(option) {
+  for (const text of [option.label, option.value]) {
+    const raw = String(text == null ? '' : text).toLowerCase();
+    const range = raw.match(/\b(\d{1,2})\s*(?:-|to|–)\s*(\d{1,2})\b/);
+    if (range) return { min: Number(range[1]), max: Number(range[2]) };
+    const open = raw.match(/\b(\d{1,2})\s*(?:\+|plus)(?=\s|$)/);
+    if (open) return { min: Number(open[1]), max: Infinity };
+    const year = raw.match(/\b(\d{1,2})\s*(?:years?|yrs?)\b/);
+    if (year) return { min: Number(year[1]), max: Number(year[1]) };
+    const bare = raw.trim().match(/^(\d{1,2})$/);
+    if (bare) return { min: Number(bare[1]), max: Number(bare[1]) };
+  }
+  return null;
+}
+
 function chosenOption(descriptor, value) {
   if (!Array.isArray(descriptor.options) || !descriptor.options.length) return null;
   const wanted = normaliseLabel(value);
-  return descriptor.options.find((option) => normaliseLabel(option.label) === wanted)
-    || descriptor.options.find((option) => normaliseLabel(option.value) === wanted)
-    || null;
+  const exact = descriptor.options.find((option) => normaliseLabel(option.label) === wanted)
+    || descriptor.options.find((option) => normaliseLabel(option.value) === wanted);
+  if (exact) return exact;
+  const wantedBoolean = yesNoOf(value);
+  if (wantedBoolean !== null) {
+    return descriptor.options.find((option) => optionYesNo(option) === wantedBoolean) || null;
+  }
+  const wantedNumber = numberIn(value);
+  if (wantedNumber !== null) {
+    const bands = descriptor.options.filter((option) => {
+      const band = optionBand(option);
+      return band && wantedNumber >= band.min && wantedNumber <= band.max;
+    });
+    return bands.length === 1 ? bands[0] : null;
+  }
+  return null;
 }
 
 export function matchFields(packet, descriptors, { adapter, captcha = false } = {}) {
@@ -186,7 +241,7 @@ export function matchFields(packet, descriptors, { adapter, captcha = false } = 
 
     if (descriptor.type === 'select' || descriptor.type === 'radio') {
       const option = chosenOption(descriptor, entry.value);
-      if (!option) { skip('no answer'); continue; }
+      if (!option) { skip('no matching option'); continue; }
       usedKeys.add(key);
       fills.push({ fieldId, key, label, value: option.value, source: entry.source || 'profile' });
       continue;

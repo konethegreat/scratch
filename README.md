@@ -119,9 +119,10 @@ page, the app shell at 1280px and 360px, and the demo with its simulated portal.
 It fails on any WCAG A/AA violation and on a focused control with no visible
 focus ring.
 
-The alpha is a browser workbench, not the full suite: your profile, the job
-tracker, candidate memory, settings, Job Feeds and Document Tailor work and
-persist in this browser. Tailoring calls Anthropic directly with your own key
+The alpha is a browser workbench, not the full suite: your profile, application
+answers, the job tracker, candidate memory, settings, Job Feeds and Document
+Tailor work and persist in this browser. Tailoring calls Anthropic directly with
+your own key
 and never sends your documents to this site. Hunting and the apply copilot are
 desktop features; the Copilot, Referrals, Routines and Logs tabs are hidden in
 web mode. Job Hunter still appears, but its crawler controls are hidden and the
@@ -165,6 +166,19 @@ with your own key. Either way you review every field and tick the groups to keep
 before anything is saved, and a group the CV did not contain never overwrites
 what is already in your profile. A scan with no text layer is refused with a
 clear message.
+
+### Application answers
+
+Profile & Settings → Application Answers holds the questions South African job
+sites repeat in different words: notice period, salary, driver's licence, right
+to work, employment equity and more. The hosted app saves them with your profile
+in this browser. The same reviewed vocabulary drives the desktop Apply Copilot
+and the browser extension, so a label such as "Notice period (in days)" or
+"Current cost to company" is recognised without a model call. Years of
+experience picks the page's own band ("3-5 years"), and a yes/no answer follows
+the page's wording ("Yes, I do"). The answered-once queue is desktop-only, so
+the web app neither shows it nor asks for it, and an imported answer bank is
+read-only.
 
 Usage and estimated spend appear in Profile & Settings, and the daily cap stops
 a run before the request when today reaches it. Company research and employer

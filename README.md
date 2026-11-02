@@ -156,16 +156,18 @@ hidden in demo mode.
 
 ### Reading your CV
 
-Upload a PDF, DOCX or text CV in Profile & Settings, then Profile & CV. The text
-is extracted in your browser. **Read on this device** proposes contact details, a
-headline, a summary, skills, languages, dated roles, education and certifications
-from the text itself: no key, no call, and nothing leaves the page. Where the
-text is too messy to be sure, it lists the groups it could not find.
-**Read with AI** is an optional improvement for poor layouts and costs one call
-with your own key. Either way you review every field and tick the groups to keep
-before anything is saved, and a group the CV did not contain never overwrites
-what is already in your profile. A scan with no text layer is refused with a
-clear message.
+Upload a PDF, DOCX, text file or a clear photo of your CV in Profile & Settings,
+then Profile & CV. The text is extracted in your browser. A scanned PDF or a
+photo is read by a small OCR model that runs on this device, so the file is
+never uploaded and no key is used. **Read on this device** proposes contact
+details, a headline, a summary, skills, languages, dated roles, education and
+certifications from the text itself: no key, no call, and nothing leaves the
+page. Where the text is too messy to be sure, it lists the groups it could not
+find. **Read with AI** is an optional improvement for poor layouts and costs one
+call with your own key. Either way you review every field and tick the groups to
+keep before anything is saved, and a group the CV did not contain never
+overwrites what is already in your profile. A scan that produces too little
+text asks for a sharper photo or pasted text.
 
 ### Application answers
 
@@ -492,3 +494,8 @@ and disappears on reload.
 ## Licence
 
 MIT — go forth and apply.
+
+The hosted app serves Tesseract.js and tesseract.js-core (Apache License 2.0)
+and the English best_int model from tessdata_best (Apache License 2.0) so a CV
+photo or scan can be read on the device. Their licence texts are copied to
+`client/public/ocr/` at build time and served with the assets.

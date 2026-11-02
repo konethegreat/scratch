@@ -15,7 +15,7 @@ test('the CSP allows only self scripts and the four API origins', () => {
   assert.ok(csp, 'CSP header missing');
   for (const directive of [
     "default-src 'self'",
-    "script-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
     "connect-src 'self' https://api.anthropic.com https://remotive.com https://www.arbeitnow.com https://jobicy.com",
     "img-src 'self' data: blob:",
     "style-src 'self' 'unsafe-inline'",
@@ -28,7 +28,8 @@ test('the CSP allows only self scripts and the four API origins', () => {
   ]) {
     assert.ok(csp.includes(directive), `missing ${directive}`);
   }
-  assert.equal(csp.includes('unsafe-eval'), false);
+  // Only WebAssembly compilation is allowed; eval and new Function stay off.
+  assert.equal(csp.includes("'unsafe-eval'"), false);
   const connect = csp.split(';').map((s) => s.trim()).find((s) => s.startsWith('connect-src'));
   assert.equal(connect.includes('*'), false);
 });

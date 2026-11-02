@@ -27,6 +27,11 @@ test('a scanned-style PDF asks for pasted text', async () => {
   );
 });
 
+test('a scan can be handed to the OCR path instead of refused', async () => {
+  const blank = await makePdf('');
+  assert.equal(await extractPdfText(blank, { minText: 0 }), '');
+});
+
 test('a corrupt PDF fails with a clear validation error', async () => {
   const corrupt = new TextEncoder().encode('%PDF-1.4\nthis is not a pdf');
   await assert.rejects(

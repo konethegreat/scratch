@@ -7,7 +7,10 @@ export const DOCUMENT_KINDS = Object.freeze(['cv', 'cover-letter', 'certified-id
 export const PDF_MIME = 'application/pdf';
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 export const TEXT_MIME = 'text/plain';
-const KNOWN_MIME = Object.freeze([PDF_MIME, DOCX_MIME, TEXT_MIME]);
+export const JPEG_MIME = 'image/jpeg';
+export const PNG_MIME = 'image/png';
+export const IMAGE_MIMES = Object.freeze([JPEG_MIME, PNG_MIME]);
+const KNOWN_MIME = Object.freeze([PDF_MIME, DOCX_MIME, TEXT_MIME, ...IMAGE_MIMES]);
 
 export const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
 export const MAX_DOCUMENTS = 10;
@@ -72,6 +75,13 @@ export function sniffDocumentType(bytes) {
   if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
     return 'docx';
   }
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+    && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) {
+    return 'png';
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'jpeg';
+  }
   if (bytes.subarray(0, 4096).includes(0)) return '';
   try {
     new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -84,6 +94,8 @@ export function sniffDocumentType(bytes) {
 function expectedType(mime) {
   if (mime === PDF_MIME) return 'pdf';
   if (mime === DOCX_MIME) return 'docx';
+  if (mime === JPEG_MIME) return 'jpeg';
+  if (mime === PNG_MIME) return 'png';
   return 'text';
 }
 
@@ -93,6 +105,8 @@ export function detectMime(bytes) {
   const sniffed = sniffDocumentType(bytes);
   if (sniffed === 'pdf') return PDF_MIME;
   if (sniffed === 'docx') return DOCX_MIME;
+  if (sniffed === 'jpeg') return JPEG_MIME;
+  if (sniffed === 'png') return PNG_MIME;
   if (sniffed === 'text') return TEXT_MIME;
   return '';
 }
@@ -105,7 +119,8 @@ export function createDocumentRecord(input, existing = []) {
   const fileName = sanitiseFileName(input?.fileName);
   if (!fileName) throw invalid('That file needs a name.');
   const mime = String(input?.mime || '');
-  if (!KNOWN_MIME.includes(mime)) throw invalid('Only PDF, DOCX and text files can be added.');
+  if (!KNOWN_MIME.includes(mime)) throw invalid('Only PDF, DOCX, text files and CV photos can be added.');
+  if (IMAGE_MIMES.includes(mime) && kind !== 'cv') throw invalid('Photos can only be added as a CV.');
 
   const bytes = base64ToBytes(input?.dataBase64);
   if (bytes.byteLength === 0) throw invalid('That file is empty.');
@@ -118,7 +133,7 @@ export function createDocumentRecord(input, existing = []) {
   if (total + bytes.byteLength > MAX_TOTAL_DOCUMENT_BYTES) throw invalid('Your documents would exceed the 20 MB total. Delete one first.');
 
   const sniffed = sniffDocumentType(bytes);
-  if (!sniffed) throw invalid('That file does not look like a PDF, DOCX or text file.');
+  if (!sniffed) throw invalid('That file does not look like a PDF, DOCX, text file or photo.');
   if (sniffed !== expectedType(mime)) throw invalid('The file contents do not match its declared type.');
 
   let text = String(input?.text ?? '');

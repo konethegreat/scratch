@@ -5,6 +5,7 @@
 node_modules/
 client/dist/
 client/build/
+client/public/ocr/
 release/
 
 # local env files (.env.example stays tracked)

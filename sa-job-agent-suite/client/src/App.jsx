@@ -1701,7 +1701,7 @@ export default function App() {
                     <button type="button" className="btn-ghost btn-xs" onClick={() => setActiveTab('logs')}>Open full <ChevronRight size={12} /></button>
                   )}
                 </div>
-                <div className="terminal-console" onScroll={handleTerminalScroll} style={{ flex: 1, minHeight: 200, maxHeight: 280 }}>
+                <div className="terminal-console" role="log" aria-label="Agent activity" tabIndex={0} onScroll={handleTerminalScroll} style={{ flex: 1, minHeight: 200, maxHeight: 280 }}>
                   {logs.length === 0 ? (
                     <div className="terminal-system">System online. Waiting for agent activity…</div>
                   ) : logs.slice(-12).map((log, idx) => (
@@ -2255,7 +2255,7 @@ export default function App() {
               <button className="btn-secondary" onClick={clearSystemLogs}><Trash2 size={12} /> Clear logs</button>
             </div>
 
-            <div className="terminal-console" onScroll={handleTerminalScroll} style={{ height: '60vh', minHeight: 360 }}>
+            <div className="terminal-console" role="log" aria-label="Agent activity" tabIndex={0} onScroll={handleTerminalScroll} style={{ height: '60vh', minHeight: 360 }}>
               {logs.map((log, idx) => (
                 <div key={idx} className={`terminal-line terminal-${log.type}`}>
                   <span style={{ color: 'var(--text-muted)' }}>[{log.timestamp}]</span>

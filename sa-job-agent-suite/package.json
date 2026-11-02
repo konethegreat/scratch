@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present && node --test \"evals/*.test.js\" && node --test scripts/hunter-record.test.mjs && node --test \"scripts/lib/*.test.mjs\" && node --test \"extension/src/*.test.js\" && node --test scripts/extension-zip.test.mjs",
-    "test:web": "node scripts/build-extension.mjs && node scripts/check-extension.mjs && node scripts/check-ui.mjs && node scripts/check-trust.mjs && node scripts/check-demo-bundle.mjs && node scripts/web-canary.mjs && node scripts/web-feeds.mjs && node scripts/web-hunter.mjs && node scripts/web-filters.mjs && node scripts/web-isolation.mjs && node scripts/web-ui.mjs && node scripts/web-tailor.mjs && node scripts/web-rag.mjs && node scripts/web-apply.mjs && node scripts/web-demo.mjs && node scripts/web-documents.mjs && node scripts/web-cv-intake.mjs && node scripts/web-extension.mjs",
+    "test:web": "node scripts/build-extension.mjs && node scripts/check-extension.mjs && node scripts/check-ui.mjs && node scripts/check-trust.mjs && node scripts/check-demo-bundle.mjs && node scripts/web-canary.mjs && node scripts/web-feeds.mjs && node scripts/web-hunter.mjs && node scripts/web-filters.mjs && node scripts/web-isolation.mjs && node scripts/web-ui.mjs && node scripts/web-a11y.mjs && node scripts/web-tailor.mjs && node scripts/web-rag.mjs && node scripts/web-apply.mjs && node scripts/web-demo.mjs && node scripts/web-documents.mjs && node scripts/web-cv-intake.mjs && node scripts/web-extension.mjs",
     "eval": "node evals/run.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "demo": "node scripts/demo.mjs",
@@ -47,6 +47,7 @@
     "uuid": "^14.0.3"
   },
   "devDependencies": {
+    "axe-core": "^4.14.0",
     "concurrently": "^8.2.2",
     "electron": "^45.1.0",
     "electron-builder": "^26.15.3",

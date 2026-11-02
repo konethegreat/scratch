@@ -23,7 +23,7 @@ const TOKENS = {
   '--color-on-accent': ['#ffffff', '#0b0d12'],
   '--color-success': ['#047857', '#34d399'],
   '--color-info': ['#0369a1', '#38bdf8'],
-  '--color-warning': ['#b45309', '#fbbf24'],
+  '--color-warning': ['#a34a08', '#fbbf24'],
   '--color-error': ['#b91c1c', '#fb7185'],
   '--text-primary': ['#16181d', '#f3f4f6'],
   '--text-secondary': ['#3f4552', '#c3c8d2'],

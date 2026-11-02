@@ -125,7 +125,7 @@ async function main() {
       await page.getByTestId('sidebar-toggle').waitFor();
       await scan(page, 'dashboard at 360px', axeSource);
       await page.getByTestId('sidebar-toggle').click();
-      await page.getByTestId('sidebar-toggle').waitFor();
+      await page.locator('#primary-nav').waitFor({ state: 'visible', timeout: 5000 });
       await scan(page, 'open navigation at 360px', axeSource);
 
       const external = requests.filter((url) => new URL(url).origin !== origin);

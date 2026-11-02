@@ -153,6 +153,19 @@ hidden in demo mode.
 3. Open Document Tailor, pick a job, and choose Optimise CV & letter.
 4. Copy, download the Markdown, or print to PDF.
 
+### Reading your CV
+
+Upload a PDF, DOCX or text CV in Profile & Settings, then Profile & CV. The text
+is extracted in your browser. **Read on this device** proposes contact details, a
+headline, a summary, skills, languages, dated roles, education and certifications
+from the text itself: no key, no call, and nothing leaves the page. Where the
+text is too messy to be sure, it lists the groups it could not find.
+**Read with AI** is an optional improvement for poor layouts and costs one call
+with your own key. Either way you review every field and tick the groups to keep
+before anything is saved, and a group the CV did not contain never overwrites
+what is already in your profile. A scan with no text layer is refused with a
+clear message.
+
 Usage and estimated spend appear in Profile & Settings, and the daily cap stops
 a run before the request when today reaches it. Company research and employer
 notes remain desktop-only.

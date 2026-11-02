@@ -2,6 +2,7 @@
 // It never writes the profile: the review screen decides what is saved.
 import { AppError, ERROR_CODES } from '@sajas/core/errors';
 import { STORES } from './vault.js';
+import { MAX_PARSE_CHARS, parseCvText } from './cvHeuristics.js';
 
 export const MAX_INTAKE_CHARS = 60_000;
 const MAX_SHORT = 200;
@@ -159,13 +160,18 @@ export function createWebIntake({
   activity = { add() {} },
   loadAi = () => import('@sajas/core/ai')
 }) {
-  async function propose(documentId) {
+  async function sourceText(documentId) {
     const document = await vault.get(STORES.documents, documentId);
     if (!document) throw new AppError(ERROR_CODES.NOT_FOUND, 'That document is no longer in this browser.');
     const fullText = String(document.text || '').trim();
     if (fullText.length < 20) {
       throw new AppError(ERROR_CODES.VALIDATION, 'That document has too little text to read. Upload a text-based CV or paste the text.');
     }
+    return fullText;
+  }
+
+  async function propose(documentId) {
+    const fullText = await sourceText(documentId);
     const key = keyStore.getKey();
     if (!key) throw new AppError(ERROR_CODES.KEY_INVALID, 'No Anthropic API key is loaded. Add one in the key panel first.');
 
@@ -194,11 +200,23 @@ export function createWebIntake({
       if (result.truncated) {
         throw new AppError(ERROR_CODES.UNKNOWN, 'The CV read was cut off before it finished, so nothing was shown. Try again.');
       }
-      return { proposals: parseIntakeResponse(result.text), inputTruncated };
+      return { proposals: parseIntakeResponse(result.text), inputTruncated, source: 'ai' };
     } finally {
       for (const entry of pending.splice(0)) await usage.record({ ...entry, bucket: 'intake' });
     }
   }
 
-  return { propose };
+  async function readLocal(documentId) {
+    const fullText = await sourceText(documentId);
+    const result = parseCvText(fullText.slice(0, MAX_PARSE_CHARS));
+    activity.add('CV read on this device. No text was sent anywhere.', 'system');
+    return {
+      proposals: result.proposals,
+      unread: result.unread,
+      source: 'local',
+      inputTruncated: fullText.length > MAX_PARSE_CHARS
+    };
+  }
+
+  return { propose, readLocal };
 }

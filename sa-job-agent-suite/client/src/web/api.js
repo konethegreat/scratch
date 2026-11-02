@@ -491,8 +491,11 @@ export function createWebApi({ apiBase, vault, keyStore, activity, now = () => n
       if (path === '/profile' && method === 'GET') return ok(await getProfile());
       if (path === '/profile' && method === 'POST') return await saveProfile(input, init);
       if (path === '/profile/intake' && method === 'POST') {
-        const { documentId } = await bodyOf(input, init);
-        const result = await intake.propose(documentId);
+        const { documentId, source } = await bodyOf(input, init);
+        if (source !== undefined && source !== 'local') {
+          throw new AppError(ERROR_CODES.VALIDATION, 'Choose a valid CV read.');
+        }
+        const result = source === 'local' ? await intake.readLocal(documentId) : await intake.propose(documentId);
         return ok(result);
       }
       if (path === '/models' && method === 'GET') return ok(publicModels());

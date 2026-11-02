@@ -110,6 +110,10 @@ npm run build:web                      # vite build --mode web, output client/di
 npm run build:web && npm run test:web  # build, then run the local canary check
 ```
 
+The deployed site is walked by `scripts/web-demo-live.mjs`, once a day and on
+demand from the Actions tab (`Live check` workflow). Run it yourself with
+`node scripts/web-demo-live.mjs https://sajas.pages.dev`.
+
 The alpha is a browser workbench, not the full suite: your profile, the job
 tracker, candidate memory, settings, Job Feeds and Document Tailor work and
 persist in this browser. Tailoring calls Anthropic directly with your own key

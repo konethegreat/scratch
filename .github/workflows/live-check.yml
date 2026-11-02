@@ -1,0 +1,47 @@
+name: Live check
+
+# Walks the deployed demo in a fresh browser profile. It proves the hosted app
+# still loads, tailors, hunts, applies in the simulated portal and exits clean,
+# and that no request leaves the deployed origin.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Deployed origin to check
+        required: false
+        default: https://sajas.pages.dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-check-${{ github.event.inputs.base || 'sajas.pages.dev' }}
+  cancel-in-progress: false
+
+jobs:
+  walk:
+    name: Post-deploy demo walk
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sa-job-agent-suite
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sa-job-agent-suite/package-lock.json
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Walk the deployed demo
+        env:
+          BASE_URL: ${{ inputs.base || 'https://sajas.pages.dev' }}
+        run: node scripts/web-demo-live.mjs "$BASE_URL"
+      - name: Check the Apply Assistant download resolves
+        run: curl -sSfIL -o /dev/null https://github.com/konethegreat/scratch/releases/latest/download/sajas-apply-assistant.zip

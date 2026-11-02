@@ -107,12 +107,17 @@ The same React UI also builds as a static, server-less site:
 ```bash
 # from sa-job-agent-suite/
 npm run build:web                      # vite build --mode web, output client/dist/
-npm run build:web && npm run test:web  # build, then run the local canary check
+npm run build:web && npm run test:web  # build, then run the browser gates (WCAG A/AA included)
 ```
 
 The deployed site is walked by `scripts/web-demo-live.mjs`, once a day and on
 demand from the Actions tab (`Live check` workflow). Run it yourself with
 `node scripts/web-demo-live.mjs https://sajas.pages.dev`.
+
+`scripts/web-a11y.mjs` runs axe-core over the onboarding screen, the landing
+page, the app shell at 1280px and 360px, and the demo with its simulated portal.
+It fails on any WCAG A/AA violation and on a focused control with no visible
+focus ring.
 
 The alpha is a browser workbench, not the full suite: your profile, the job
 tracker, candidate memory, settings, Job Feeds and Document Tailor work and

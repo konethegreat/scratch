@@ -8,7 +8,7 @@ const KINDS = [
   ['qualification', 'Qualification'], ['other', 'Other']
 ];
 
-const ACCEPT = '.pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain';
+const ACCEPT = '.pdf,.docx,.txt,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png';
 
 async function responseError(res, fallback) {
   const body = await res.json().catch(() => ({}));
@@ -20,6 +20,7 @@ export default function DocumentsPanel({ apiBase, toasts, demo = false }) {
   const [kind, setKind] = useState('cv');
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
+  const [ocrPercent, setOcrPercent] = useState(0);
   const fileRef = useRef(null);
   const toastsRef = useRef(toasts);
   toastsRef.current = toasts;
@@ -38,8 +39,12 @@ export default function DocumentsPanel({ apiBase, toasts, demo = false }) {
   const upload = async (file) => {
     if (!file) return;
     setBusy(true);
+    setOcrPercent(0);
     try {
-      const { mime, text, data } = await readDocumentFile(file);
+      const { mime, text, data } = await readDocumentFile(file, {
+        allowImages: kind === 'cv',
+        onProgress: (value) => setOcrPercent(Number.isFinite(value) ? value : 0)
+      });
       const res = await fetch(`${apiBase}/documents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,6 +63,7 @@ export default function DocumentsPanel({ apiBase, toasts, demo = false }) {
       toasts?.error?.(error.message || 'Could not add that document.');
     } finally {
       setBusy(false);
+      setOcrPercent(0);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -132,7 +138,7 @@ export default function DocumentsPanel({ apiBase, toasts, demo = false }) {
         <FileText size={16} /> Documents
       </h3>
       <p className="hint" style={{ marginBottom: 16 }}>
-        Files stay in this browser. PDF, DOCX and text, up to 8 MB each and 20 MB in total.
+        Files stay in this browser. PDF, DOCX, text and CV photos, up to 8 MB each and 20 MB in total.
       </p>
 
       {demo && (
@@ -152,6 +158,9 @@ export default function DocumentsPanel({ apiBase, toasts, demo = false }) {
             {busy ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} Upload file
           </button>
           <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={addPasted}>Paste text</button>
+          {busy && ocrPercent > 0 && (
+            <span className="hint" data-testid="document-ocr-progress">Reading the scan: {Math.round(ocrPercent * 100)}%</span>
+          )}
         </div>
       )}
 

@@ -3,7 +3,7 @@ import { CheckCircle2, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
 import { bytesToBase64, textToBytes } from './web/documents.js';
 import { readDocumentFile } from './web/readDocumentFile.js';
 
-const ACCEPT = '.pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain';
+const ACCEPT = '.pdf,.docx,.txt,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png';
 
 const UNREAD_LABELS = {
   name: 'full name', email: 'email', phone: 'phone', headline: 'headline', summary: 'summary',
@@ -40,6 +40,7 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
   const [unread, setUnread] = useState([]);
   const [source, setSource] = useState('');
   const [busy, setBusy] = useState('');
+  const [ocrPercent, setOcrPercent] = useState(0);
   const [chosen, setChosen] = useState({});
   const [draft, setDraft] = useState({});
   const fileRef = useRef(null);
@@ -76,16 +77,23 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
   const onFile = async (file) => {
     if (!file) return;
     setBusy('read');
+    setOcrPercent(0);
     try {
-      const { mime, text: cvText, data } = await readDocumentFile(file);
+      const { mime, text: cvText, data, scanned } = await readDocumentFile(file, {
+        allowImages: true,
+        onProgress: (value) => setOcrPercent(Number.isFinite(value) ? value : 0)
+      });
       setText(cvText);
       await storeText(cvText, mime, data, file.name);
       resetRead();
-      toasts?.success?.('CV text read on this device and saved with your documents.');
+      toasts?.success?.(scanned
+        ? 'Scan read on this device and saved with your documents.'
+        : 'CV text read on this device and saved with your documents.');
     } catch (error) {
       toasts?.error?.(error.message);
     } finally {
       setBusy('');
+      setOcrPercent(0);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -171,7 +179,7 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
       <div className="flex-between" style={{ marginBottom: 8 }}>
         <div>
           <h4 style={{ fontSize: 14 }}>CV intake</h4>
-          <p className="hint" style={{ marginTop: 2 }}>Upload a PDF, DOCX or text file. The text is read on this device and kept with your documents.</p>
+          <p className="hint" style={{ marginTop: 2 }}>Upload a PDF, DOCX, text file or a clear photo of your CV. Text is read on this device and kept with your documents.</p>
         </div>
         <div className="flex-gap">
           <input ref={fileRef} data-testid="cv-intake-file" type="file" accept={ACCEPT} style={{ display: 'none' }} onChange={(event) => onFile(event.target.files?.[0])} />
@@ -181,6 +189,12 @@ export default function CvIntake({ apiBase, profile = {}, toasts, onSave }) {
           <button type="button" className="btn-secondary btn-sm" disabled={Boolean(busy)} onClick={onPaste}>Paste CV</button>
         </div>
       </div>
+
+      {busy === 'read' && (
+        <p className="hint" data-testid="cv-intake-progress" style={{ marginTop: 4 }}>
+          Reading your file on this device{ocrPercent > 0 ? `: ${Math.round(ocrPercent * 100)}%` : ''}. Nothing is uploaded.
+        </p>
+      )}
 
       {text && (
         <>

@@ -184,7 +184,7 @@ async function main() {
     assert.equal(served.status, 200, 'the static server did not serve index.html');
     const servedCsp = served.headers.get('content-security-policy') || '';
     assert.match(servedCsp, /script-src 'self'/, '_headers CSP was not applied by the server');
-    assert.equal(servedCsp.includes('unsafe-eval'), false, 'served CSP allows unsafe-eval');
+    assert.equal(servedCsp.includes("'unsafe-eval'"), false, 'served CSP allows unsafe-eval');
     assert.equal(/\*/.test(servedCsp.split(';').find((s) => s.trim().startsWith('connect-src')) || ''), false, 'served CSP has a wildcard connect-src');
     assert.match(servedCsp, /frame-ancestors 'none'/, 'served CSP does not forbid framing');
     assert.equal(served.headers.get('x-frame-options'), 'DENY', 'X-Frame-Options is missing');

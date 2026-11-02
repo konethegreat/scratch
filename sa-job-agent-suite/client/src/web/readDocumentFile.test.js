@@ -28,3 +28,8 @@ test('binary bytes behind a document file name are refused', async () => {
   const file = new File([new Uint8Array([0, 1, 2, 3])], 'cv.pdf', { type: 'application/pdf' });
   await assert.rejects(() => readDocumentFile(file), /does not look like/);
 });
+
+test('a photo is refused unless the caller allows a CV photo', async () => {
+  const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2, 3])], 'cv.jpg', { type: 'image/jpeg' });
+  await assert.rejects(() => readDocumentFile(file), /CV/);
+});

@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DOCX_MIME, MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_TOTAL_DOCUMENT_BYTES, PDF_MIME, TEXT_MIME,
-  base64ToBytes, bytesToBase64, createDocumentRecord, detectMime, documentMetadata,
+  DOCX_MIME, JPEG_MIME, MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_TOTAL_DOCUMENT_BYTES, PDF_MIME,
+  PNG_MIME, TEXT_MIME, base64ToBytes, bytesToBase64, createDocumentRecord, detectMime, documentMetadata,
   exportDocumentRecords, sanitiseDocumentRecords, sanitiseFileName, sniffDocumentType, textToBytes
 } from './documents.js';
 
 const pdfBytes = new TextEncoder().encode('%PDF-1.7\n% test\n');
 const docxBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]);
+const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2, 3]);
 
 function input(overrides = {}) {
   return {
@@ -29,6 +31,8 @@ function validationError(fn, pattern) {
 test('type sniffing reads the magic bytes and refuses binary text', () => {
   assert.equal(sniffDocumentType(pdfBytes), 'pdf');
   assert.equal(sniffDocumentType(docxBytes), 'docx');
+  assert.equal(sniffDocumentType(pngBytes), 'png');
+  assert.equal(sniffDocumentType(jpegBytes), 'jpeg');
   assert.equal(sniffDocumentType(textToBytes('hello')), 'text');
   assert.equal(sniffDocumentType(new Uint8Array([0, 1, 2, 3])), '');
 });
@@ -36,8 +40,24 @@ test('type sniffing reads the magic bytes and refuses binary text', () => {
 test('the upload MIME type comes from the bytes, not the file extension', () => {
   assert.equal(detectMime(pdfBytes), PDF_MIME);
   assert.equal(detectMime(docxBytes), DOCX_MIME);
+  assert.equal(detectMime(pngBytes), PNG_MIME);
+  assert.equal(detectMime(jpegBytes), JPEG_MIME);
   assert.equal(detectMime(textToBytes('hello')), TEXT_MIME);
   assert.equal(detectMime(new Uint8Array([0, 1, 2, 3])), '');
+});
+
+test('a photo can be kept only as the CV, never as another document type', () => {
+  const record = createDocumentRecord(input({
+    mime: PNG_MIME, fileName: 'cv.png', size: pngBytes.byteLength,
+    dataBase64: bytesToBase64(pngBytes), text: 'Thandi Mokoena'
+  }));
+  assert.equal(record.mime, PNG_MIME);
+  assert.equal(record.text, 'Thandi Mokoena');
+
+  validationError(() => createDocumentRecord(input({
+    kind: 'qualification', mime: JPEG_MIME, fileName: 'cert.jpg', size: jpegBytes.byteLength,
+    dataBase64: bytesToBase64(jpegBytes)
+  })), /CV/);
 });
 
 test('base64 round-trips and rejects malformed input', () => {
@@ -94,7 +114,7 @@ test('a record with an unknown kind, blank label or unsafe name is rejected or c
   assert.equal(sanitiseFileName('..\\secret/CV\u0000.pdf'), '..-secret-CV.pdf');
   assert.equal(sanitiseFileName('x'.repeat(300)).length, 200);
   validationError(() => createDocumentRecord(input({ fileName: '\u0000' })), /name/i);
-  validationError(() => createDocumentRecord(input({ mime: 'image/png' })), /PDF|DOCX|text/i);
+  validationError(() => createDocumentRecord(input({ mime: 'image/gif' })), /PDF|DOCX|text/i);
 });
 
 test('metadata never carries the bytes or the text', () => {

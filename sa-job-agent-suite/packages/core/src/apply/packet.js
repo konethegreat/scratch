@@ -1,3 +1,5 @@
+import { QUESTION_VOCABULARY } from './questions.js';
+
 export const VALUE_CAP = 500;
 export const LABEL_CAP = 120;
 const MAX_QUESTIONS = 200;
@@ -11,25 +13,9 @@ export const IDENTITY_FIELDS = Object.freeze([
   ['portfolioUrl', 'Portfolio or website']
 ]);
 
-export const QUESTION_FIELDS = Object.freeze([
-  ['rightToWorkSA', 'Right to work in South Africa'],
-  ['nationality', 'Nationality'],
-  ['eeRace', 'Employment equity group'],
-  ['gender', 'Gender'],
-  ['disability', 'Disability'],
-  ['noticePeriod', 'Notice period'],
-  ['currentSalary', 'Current salary'],
-  ['expectedSalary', 'Expected salary'],
-  ['willingToRelocate', 'Willing to relocate'],
-  ['driversLicense', "Driver's licence"],
-  ['ownVehicle', 'Own vehicle'],
-  ['highestQualification', 'Highest qualification'],
-  ['yearsExperience', 'Years of experience'],
-  ['criminalRecord', 'Criminal record'],
-  ['creditCheckConsent', 'Credit check consent'],
-  ['languages', 'Languages'],
-  ['availabilityDate', 'Available from']
-]);
+export const QUESTION_FIELDS = Object.freeze(
+  QUESTION_VOCABULARY.map(({ key, label }) => [key, label])
+);
 
 export const HIGH_VALUE_ANSWERS = Object.freeze([
   'rightToWorkSA',

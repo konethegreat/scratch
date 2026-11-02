@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildApplyPacket, siteOf } from './packet.js';
+import { buildApplyPacket, QUESTION_FIELDS, siteOf } from './packet.js';
+import { QUESTION_KEYS, QUESTION_VOCABULARY } from './questions.js';
 
 const profile = {
   fullName: 'Thandi Mokoena',
@@ -18,6 +19,14 @@ const profile = {
 };
 
 const job = { id: 'job-1', title: 'Developer', company: 'Example', applyUrl: 'https://ZA.Example.co.za/jobs/1' };
+
+test('the packet question list is the shared vocabulary', () => {
+  assert.deepEqual(QUESTION_FIELDS.map(([key]) => key), [...QUESTION_KEYS]);
+  assert.deepEqual(
+    QUESTION_VOCABULARY.map((entry) => [entry.key, entry.label]),
+    QUESTION_FIELDS.map(([key, label]) => [key, label])
+  );
+});
 
 test('the packet carries declared identity and answers, never undeclared fields', () => {
   const packet = buildApplyPacket({ profile, job });

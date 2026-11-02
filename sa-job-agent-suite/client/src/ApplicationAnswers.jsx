@@ -1,41 +1,33 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Trash2, Save, Sparkles, Inbox } from 'lucide-react';
+import { QUESTION_VOCABULARY } from '@sajas/core/apply';
 
 /**
  * Smart application-answers panel for Settings.
  *
  * Three parts:
  *   1) A structured questionnaire of the questions that recur on SA job sites.
- *      These are mapped DETERMINISTICALLY by Agent 3 (no AI guessing). ID/passport
- *      number is deliberately NOT collected: paste it per-application.
+ *      The labels, options and aliases live in one core vocabulary, so the
+ *      Apply Copilot recognises the same question in different words.
+ *      ID/passport number is deliberately NOT collected: paste it per-application.
  *   2) The learn-as-you-go answer bank (questions Agent 3 has learned).
  *   3) Pending questions Agent 3 captured but couldn't answer: answer once here
- *      and they're remembered for every future application.
+ *      and they're remembered for every future application. The hosted app has
+ *      no server to collect these, so it hides this part.
  */
 
 const SELECT = (opts) => ['', ...opts];
 
-const FIELDS = [
-  { key: 'rightToWorkSA',        label: 'Right to work in SA',        type: 'select', options: SELECT(['Yes', 'No']) },
-  { key: 'nationality',          label: 'Nationality',                type: 'text',   placeholder: 'e.g. South African' },
-  { key: 'eeRace',               label: 'Race / population group (EE)', type: 'select', options: SELECT(['African', 'Coloured', 'Indian', 'White', 'Other', 'Prefer not to say']), sensitive: true },
-  { key: 'gender',               label: 'Gender',                     type: 'select', options: SELECT(['Male', 'Female', 'Other', 'Prefer not to say']), sensitive: true },
-  { key: 'disability',           label: 'Disability',                 type: 'select', options: SELECT(['No', 'Yes', 'Prefer not to say']), sensitive: true },
-  { key: 'noticePeriod',         label: 'Notice period',              type: 'text',   placeholder: 'e.g. 30 days / Immediate' },
-  { key: 'currentSalary',        label: 'Current salary',             type: 'text',   placeholder: 'e.g. R45 000 p/m', sensitive: true },
-  { key: 'expectedSalary',       label: 'Expected salary',            type: 'text',   placeholder: 'e.g. R650 000 p/a (neg.)', sensitive: true },
-  { key: 'willingToRelocate',    label: 'Willing to relocate',        type: 'select', options: SELECT(['Yes', 'No']) },
-  { key: 'driversLicense',       label: "Driver's licence",           type: 'select', options: SELECT(['None', 'Code A', 'Code B', 'Code C', 'Code EB', 'Other']) },
-  { key: 'ownVehicle',           label: 'Own vehicle',                type: 'select', options: SELECT(['Yes', 'No']) },
-  { key: 'highestQualification', label: 'Highest qualification',      type: 'text',   placeholder: 'e.g. BSc Computer Science' },
-  { key: 'yearsExperience',      label: 'Years of experience',        type: 'text',   placeholder: 'e.g. 5' },
-  { key: 'criminalRecord',       label: 'Criminal record',            type: 'select', options: SELECT(['No', 'Yes']), sensitive: true },
-  { key: 'creditCheckConsent',   label: 'Consent to credit check',    type: 'select', options: SELECT(['Yes', 'No']) },
-  { key: 'languages',            label: 'Languages',                  type: 'text',   placeholder: 'e.g. English, isiZulu, Afrikaans' },
-  { key: 'availabilityDate',     label: 'Available from',             type: 'text',   placeholder: 'e.g. Immediate / 2026-07-01' },
-];
+const FIELDS = QUESTION_VOCABULARY.map((entry) => ({
+  key: entry.key,
+  label: entry.label,
+  type: entry.options ? 'select' : 'text',
+  options: entry.options ? SELECT(entry.options) : [],
+  placeholder: entry.placeholder || '',
+  sensitive: entry.sensitive === true
+}));
 
-export default function ApplicationAnswers({ appProfile = {}, onChangeField, notes = '', onChangeNotes, apiBase, toasts, refreshSignal, onDraftInAsk }) {
+export default function ApplicationAnswers({ appProfile = {}, onChangeField, notes = '', onChangeNotes, apiBase, toasts, refreshSignal, onDraftInAsk, syncPending = true }) {
   const [bank, setBank] = useState([]);
   const [pending, setPending] = useState([]);
   const [drafts, setDrafts] = useState({}); // pendingId -> answer text
@@ -44,20 +36,21 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
     try {
       const [b, p] = await Promise.all([
         fetch(`${apiBase}/application/bank`).then((r) => r.json()),
-        fetch(`${apiBase}/application/pending`).then((r) => r.json()),
+        syncPending ? fetch(`${apiBase}/application/pending`).then((r) => r.json()) : Promise.resolve([]),
       ]);
       setBank(Array.isArray(b) ? b : []);
       setPending(Array.isArray(p) ? p : []);
     } catch {
       /* server may be booting */
     }
-  }, [apiBase]);
+  }, [apiBase, syncPending]);
 
   useEffect(() => {
     refresh();
+    if (!syncPending) return undefined;
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
-  }, [refresh, refreshSignal]);
+  }, [refresh, refreshSignal, syncPending]);
 
   const resolvePending = async (q) => {
     const answer = (drafts[q.id] || '').trim();
@@ -118,6 +111,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
             </label>
             {f.type === 'select' ? (
               <select
+                data-testid={`application-answer-${f.key}`}
                 value={appProfile[f.key] || ''}
                 onChange={(e) => onChangeField(f.key, e.target.value)}
                 style={{ width: '100%', fontSize: 12 }}
@@ -129,6 +123,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
             ) : (
               <input
                 type="text"
+                data-testid={`application-answer-${f.key}`}
                 value={appProfile[f.key] || ''}
                 placeholder={f.placeholder || ''}
                 onChange={(e) => onChangeField(f.key, e.target.value)}
@@ -152,7 +147,7 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
       </div>
 
       {/* Pending questions captured by Agent 3 */}
-      {pending.length > 0 && (
+      {syncPending && pending.length > 0 && (
         <div style={{ ...cardStyle, borderColor: 'var(--color-warning)', background: 'var(--bg-surface-2)' }}>
           <div className="flex-between" style={{ marginBottom: 8 }}>
             <strong style={{ fontSize: 13, color: 'var(--color-accent)' }}>
@@ -213,14 +208,16 @@ export default function ApplicationAnswers({ appProfile = {}, onChangeField, not
                   <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{b.question}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{b.answer}</div>
                 </div>
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  title="Delete saved answer"
-                  onClick={() => deleteBankEntry(b.id)}
-                >
-                  <Trash2 size={12} />
-                </button>
+                {syncPending && (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    title="Delete saved answer"
+                    onClick={() => deleteBankEntry(b.id)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </div>
             ))}
           </div>

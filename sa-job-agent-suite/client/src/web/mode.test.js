@@ -22,9 +22,9 @@ test('core tabs stay visible in web mode', () => {
   }
 });
 
-test('web settings hide answers and data, desktop keeps them', () => {
+test('web settings keep answers but hide data, desktop keeps both', () => {
   const tabs = ['ai', 'profile', 'search', 'answers', 'data'].map((id) => ({ id }));
-  assert.deepEqual(filterSettingsTabs(tabs, true).map((t) => t.id), ['ai', 'profile', 'search']);
+  assert.deepEqual(filterSettingsTabs(tabs, true).map((t) => t.id), ['ai', 'profile', 'search', 'answers']);
   assert.deepEqual(filterSettingsTabs(tabs, false).map((t) => t.id), ['ai', 'profile', 'search', 'answers', 'data']);
 });
 
@@ -36,7 +36,7 @@ test('the backup tab is hidden on desktop and shown on web', () => {
 
 test('server-only settings are a known subset', () => {
   for (const id of SERVER_ONLY_SETTINGS) {
-    assert.ok(['answers', 'data'].includes(id), id);
+    assert.ok(['data'].includes(id), id);
   }
 });
 

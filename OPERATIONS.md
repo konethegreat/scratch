@@ -58,7 +58,7 @@ If the site moves to a custom domain, the checklist is:
 
 - No analytics, no telemetry, no third-party monitoring script. This is a privacy choice, and it means there is no traffic dashboard beyond Cloudflare's own.
 - Errors are visible to the visitor in the Error Card and can be sent by the visitor with the diagnostics email.
-- Deployment health is checked after each upload: load the site, run a demo walk, check the console is clean and no request leaves the origin. `scripts/web-demo-live.mjs` does exactly that against a URL.
+- Deployment health is checked after each upload: load the site, run a demo walk, check the console is clean and no request leaves the origin. `scripts/web-demo-live.mjs` does exactly that against a URL. The `Live check` workflow (`.github/workflows/live-check.yml`) runs the same walk once a day and on demand from the Actions tab, and also checks that the Apply Assistant download link resolves.
 
 ## 5. Rollback and recovery
 

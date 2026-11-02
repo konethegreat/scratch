@@ -36,7 +36,10 @@ export async function buildExtensionZip({ distDir = defaultDist, outPath = defau
   for (const file of files) {
     zip.file(file, await fs.readFile(path.join(distDir, file)), {
       date: FIXED_DATE,
-      unixPermissions: 0o644
+      unixPermissions: 0o644,
+      // Implicit folder entries would carry the current time and make the
+      // archive differ between builds. Unzip recreates folders from paths.
+      createFolders: false
     });
   }
   const buffer = await zip.generateAsync({

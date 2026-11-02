@@ -37,6 +37,10 @@ test('the release zip carries the unpacked extension at its root', async () => {
       names.every((name) => !name.startsWith('dist/') && !name.startsWith('src/')),
       'the zip nested the build under its source folder'
     );
+    assert.ok(
+      names.every((name) => !name.endsWith('/')),
+      'the zip carries implicit folder entries, which stamp the build time'
+    );
     assert.equal(
       JSON.parse(await zip.file('manifest.json').async('string')).version,
       manifest.version,

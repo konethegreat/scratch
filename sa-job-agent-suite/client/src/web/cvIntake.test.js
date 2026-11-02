@@ -104,3 +104,28 @@ test('no key, a missing document, an empty document and an exceeded budget all f
   const { intake: truncated } = await harness({ truncated: true });
   await assert.rejects(() => truncated.propose('doc-1'), (error) => error.code === 'UNKNOWN');
 });
+
+test('a local read needs no key, makes no AI call and records no usage', async () => {
+  const text = `Nadi Mokoena
+nadi@example.test
+EXPERIENCE
+Engineer | Acme (Pty) Ltd
+2020 - Present`;
+  const { intake, recorded } = await harness({ key: false, text });
+  const result = await intake.readLocal('doc-1');
+
+  assert.equal(result.source, 'local');
+  assert.equal(result.inputTruncated, false);
+  assert.equal(result.proposals.fullName, 'Nadi Mokoena');
+  assert.equal(result.proposals.workHistory[0].company, 'Acme (Pty) Ltd');
+  assert.ok(Array.isArray(result.unread));
+  assert.equal(recorded(), 0);
+});
+
+test('a local read still refuses a missing or empty document', async () => {
+  const { intake } = await harness({ key: false });
+  await assert.rejects(() => intake.readLocal('nope'), (error) => error.code === 'NOT_FOUND');
+
+  const { intake: shortText } = await harness({ key: false, text: 'Thandi' });
+  await assert.rejects(() => shortText.readLocal('doc-1'), (error) => error.code === 'VALIDATION');
+});

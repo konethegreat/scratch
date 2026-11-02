@@ -624,3 +624,36 @@ test('POST /profile/intake returns proposals without writing the profile', async
   assert.equal(body.inputTruncated, false);
   assert.equal(await vault.get(STORES.profile, 'current'), undefined);
 });
+
+test('POST /profile/intake reads locally when asked and never needs a key', async () => {
+  const vault = createVault(createMemoryAdapter());
+  const keyStore = createKeyStore({ vault });
+  const text = `Nadi Mokoena
+nadi@example.test
+EXPERIENCE
+Engineer | Acme (Pty) Ltd
+2020 - Present`;
+  const bytes = new TextEncoder().encode(text);
+  await vault.put(STORES.documents, 'doc-1', {
+    id: 'doc-1', kind: 'cv', label: 'CV', fileName: 'cv.txt', mime: 'text/plain',
+    size: bytes.byteLength, uploadedAt: '2026-11-01T00:00:00.000Z', isDefault: true,
+    text, data: bytes.buffer
+  });
+  const api = createWebApi({
+    apiBase: API_BASE,
+    vault,
+    keyStore,
+    activity: createActivity(),
+    loadAi: async () => { throw new Error('the local read must not load the AI client'); }
+  });
+  const res = await api.handle(`${API_BASE}/profile/intake`, {
+    method: 'POST', body: JSON.stringify({ documentId: 'doc-1', source: 'local' })
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.source, 'local');
+  assert.equal(body.proposals.fullName, 'Nadi Mokoena');
+  assert.equal(body.proposals.workHistory[0].company, 'Acme (Pty) Ltd');
+  assert.ok(Array.isArray(body.unread));
+  assert.equal(await vault.get(STORES.profile, 'current'), undefined);
+});

@@ -1,12 +1,38 @@
-// Offline proof that a pasted-style text CV is stored as a document and saved as
-// the base CV, with no key and no network beyond the local static server.
+// Offline proof that a text CV is stored, read on this device with no key and
+// no network beyond the local static server, reviewed, and saved without
+// wiping fields the CV did not contain.
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { startStaticServer } from './lib/staticServer.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const dist = path.join(root, 'client/dist');
-const CV_TEXT = 'Thandi Mokoena\nSenior Backend Engineer\nCape Town\nEight years building payment systems.';
+const CV_TEXT = [
+  'Thandi Mokoena',
+  'Senior Backend Engineer',
+  'Cape Town',
+  'thandi@example.test | +27 21 555 0100',
+  '',
+  'PROFILE',
+  'Backend engineer with eight years building payment systems in South Africa.',
+  '',
+  'SKILLS',
+  'Java, Spring Boot, PostgreSQL, AWS',
+  '',
+  'LANGUAGES',
+  'English, isiXhosa',
+  '',
+  'EXPERIENCE',
+  'Senior Backend Engineer | Acme Payments (Pty) Ltd | Cape Town',
+  '2020 - Present',
+  '- Led the payments platform migration.',
+  'Backend Engineer | Beta Bank',
+  '2016 - 2020',
+  '- Built settlement services.',
+  '',
+  'EDUCATION',
+  'BSc Computer Science, University of Cape Town, 2012'
+].join('\n');
 
 async function seed(page) {
   await page.evaluate(async () => {
@@ -23,7 +49,13 @@ async function seed(page) {
     });
     await new Promise((resolve, reject) => {
       const tx = db.transaction(['profile', 'meta'], 'readwrite');
-      tx.objectStore('profile').put({ fullName: 'Thandi Mokoena', v: 2 }, 'current');
+      tx.objectStore('profile').put({
+        fullName: 'Thandi Mokoena',
+        v: 2,
+        skills: ['Excel'],
+        baseCv: 'CV text that was already saved on this device.',
+        certifications: [{ name: 'Old Cert', issuer: '', year: '' }]
+      }, 'current');
       tx.objectStore('meta').put({ onboarded: true }, 'app');
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
@@ -78,11 +110,50 @@ async function main() {
     });
     await page.getByTestId('cv-intake-preview').waitFor({ timeout: 15_000 });
     assert.equal((await page.getByTestId('cv-intake-preview').inputValue()).includes('Senior Backend Engineer'), true);
-    assert.equal(await page.getByRole('button', { name: /Read my CV with AI/i }).count() > 0, true);
 
     const stored = await vault(page);
     assert.equal(stored.documents.length, 1);
     assert.equal(stored.documents[0].text.includes('Senior Backend Engineer'), true);
+
+    await page.getByTestId('cv-intake-local').click();
+    await page.getByTestId('cv-intake-review').waitFor({ timeout: 15_000 });
+    const review = await page.getByTestId('cv-intake-review').innerText();
+    assert.match(review, /Read on this device\. Nothing was sent anywhere\./);
+    assert.equal(await page.getByTestId('cv-intake-fullName').inputValue(), 'Thandi Mokoena');
+    assert.equal(await page.getByTestId('cv-intake-email').inputValue(), 'thandi@example.test');
+    assert.equal(await page.getByTestId('cv-intake-city').inputValue(), 'Cape Town');
+    assert.match(await page.getByTestId('cv-intake-unread').innerText(), /certifications/);
+    assert.match(review, /2 role\(s\)/);
+    assert.match(review, /1 qualification\(s\)/);
+    assert.match(review, /Java/);
+
+    await page.getByTestId('cv-intake-save').click();
+    await page.waitForFunction(async () => {
+      const readProfile = () => new Promise((resolve, reject) => {
+        const request = indexedDB.open('sajas-web');
+        request.onsuccess = () => {
+          const get = request.result.transaction('profile', 'readonly').objectStore('profile').get('current');
+          get.onsuccess = () => resolve(get.result || {});
+          get.onerror = () => reject(get.error);
+        };
+        request.onerror = () => reject(request.error);
+      });
+      return (await readProfile()).workHistory?.length === 2;
+    }, null, { timeout: 15_000 });
+
+    const saved = (await vault(page)).profile;
+    assert.equal(saved.fullName, 'Thandi Mokoena');
+    assert.equal(saved.workHistory.length, 2);
+    assert.equal(saved.workHistory[0].current, true);
+    assert.equal(saved.workHistory[0].company, 'Acme Payments (Pty) Ltd');
+    assert.equal(saved.workHistory[1].title, 'Backend Engineer');
+    assert.equal(saved.education[0].institution, 'University of Cape Town');
+    // Skills merge instead of replacing what was already on this device.
+    assert.deepEqual([...saved.skills].sort(), ['AWS', 'Excel', 'Java', 'PostgreSQL', 'Spring Boot']);
+    // A group the CV did not contain stays untouched, and so does a base CV
+    // the person did not ask to replace.
+    assert.equal(saved.certifications[0].name, 'Old Cert');
+    assert.equal(saved.baseCv, 'CV text that was already saved on this device.');
 
     assert.deepEqual(foreign, [], `requests left the local origin: ${foreign.join(', ')}`);
     console.log('web-cv-intake: PASS');

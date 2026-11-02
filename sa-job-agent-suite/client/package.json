@@ -16,7 +16,7 @@
   "dependencies": {
     "@sajas/core": "*",
     "@tesseract.js-data/eng": "^1.0.0",
-    "lucide-react": "^1.64.0",
+    "lucide-react": "^1.65.0",
     "mammoth": "^1.13.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",

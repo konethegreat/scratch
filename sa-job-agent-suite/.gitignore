@@ -37,3 +37,6 @@ hunter-debug/
 
 # built unpacked extension (extension/dist)
 extension/dist/
+
+# packaged extension release asset
+extension/sajas-apply-assistant.zip

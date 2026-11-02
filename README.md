@@ -216,14 +216,25 @@ Job site logins are per domain. Connect a site under Profile and Settings, sign 
 
 The optional Chromium extension closes the gap for hosted users. It receives the same packet the Apply tab builds, fills the fields it recognises on the application page, and shows a review panel with what was filled, what was skipped and why. It presses the page's own Submit button only after you tick the review box and press Submit application in the panel. The confirmation then returns to SA-JAS, which records the application as delivery `extension`.
 
-Build it once from the repository:
+Install the packaged build. Download
+[`sajas-apply-assistant.zip`](https://github.com/konethegreat/scratch/releases/latest/download/sajas-apply-assistant.zip),
+unzip it, open `chrome://extensions`, turn on Developer mode, choose **Load
+unpacked** and pick the unzipped folder. The Apply tab also links to that
+download and repeats the steps when the extension is not detected.
+
+To build it from source instead:
 
 ```bash
 # from sa-job-agent-suite/
 npm run build:extension
+# or, for a release-shaped zip at extension/sajas-apply-assistant.zip
+npm run zip:extension
 ```
 
-Then open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and select `sa-job-agent-suite/extension/dist`. Reload the extension after a rebuild. The popup lists every application whose site matches the tab you are on, newest first, and lets you pick the one on the page. The Fill button appears only for that tab.
+Then load `sa-job-agent-suite/extension/dist` (or the unzipped release folder)
+with **Load unpacked**. Reload the extension after a rebuild. The popup lists
+every application whose site matches the tab you are on, newest first, and lets
+you pick the one on the page. The Fill button appears only for that tab.
 
 What it does: reads the page you invoke it on, fills exact matches from the packet, attaches the files you selected, and reports the result back to the app. A form that submits by navigating away is recorded from the page it lands on, as long as that page stays on the same site and reads like a confirmation. The app collects results when it loads and again whenever you return to its window. What it does not do: solve CAPTCHAs, create accounts, submit without your review, read the app's vault or key, or make any network request of its own. Packets and results live in the extension's own IndexedDB store, separate from `sajas-web`; packets expire after eight hours. To remove it, remove the extension from `chrome://extensions`. Its store goes with it, and the app keeps working with the copy sheet.
 

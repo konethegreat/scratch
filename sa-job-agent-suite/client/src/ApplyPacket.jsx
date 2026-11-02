@@ -8,6 +8,8 @@ import { createExtensionBridge } from './web/extensionBridge.js';
 import { downloadBytes } from './web/download.js';
 
 const APPLY_DOCUMENT_KINDS = ['cv', 'certified-id', 'qualification', 'cover-letter'];
+const EXTENSION_DOWNLOAD_URL =
+  'https://github.com/konethegreat/scratch/releases/latest/download/sajas-apply-assistant.zip';
 
 function CopyButton({ text }) {
   const [state, setState] = useState('idle');
@@ -300,9 +302,33 @@ export default function ApplyPacket({ profile, jobs, answerBank = [], onMarkAppl
                 </button>
               </div>
               {bridgeChecked && !bridgeReady && (
-                <p className="tiny" style={{ marginTop: 6 }}>
-                  The extension is not installed yet. Install it from the project repository, then reload this page.
-                </p>
+                <div
+                  data-testid="extension-install-hint"
+                  style={{
+                    marginTop: 8,
+                    padding: '10px 12px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--bg-surface-2)'
+                  }}
+                >
+                  <p className="tiny" style={{ marginBottom: 6 }}>
+                    The Apply Assistant is not installed in this browser.
+                  </p>
+                  <ol className="tiny" style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+                    <li>
+                      <a href={EXTENSION_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
+                        Download the extension (.zip)
+                      </a>{' '}
+                      and unzip it.
+                    </li>
+                    <li>
+                      Open <code>chrome://extensions</code> and turn on Developer mode.
+                    </li>
+                    <li>Choose Load unpacked and pick the unzipped folder.</li>
+                    <li>Reload this page, then press Send to extension.</li>
+                  </ol>
+                </div>
               )}
             </div>
           )}

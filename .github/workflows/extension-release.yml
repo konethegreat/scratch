@@ -1,0 +1,64 @@
+name: Extension release
+
+# Publishes the packed Apply Assistant as a GitHub release asset, so a hosted
+# visitor can install it without cloning the repository. The asset name is fixed
+# because the web app links to releases/latest/download/sajas-apply-assistant.zip.
+
+on:
+  push:
+    tags:
+      - 'extension-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (defaults to extension-v<manifest version>)
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Package and publish the Apply Assistant
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sa-job-agent-suite
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sa-job-agent-suite/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Test the extension
+        run: npm run test:extension
+      - name: Build and pack the extension
+        run: npm run zip:extension
+      - name: Check the tag and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          VERSION=$(node -p "require('./extension/manifest.json').version")
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="${INPUT_TAG:-extension-v$VERSION}"
+          else
+            TAG="$REF_NAME"
+          fi
+          if [ "$TAG" != "extension-v$VERSION" ]; then
+            echo "Tag $TAG does not match the extension manifest version $VERSION" >&2
+            exit 1
+          fi
+          gh release create "$TAG" extension/sajas-apply-assistant.zip \
+            --title "SA-JAS Apply Assistant $TAG" \
+            --notes "Unzip the download, open chrome://extensions, turn on Developer mode, choose Load unpacked and pick the unzipped folder. The extension fills a packet you send from https://sajas.pages.dev, shows what it filled and skipped, and leaves the final submit to you."

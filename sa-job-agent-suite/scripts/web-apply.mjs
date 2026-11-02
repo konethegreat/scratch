@@ -143,6 +143,15 @@ async function main() {
     await page.getByTestId('send-to-extension').click();
     await page.getByText(/Check that it is installed and enabled/i).first().waitFor({ timeout: 4000 });
 
+    // The install hint must offer the packaged download, not just point at the repo.
+    const installHint = page.getByTestId('extension-install-hint');
+    await installHint.waitFor({ timeout: 10_000 });
+    assert.equal(
+      await installHint.getByRole('link', { name: /Download the extension/i }).getAttribute('href'),
+      'https://github.com/konethegreat/scratch/releases/latest/download/sajas-apply-assistant.zip'
+    );
+    assert.match(await installHint.innerText(), /Load unpacked/);
+
     await page.getByRole('button', { name: /Mark applied/i }).click();
     await page.getByText('Marked as applied.').waitFor({ timeout: 10_000 });
 

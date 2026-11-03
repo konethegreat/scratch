@@ -405,6 +405,8 @@ export function getProfile() {
   return { ...readDb().profile, ...readKeys() };
 }
 
+export const MAX_BASE_CV_CHARS = 1_000_000;
+
 export function saveProfile(profile) {
   const db = readDb();
   const currentKeys = readKeys();
@@ -412,6 +414,11 @@ export function saveProfile(profile) {
   // Retired provider keys / the retired provider switch are dropped on the floor.
   const { anthropicApiKey, ...profileFields } = profile;
   for (const f of [...LEGACY_KEY_FIELDS, ...LEGACY_PROFILE_FIELDS]) delete profileFields[f];
+
+  // Same cap the hosted app enforces, checked before anything is written.
+  if (typeof profileFields.baseCv === 'string' && profileFields.baseCv.length > MAX_BASE_CV_CHARS) {
+    throw new Error(`Your CV is too large to save (over ${MAX_BASE_CV_CHARS.toLocaleString()} characters). Attach the full version as a document and keep a shorter base CV in Profile.`);
+  }
 
   // Empty/whitespace incoming key keeps the existing one; anything else must be
   // a well-formed, non-Admin Anthropic key (validated BEFORE anything is written).

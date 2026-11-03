@@ -102,6 +102,18 @@ test('saveProfile stores a normalised key and rejects admin and malformed keys',
   assert.equal(readKeysFile().anthropicApiKey, ak);
 });
 
+test('saveProfile refuses a base CV over the shared cap and keeps the previous one', () => {
+  writeDbFile({ profile: {} });
+  helper.saveProfile({ baseCv: 'A short CV.' });
+  assert.throws(
+    () => helper.saveProfile({ baseCv: 'x'.repeat(1_000_001) }),
+    /too large|document/i
+  );
+  assert.equal(helper.getProfile().baseCv, 'A short CV.');
+  helper.saveProfile({ baseCv: 'x'.repeat(1_000_000) });
+  assert.equal(helper.getProfile().baseCv.length, 1_000_000);
+});
+
 test('clearKey accepts only anthropic', () => {
   writeKeysFile({ anthropicApiKey: anthropicKey('H') });
   assert.equal(helper.clearKey('gemini'), false);

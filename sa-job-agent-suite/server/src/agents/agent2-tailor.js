@@ -4,6 +4,7 @@ import { callLlmFull, assertAnthropicKey } from './llm.js';
 import { renderMarkdownToPdf } from './pdf.js';
 import { researchCompany, researchFanoutReady } from './companyResearch.js';
 import { buildTailorPrompts, INJECTION_SHIELD } from '@sajas/core/tailor';
+import { inputBudget } from '@sajas/core';
 import { withTask } from '../telemetry.js';
 
 /**
@@ -42,6 +43,15 @@ async function runDocumentTailorAgentInner(jobId, opts = {}) {
   const memDigest = buildMemoryDigest({ maxInsights: 12 });
   if (memDigest) addLog('Applying learned candidate dossier to tailoring.', 'agent2');
   const employerNotes = buildEmployerNotes(job.company);
+
+  // Refuse an oversized prompt before research or generation spends anything.
+  // The CV is the usual cause; a scraped description can be long too.
+  const budget = inputBudget([baseCv, job.description, memDigest, employerNotes]);
+  if (budget.overBudget) {
+    throw new Error(
+      `Your CV and job details are too long for one safe request (about ${budget.estimatedTokens.toLocaleString()} tokens; the limit is ${budget.maxTokens.toLocaleString()}). Shorten the base CV to about ${budget.maxChars.toLocaleString()} characters, or attach the full CV as a document and keep a shorter base CV in Profile.`
+    );
+  }
 
   // T4 research fan-out — a grounded brief on the employer/role. The batch
   // orchestrator computes these in parallel and passes one in via opts; a lone

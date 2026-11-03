@@ -87,6 +87,34 @@ test('an empty CV result (thinking used the whole budget) throws and saves nothi
   assert.ok(!job().tailoredCvText);
 });
 
+test('an oversized base CV is refused before any model call', async () => {
+  helper.saveProfile({ baseCv: 'x'.repeat(400_000) });
+  const f = fakeClient([reply([text('# Tailored CV\n\n- should not be used')])]);
+  llm.setClaudeClientForTests(f.client);
+  await assert.rejects(
+    agent2.runDocumentTailorAgent(JOB_ID, { renderPdf }),
+    /too long|shorten|attach/i
+  );
+  assert.equal(f.calls.length, 0, 'no request may be sent');
+  assert.notEqual(job().status, 'tailored');
+  assert.ok(!job().tailoredCvText);
+  assert.equal(pdfCalls.length, 0);
+});
+
+test('an oversized job description is refused before any model call', async () => {
+  const db = helper.readDb();
+  db.jobs[0].description = 'y'.repeat(400_000);
+  helper.writeDb(db);
+  const f = fakeClient([reply([text('# Tailored CV\n\n- should not be used')])]);
+  llm.setClaudeClientForTests(f.client);
+  await assert.rejects(
+    agent2.runDocumentTailorAgent(JOB_ID, { renderPdf }),
+    /too long|shorten|attach/i
+  );
+  assert.equal(f.calls.length, 0);
+  assert.ok(!job().tailoredCvText);
+});
+
 test('a truncated cover letter keeps the CV and does not save the letter', async () => {
   const f = fakeClient([
     reply([text('# Tailored CV\n\n- fine')]),

@@ -53,3 +53,11 @@ pnpm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+# >>> AgentOS local agent caches (rule files stay tracked) >>>
+.claude/settings.local.json
+.qoder/settings.local.json
+CLAUDE.local.md
+AGENTS.local.md
+GEMINI.local.md
+# <<< AgentOS <<<

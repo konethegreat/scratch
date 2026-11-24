@@ -6,7 +6,7 @@ request.
 
 ## Phase 1: One ordered index for agents and contributors
 
-- [ ] Research: read the master plan, every spec under docs/superpowers/specs/, README.md, PUBLICATION.md, and ROADMAP.md, and list which workstreams are open, done, or superseded.
+- [x] Research: read the master plan, every spec under docs/superpowers/specs/, README.md, PUBLICATION.md, and ROADMAP.md, and list which workstreams are open, done, or superseded.
 - [ ] Write docs/agentos/TASKS.md as the ordered index, each task naming the spec path that defines it, and the matching docs/agentos/PHASES.md headings.
 - [ ] Link docs/agentos from README.md in one line next to the roadmap mention, and mark ROADMAP.md as historical with a pointer to the master plan.
 - [ ] Review: confirm docs/PHASES.md and docs/TASKS.md match docs/agentos, no secrets, no `.env` content, and no em dash or en dash in the added text.

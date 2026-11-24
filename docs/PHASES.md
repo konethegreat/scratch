@@ -1,7 +1,8 @@
 # Phases
 
 Ordered work for SA-JAS (the scratch repository), derived from the repository
-state on 2026-11-20 (HEAD f20f415). The authority for direction is
+state on 2026-11-20 (HEAD f20f415) and updated from the 2026-11-24 workstream
+audit. The authority for direction is
 `docs/superpowers/specs/2026-10-24-sa-jas-v2-master-plan.md`; the older
 `ROADMAP.md` marks itself superseded. These phases sequence that plan into
 small, verifiable steps and do not add scope beyond it.
@@ -77,3 +78,33 @@ Done when: docs/agentos/REPORT.md records the evidence for the latest release
 (CI run, packaged desktop startup, live smoke date), the checklist exists in
 docs/OPERATIONS.md, and every merged pull request appends one line to
 docs/agentos/REPORT.md.
+
+## Phase 6: Memory, profile, and browser session revamp
+
+Master plan section 7 (WS3) specifies run memory, native `memory_20250818` tool
+backing, and source memory. Section 9 (WS5) specifies desktop profile
+migration, multiple personas, encrypted sensitive fields, and separate `hunt`
+vs `apply` browser sessions. `docs/superpowers/specs/2026-11-01-automation-and-data-depth-design.md`
+also leaves Phase 4 (Demo v3) open.
+
+Goal: complete the remaining WS3, WS5, and Demo v3 workstreams with tested
+storage, isolation, and synthetic demo coverage.
+
+Done when: run memory and source memory persist per spec, desktop profiles
+support personas and separate browser sessions, and Demo v3 runs offline with
+tests.
+
+## Phase 7: Assisted apply, BYOK security, MCP, and evals
+
+Master plan sections 10 (WS6), 11 (WS7), 12 (WS8, aligned with Post-M3a-3 Arc
+10), and 14 (WS10) define the remaining open platform workstreams: the
+accessibility-snapshot apply engine with L0-L3 autonomy and SubmitPolicy,
+desktop OS keyring and Runner origin allowlist plus BYOK doc rewrites, MCP
+server/host and inbox integration, and Pareto evals with tracing.
+
+Goal: deliver guarded assisted apply, hardened BYOK key handling, MCP/inbox
+integration, and multi-trial evals with observability.
+
+Done when: SubmitPolicy enforces the L0-L3 ladder with a kill switch, desktop
+keys use safeStorage or OS keyring, SECURITY.md and THREAT-MODEL.md reflect
+BYOK, MCP/inbox flows work, and the Pareto eval harness passes.

@@ -4,6 +4,7 @@ One line per merged pull request, newest at the bottom.
 
 - 2026-11-20: docs: add the agentos working plan (PHASES.md, TASKS.md, REPORT.md, plus docs/PHASES.md and docs/TASKS.md) so every agent has ordered, verifiable work grounded in the v2 master plan.
 - 2026-11-24: docs (TASK-313): audited master plan, all 16 specs under docs/superpowers/specs/, README.md, PUBLICATION.md, and ROADMAP.md; recorded workstream inventory (open, done, superseded) in REPORT.md and shared memory; ticked Phase 1 Research in docs/TASKS.md and docs/agentos/TASKS.md; verified with npm test and check-secrets.mjs.
+- 2026-11-24: docs (t_bf90ed3c): updated docs/agentos/TASKS.md and docs/TASKS.md as the ordered index with defining spec paths and matching docs/agentos/PHASES.md and docs/PHASES.md headings covering all open workstreams (Phases 1-7), ticked Phase 1 task 2, and verified with npm test and check-secrets.mjs.
 
 ## Workstream Inventory (2026-11-24, TASK-313)
 

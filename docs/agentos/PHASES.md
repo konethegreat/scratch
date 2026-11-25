@@ -39,3 +39,20 @@ the paid live smoke to a tagged release. Done when: docs/agentos/REPORT.md
 records the evidence for the latest release, the checklist lives in
 docs/OPERATIONS.md, and every merged pull request appends one line to
 docs/agentos/REPORT.md.
+
+## Phase 6: Memory, profile, and browser session revamp
+
+Goal: implement WS3 run/source memory, WS5 desktop profile v2 with encrypted
+sensitive fields and isolated `hunt` vs `apply` browser sessions, and Demo v3
+(`2026-11-01-automation-and-data-depth-design.md` section 6). Done when: run
+and source memory are tested, desktop profiles migrate and encrypt sensitive
+fields, `sessions.js` pauses on challenges, and `demo:v3` passes offline.
+
+## Phase 7: Assisted apply, BYOK security, MCP, and evals
+
+Goal: implement WS6 L0-L3 apply with default-deny `SubmitPolicy`, WS7 OS
+keychain BYOK and rewritten security docs, WS8 bidirectional MCP, and WS10
+evals and per-run traces. Done when: `SubmitPolicy` trust ramp and kill switch
+are tested, `keys.json` is replaced by OS keychain, `SECURITY.md` and
+`THREAT-MODEL.md` match BYOK, MCP tools/connectors are tested, and trace/eval
+suites pass.

@@ -1,10 +1,11 @@
 # Phases
 
 Ordered work for SA-JAS (the scratch repository), derived from the repository
-state on 2026-11-20 (HEAD f20f415). The authority for direction is
+state on 2026-11-20 (HEAD f20f415) and the 2026-11-24 workstream inventory
+(TASK-313). The authority for direction is
 `docs/superpowers/specs/2026-10-24-sa-jas-v2-master-plan.md`; the older
-`ROADMAP.md` marks itself superseded. These phases sequence that plan into
-small, verifiable steps and do not add scope beyond it.
+`ROADMAP.md` marks itself superseded. These phases sequence that plan and open
+follow-on specs into small, verifiable steps and do not add scope beyond them.
 
 ## Phase 1: One ordered index for agents and contributors
 
@@ -77,3 +78,36 @@ Done when: docs/agentos/REPORT.md records the evidence for the latest release
 (CI run, packaged desktop startup, live smoke date), the checklist exists in
 docs/OPERATIONS.md, and every merged pull request appends one line to
 docs/agentos/REPORT.md.
+
+## Phase 6: Memory, profile, and browser session revamp
+
+Master plan section 7 (WS3) specifies run memory (`/memories/run/<id>/progress.md`)
+backed by `memory_20250818` and per-source notes (`sources/<id>/notes.md`),
+section 9 (WS5) specifies desktop profile v2 migration, multiple personas,
+encrypted sensitive fields, and separate `hunt` and `apply` browser sessions,
+and `docs/superpowers/specs/2026-11-01-automation-and-data-depth-design.md`
+section 6 specifies the Demo v3 end-to-end automated proof.
+
+Goal: agents persist run and source memory cleanly, candidate profiles and
+authenticated browser sessions are isolated and encrypted on desktop, and
+Demo v3 passes offline in CI.
+
+Done when: run memory and source memory are wired with tests, desktop profiles
+support v2 migration and encrypted sensitive fields, `sessions.js` isolates
+`hunt` and `apply` sessions with challenge pause handling, and `demo:v3` passes
+in no-key mode.
+
+## Phase 7: Assisted apply, BYOK security, MCP, and evals
+
+Master plan sections 10 (WS6), 11 (WS7), 12 (WS8 / Post-M3a-3 Arc 10), and 14
+(WS10) specify the L0 to L3 autonomy ladder with default-deny `SubmitPolicy`,
+OS keychain storage and Runner pairing for BYOK, bidirectional MCP (server and
+external connectors), and multi-trial evals with per-run traces.
+
+Goal: ship guarded apply automation, OS keychain BYOK hardening, bidirectional
+MCP tooling, and offline/capped observability.
+
+Done when: `SubmitPolicy` enforces trust ramp and kill switch in tests, desktop
+stores API keys in `safeStorage` or OS keyring instead of `keys.json`,
+`SECURITY.md` and `THREAT-MODEL.md` reflect BYOK, `sa-jas-mcp` and external
+connectors work with tests, and per-run traces plus Pareto evals are green.
